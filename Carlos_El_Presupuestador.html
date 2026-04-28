@@ -1,0 +1,595 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Carlos — El Presupuestador | FEDAFAR</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg-dark: #0d1117;
+      --bg-card: #161b22;
+      --bg-input: #1c2128;
+      --bg-hover: #21262d;
+      --accent: #2d8cf0;
+      --accent-glow: rgba(45, 140, 240, 0.25);
+      --accent-2: #7c3aed;
+      --success: #3fb950;
+      --text-primary: #e6edf3;
+      --text-secondary: #8b949e;
+      --text-muted: #484f58;
+      --border: #30363d;
+      --carlos-bubble: #1c2a3a;
+      --carlos-border: #2d8cf0;
+      --user-bubble: #1f2937;
+      --user-border: #374151;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: 'Inter', sans-serif;
+      background: var(--bg-dark);
+      color: var(--text-primary);
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    /* === SETUP SCREEN === */
+    #setup-screen {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      height: 100vh;
+      padding: 24px;
+      background: radial-gradient(ellipse at 50% 0%, rgba(45,140,240,0.12) 0%, transparent 60%);
+    }
+
+    .setup-logo {
+      width: 80px; height: 80px;
+      background: linear-gradient(135deg, var(--accent), var(--accent-2));
+      border-radius: 24px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 36px;
+      margin-bottom: 24px;
+      box-shadow: 0 0 40px var(--accent-glow);
+    }
+
+    .setup-title {
+      font-size: 28px; font-weight: 700; margin-bottom: 8px;
+      background: linear-gradient(135deg, var(--accent), #a78bfa);
+      -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+    }
+
+    .setup-subtitle {
+      color: var(--text-secondary); font-size: 15px; margin-bottom: 40px; text-align: center; max-width: 400px;
+    }
+
+    .setup-card {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 32px;
+      width: 100%; max-width: 480px;
+    }
+
+    .setup-label {
+      display: block; color: var(--text-secondary); font-size: 12px;
+      text-transform: uppercase; letter-spacing: 0.8px; font-weight: 600;
+      margin-bottom: 8px;
+    }
+
+    .setup-input {
+      width: 100%; padding: 12px 16px;
+      background: var(--bg-input); border: 1px solid var(--border);
+      border-radius: 10px; color: var(--text-primary); font-size: 14px;
+      font-family: 'Inter', sans-serif; outline: none;
+      transition: border-color 0.2s;
+      margin-bottom: 8px;
+    }
+    .setup-input:focus { border-color: var(--accent); }
+
+    .setup-hint {
+      color: var(--text-muted); font-size: 12px; margin-bottom: 24px;
+    }
+    .setup-hint a { color: var(--accent); text-decoration: none; }
+
+    .btn-primary {
+      width: 100%; padding: 14px;
+      background: linear-gradient(135deg, var(--accent), var(--accent-2));
+      border: none; border-radius: 10px;
+      color: white; font-size: 15px; font-weight: 600;
+      cursor: pointer; font-family: 'Inter', sans-serif;
+      transition: opacity 0.2s, transform 0.1s;
+    }
+    .btn-primary:hover { opacity: 0.9; transform: translateY(-1px); }
+    .btn-primary:active { transform: translateY(0); }
+
+    /* === MAIN CHAT === */
+    #chat-screen { display: none; flex-direction: column; height: 100vh; }
+
+    /* Header */
+    .chat-header {
+      display: flex; align-items: center; gap: 14px;
+      padding: 14px 24px;
+      background: var(--bg-card);
+      border-bottom: 1px solid var(--border);
+      backdrop-filter: blur(10px);
+      flex-shrink: 0;
+    }
+
+    .avatar {
+      width: 42px; height: 42px;
+      background: linear-gradient(135deg, var(--accent), var(--accent-2));
+      border-radius: 50%;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 20px;
+      flex-shrink: 0;
+      box-shadow: 0 0 16px var(--accent-glow);
+    }
+
+    .header-info { flex: 1; }
+    .header-name { font-size: 16px; font-weight: 700; color: var(--text-primary); }
+    .header-status {
+      display: flex; align-items: center; gap: 6px;
+      font-size: 12px; color: var(--success); margin-top: 2px;
+    }
+    .status-dot { width: 7px; height: 7px; background: var(--success); border-radius: 50%; animation: pulse 2s infinite; }
+    @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.5} }
+
+    .header-actions { display: flex; gap: 8px; }
+    .header-btn {
+      padding: 7px 14px;
+      background: var(--bg-hover); border: 1px solid var(--border);
+      border-radius: 8px; color: var(--text-secondary);
+      font-size: 12px; font-weight: 500; cursor: pointer;
+      font-family: 'Inter', sans-serif; transition: all 0.2s;
+    }
+    .header-btn:hover { background: var(--border); color: var(--text-primary); }
+
+    /* Messages */
+    .chat-messages {
+      flex: 1; overflow-y: auto;
+      padding: 24px;
+      display: flex; flex-direction: column; gap: 16px;
+      scroll-behavior: smooth;
+    }
+
+    .chat-messages::-webkit-scrollbar { width: 6px; }
+    .chat-messages::-webkit-scrollbar-track { background: transparent; }
+    .chat-messages::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+
+    .msg-row { display: flex; align-items: flex-end; gap: 10px; max-width: 75%; }
+    .msg-row.user { margin-left: auto; flex-direction: row-reverse; max-width: 70%; }
+
+    .msg-avatar {
+      width: 32px; height: 32px;
+      background: linear-gradient(135deg, var(--accent), var(--accent-2));
+      border-radius: 50%; display: flex; align-items: center; justify-content: center;
+      font-size: 16px; flex-shrink: 0;
+    }
+    .msg-row.user .msg-avatar { background: var(--user-border); font-size: 14px; }
+
+    .msg-bubble {
+      padding: 12px 16px;
+      border-radius: 16px; font-size: 14px; line-height: 1.6;
+      position: relative; max-width: 100%;
+    }
+
+    .msg-row:not(.user) .msg-bubble {
+      background: var(--carlos-bubble);
+      border: 1px solid var(--carlos-border);
+      border-bottom-left-radius: 4px;
+      color: var(--text-primary);
+    }
+
+    .msg-row.user .msg-bubble {
+      background: var(--user-bubble);
+      border: 1px solid var(--user-border);
+      border-bottom-right-radius: 4px;
+      color: var(--text-primary);
+    }
+
+    .msg-time {
+      font-size: 11px; color: var(--text-muted);
+      margin-top: 4px; display: block;
+    }
+    .msg-row.user .msg-time { text-align: right; }
+
+    /* Typing indicator */
+    .typing-bubble {
+      background: var(--carlos-bubble);
+      border: 1px solid var(--carlos-border);
+      border-radius: 16px; border-bottom-left-radius: 4px;
+      padding: 14px 18px;
+      display: flex; gap: 5px; align-items: center;
+    }
+    .typing-dot {
+      width: 7px; height: 7px; background: var(--accent);
+      border-radius: 50%; animation: typing 1.2s infinite;
+    }
+    .typing-dot:nth-child(2) { animation-delay: 0.2s; }
+    .typing-dot:nth-child(3) { animation-delay: 0.4s; }
+    @keyframes typing { 0%,80%,100%{transform:scale(1)} 40%{transform:scale(1.4)} }
+
+    /* Input Area */
+    .chat-input-area {
+      padding: 16px 24px 20px;
+      background: var(--bg-card);
+      border-top: 1px solid var(--border);
+      flex-shrink: 0;
+    }
+
+    .context-bar {
+      display: flex; gap: 8px; margin-bottom: 12px; flex-wrap: wrap;
+    }
+
+    .context-chip {
+      padding: 5px 12px;
+      background: var(--bg-input); border: 1px dashed var(--border);
+      border-radius: 20px; font-size: 12px; color: var(--text-secondary);
+      cursor: pointer; transition: all 0.2s; white-space: nowrap;
+    }
+    .context-chip:hover { border-color: var(--accent); color: var(--accent); }
+
+    .input-wrapper {
+      display: flex; gap: 12px; align-items: flex-end;
+    }
+
+    .chat-textarea {
+      flex: 1; min-height: 48px; max-height: 150px;
+      background: var(--bg-input); border: 1px solid var(--border);
+      border-radius: 12px; color: var(--text-primary);
+      font-size: 14px; font-family: 'Inter', sans-serif;
+      padding: 13px 16px; outline: none; resize: none;
+      transition: border-color 0.2s; line-height: 1.5;
+    }
+    .chat-textarea:focus { border-color: var(--accent); }
+    .chat-textarea::placeholder { color: var(--text-muted); }
+
+    .send-btn {
+      width: 48px; height: 48px; flex-shrink: 0;
+      background: linear-gradient(135deg, var(--accent), var(--accent-2));
+      border: none; border-radius: 12px;
+      color: white; cursor: pointer;
+      display: flex; align-items: center; justify-content: center;
+      transition: opacity 0.2s, transform 0.1s;
+      font-size: 18px;
+    }
+    .send-btn:hover { opacity: 0.9; transform: scale(1.05); }
+    .send-btn:active { transform: scale(0.97); }
+    .send-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+    /* Presupuesto table styles in messages */
+    .msg-bubble table { width: 100%; border-collapse: collapse; margin: 8px 0; font-size: 13px; }
+    .msg-bubble th, .msg-bubble td { padding: 8px 12px; text-align: left; border-bottom: 1px solid var(--border); }
+    .msg-bubble th { color: var(--accent); font-weight: 600; font-size: 11px; text-transform: uppercase; }
+    .msg-bubble strong { color: var(--accent); }
+    .msg-bubble pre { background: var(--bg-input); padding: 12px; border-radius: 8px; font-size: 12px; overflow-x: auto; margin: 8px 0; }
+
+    /* Toast */
+    .toast {
+      position: fixed; bottom: 30px; right: 30px;
+      background: var(--success); color: white;
+      padding: 12px 20px; border-radius: 10px;
+      font-size: 13px; font-weight: 500;
+      opacity: 0; transform: translateY(10px);
+      transition: all 0.3s; pointer-events: none;
+      z-index: 999;
+    }
+    .toast.show { opacity: 1; transform: translateY(0); }
+
+    /* Welcome */
+    .welcome-banner {
+      text-align: center; padding: 32px 24px;
+      background: linear-gradient(135deg, rgba(45,140,240,0.06), rgba(124,58,237,0.06));
+      border: 1px solid rgba(45,140,240,0.15); border-radius: 16px;
+    }
+    .welcome-banner h2 { font-size: 20px; font-weight: 700; margin-bottom: 8px; }
+    .welcome-banner p { color: var(--text-secondary); font-size: 14px; line-height: 1.6; }
+
+    .quick-actions { display: flex; flex-wrap: wrap; gap: 10px; justify-content: center; margin-top: 20px; }
+    .quick-btn {
+      padding: 9px 16px;
+      background: var(--bg-input); border: 1px solid var(--border);
+      border-radius: 20px; color: var(--text-secondary);
+      font-size: 13px; cursor: pointer; font-family: 'Inter', sans-serif;
+      transition: all 0.2s;
+    }
+    .quick-btn:hover { border-color: var(--accent); color: var(--accent); background: var(--carlos-bubble); }
+  </style>
+</head>
+<body>
+
+<!-- SETUP SCREEN -->
+<div id="setup-screen">
+  <div class="setup-logo">🧾</div>
+  <div class="setup-title">Carlos El Presupuestador</div>
+  <div class="setup-subtitle">Tu agente de inteligencia artificial para armar presupuestos perfectos para FEDAFAR</div>
+  <div class="setup-card">
+    <label class="setup-label" for="api-key">Google Gemini API Key</label>
+    <input class="setup-input" type="password" id="api-key" placeholder="AIzaSy..." />
+    <div class="setup-hint">
+      Obtené tu clave gratuita en <a href="https://aistudio.google.com" target="_blank">aistudio.google.com</a> → "Get API Key"
+    </div>
+    <label class="setup-label" for="model-select" style="margin-top:8px">Modelo de IA</label>
+    <select class="setup-input" id="model-select" style="cursor:pointer">
+      <option value="gemini-1.5-pro-latest">Gemini 1.5 Pro (Recomendado)</option>
+      <option value="gemini-2.0-flash">Gemini 2.0 Flash (más rápido)</option>
+      <option value="gemini-1.5-flash-latest">Gemini 1.5 Flash</option>
+      <option value="gemini-2.0-flash-lite">Gemini 2.0 Flash Lite</option>
+    </select>
+    <div class="setup-hint">Si ves error de cuota, probá con otro modelo</div>
+    <button class="btn-primary" onclick="startCarlos()">🚀 Iniciar con Carlos</button>
+  </div>
+</div>
+
+<!-- CHAT SCREEN -->
+<div id="chat-screen">
+  <div class="chat-header">
+    <div class="avatar">🧾</div>
+    <div class="header-info">
+      <div class="header-name">Carlos — El Presupuestador</div>
+      <div class="header-status"><div class="status-dot"></div> En línea · Especialista FEDAFAR</div>
+    </div>
+    <div class="header-actions">
+      <button class="header-btn" onclick="clearChat()">🗑 Limpiar</button>
+      <button class="header-btn" onclick="exportChat()">📋 Copiar Chat</button>
+      <button class="header-btn" onclick="resetKey()">🔑 API Key</button>
+    </div>
+  </div>
+
+  <div class="chat-messages" id="messages">
+    <div class="welcome-banner">
+      <h2>👋 Hola, soy Carlos</h2>
+      <p>Tu especialista en presupuestos para FEDAFAR.<br>
+      Podés pasarme listas de precios, decirme qué necesitás y yo te armo el mejor presupuesto.</p>
+      <div class="quick-actions">
+        <button class="quick-btn" onclick="quickSend('Quiero armar un nuevo presupuesto')">📝 Nuevo presupuesto</button>
+        <button class="quick-btn" onclick="quickSend('Comparame estas listas de precios:')">⚖️ Comparar precios</button>
+        <button class="quick-btn" onclick="quickSend('¿Qué necesitás para armar un presupuesto?')">❓ ¿Cómo funciona?</button>
+        <button class="quick-btn" onclick="quickSend('Necesito el presupuesto en formato PDF')">📄 Formato PDF</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="chat-input-area">
+    <div class="context-bar">
+      <span class="context-chip" onclick="addContext('📋 Lista de precios: ')">+ Lista de precios</span>
+      <span class="context-chip" onclick="addContext('🏥 Destino: ')">+ Destino/Cliente</span>
+      <span class="context-chip" onclick="addContext('💊 Medicamentos: ')">+ Medicamentos</span>
+      <span class="context-chip" onclick="addContext('📅 Vigencia: ')">+ Vigencia</span>
+      <span class="context-chip" onclick="addContext('💰 Condición de pago: ')">+ Condición de pago</span>
+    </div>
+    <div class="input-wrapper">
+      <textarea class="chat-textarea" id="user-input" placeholder="Escribile a Carlos..." rows="1"
+        onkeydown="handleKey(event)" oninput="autoResize(this)"></textarea>
+      <button class="send-btn" id="send-btn" onclick="sendMessage()">➤</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+  let apiKey = '';
+  let selectedModel = 'gemini-1.5-pro-latest';
+  let chatHistory = [];
+
+  const CARLOS_SYSTEM = `Sos Carlos, el agente presupuestador especializado de FEDAFAR, una droguería farmacéutica en Salta, Argentina.
+
+Tu personalidad:
+- Sos profesional, ágil y muy preciso con los números.
+- Conocés el mercado farmacéutico de Salta (droguerías, hospitales, programas provinciales).
+- Sos amigable pero enfocado en dar resultados concretos.
+- Usás términos del sector: remitos, factura A/B, condición de pago, descuento por volumen, vigencia, etc.
+
+Tu especialidad:
+- Armar presupuestos de venta (de FEDAFAR hacia hospitales, farmacias, programas públicos).
+- Comparar listas de precios de distintos proveedores para recomendar la mejor opción de compra.
+- Generar presupuestos ordenados en formato tabla con: Código, Artículo, Cantidad, Precio Unitario, Subtotal, Total.
+- Identificar el mejor presupuesto según criterio del usuario (precio, plazo, proveedor preferido).
+- Formatear el presupuesto para que sea presentable y pueda enviarse.
+
+Reglas importantes:
+- Cuando armés un presupuesto, siempre mostralo en tabla con columnas claras.
+- Calculá totales correctamente.
+- Si te faltan datos para completar el presupuesto, preguntá de forma ordenada.
+- Nunca inventes precios: usá solo los que te pasen.
+- Si el usuario te pasa una lista de precios en texto, extraé los datos relevantes automáticamente.
+- Siempre al final de un presupuesto, agregá: Total, Condición de pago (si se indicó), Validez, y una nota de pie.
+
+Respondé siempre en español rioplatense.`;
+
+  function startCarlos() {
+    const key = document.getElementById('api-key').value.trim();
+    if (!key || !key.startsWith('AIza')) {
+      showToast('⚠️ Ingresá una API Key válida de Google Gemini', '#e74c3c');
+      return;
+    }
+    apiKey = key;
+    selectedModel = document.getElementById('model-select').value;
+    localStorage.setItem('carlos_api_key', key);
+    localStorage.setItem('carlos_model', selectedModel);
+    document.getElementById('setup-screen').style.display = 'none';
+    document.getElementById('chat-screen').style.display = 'flex';
+  }
+
+  function resetKey() {
+    localStorage.removeItem('carlos_api_key');
+    document.getElementById('chat-screen').style.display = 'none';
+    document.getElementById('setup-screen').style.display = 'flex';
+    document.getElementById('api-key').value = '';
+  }
+
+  // Check saved key on load
+  window.onload = () => {
+    const saved = localStorage.getItem('carlos_api_key');
+    const savedModel = localStorage.getItem('carlos_model');
+    if (savedModel) {
+      document.getElementById('model-select').value = savedModel;
+      selectedModel = savedModel;
+    }
+    if (saved) {
+      apiKey = saved;
+      document.getElementById('api-key').value = saved;
+      document.getElementById('setup-screen').style.display = 'none';
+      document.getElementById('chat-screen').style.display = 'flex';
+    }
+  };
+
+  async function sendMessage() {
+    const input = document.getElementById('user-input');
+    const text = input.value.trim();
+    if (!text || !apiKey) return;
+
+    appendMessage('user', text);
+    input.value = '';
+    autoResize(input);
+
+    chatHistory.push({ role: 'user', parts: [{ text }] });
+    setLoading(true);
+
+    try {
+      const response = await fetch('http://localhost:5050/chat', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            api_key: apiKey,
+            history: chatHistory.slice(0, -1), // exclude last user msg, send separately
+            message: text
+          })
+        });
+
+      const data = await response.json();
+
+      if (data.error) {
+        throw new Error(data.error);
+      }
+
+      const reply = data.reply || 'Error en la respuesta.';
+      chatHistory.push({ role: 'model', parts: [{ text: reply }] });
+      appendMessage('carlos', reply);
+
+    } catch (err) {
+      appendMessage('carlos', `⚠️ Error: ${err.message}`);
+    }
+
+    setLoading(false);
+  }
+
+  function appendMessage(from, text) {
+    const messages = document.getElementById('messages');
+    const isUser = from === 'user';
+    const time = new Date().toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' });
+
+    const row = document.createElement('div');
+    row.className = `msg-row ${isUser ? 'user' : ''}`;
+
+    const avatarDiv = document.createElement('div');
+    avatarDiv.className = 'msg-avatar';
+    avatarDiv.textContent = isUser ? '👤' : '🧾';
+
+    const content = document.createElement('div');
+    const bubble = document.createElement('div');
+    bubble.className = 'msg-bubble';
+    bubble.innerHTML = renderMarkdown(text);
+
+    const timeEl = document.createElement('span');
+    timeEl.className = 'msg-time';
+    timeEl.textContent = time;
+
+    content.appendChild(bubble);
+    content.appendChild(timeEl);
+    row.appendChild(avatarDiv);
+    row.appendChild(content);
+    messages.appendChild(row);
+    messages.scrollTop = messages.scrollHeight;
+  }
+
+  let typingRow = null;
+
+  function setLoading(loading) {
+    const btn = document.getElementById('send-btn');
+    btn.disabled = loading;
+    const messages = document.getElementById('messages');
+
+    if (loading) {
+      typingRow = document.createElement('div');
+      typingRow.className = 'msg-row';
+      typingRow.innerHTML = `<div class="msg-avatar">🧾</div><div class="typing-bubble"><div class="typing-dot"></div><div class="typing-dot"></div><div class="typing-dot"></div></div>`;
+      messages.appendChild(typingRow);
+      messages.scrollTop = messages.scrollHeight;
+    } else if (typingRow) {
+      typingRow.remove();
+      typingRow = null;
+    }
+  }
+
+  function renderMarkdown(text) {
+    return text
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+      .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+      .replace(/\*(.*?)\*/g, '<em>$1</em>')
+      .replace(/`(.*?)`/g, '<code>$1</code>')
+      .replace(/^### (.*$)/gm, '<h4>$1</h4>')
+      .replace(/^## (.*$)/gm, '<h3>$1</h3>')
+      .replace(/^# (.*$)/gm, '<h2>$1</h2>')
+      .replace(/^\| (.+) \|$/gm, (_, row) => {
+        const cells = row.split(' | ').map(c => c.trim());
+        return '<tr>' + cells.map(c => `<td>${c}</td>`).join('') + '</tr>';
+      })
+      .replace(/(<tr>.*<\/tr>\n?)+/gs, m => `<table>${m}</table>`)
+      .replace(/^- (.*$)/gm, '<li>$1</li>')
+      .replace(/(<li>.*<\/li>\n?)+/gs, m => `<ul>${m}</ul>`)
+      .replace(/\n{2,}/g, '<br><br>')
+      .replace(/\n/g, '<br>');
+  }
+
+  function handleKey(e) {
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); }
+  }
+
+  function autoResize(el) {
+    el.style.height = 'auto';
+    el.style.height = Math.min(el.scrollHeight, 150) + 'px';
+  }
+
+  function quickSend(text) {
+    document.getElementById('user-input').value = text;
+    sendMessage();
+  }
+
+  function addContext(prefix) {
+    const input = document.getElementById('user-input');
+    input.value = prefix + input.value;
+    input.focus();
+    autoResize(input);
+  }
+
+  function clearChat() {
+    chatHistory = [];
+    const messages = document.getElementById('messages');
+    messages.innerHTML = `<div class="welcome-banner"><h2>👋 Hola, soy Carlos</h2><p>¡Empezamos de cero! Contame qué presupuesto necesitás armar.</p></div>`;
+    showToast('✅ Chat limpiado');
+  }
+
+  function exportChat() {
+    const text = chatHistory.map(m => `[${m.role === 'user' ? 'VOS' : 'CARLOS'}]\n${m.parts[0].text}`).join('\n\n---\n\n');
+    navigator.clipboard.writeText(text).then(() => showToast('✅ Chat copiado al portapapeles'));
+  }
+
+  function showToast(msg, color = '#3fb950') {
+    const t = document.getElementById('toast');
+    t.textContent = msg;
+    t.style.background = color;
+    t.classList.add('show');
+    setTimeout(() => t.classList.remove('show'), 3000);
+  }
+</script>
+</body>
+</html>

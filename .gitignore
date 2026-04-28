@@ -1,0 +1,15 @@
+# Python
+__pycache__/
+*.pyc
+venv/
+env/
+
+# Data and Excel exports
+*.xlsx
+*.xls
+*.csv
+*.pdf
+
+# Environment
+.env
+.env.local
