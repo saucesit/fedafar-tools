@@ -1,7 +1,7 @@
 import json
 import pandas as pd
 import glob
-from flask import Flask, jsonify
+from flask import Flask, jsonify, render_template
 from flask_cors import CORS
 import re
 
@@ -10,8 +10,8 @@ CORS(app)
 
 def get_stock_data():
     stock_dict = {}
-    # Find latest ALM_ArticulosWWExport file
-    files = glob.glob("ALM_ArticulosWWExport*.xlsx")
+    # Buscar el último archivo ALM_ArticulosWWExport en la carpeta Descargas
+    files = glob.glob(r"C:\Users\FEDAFAR\Downloads\ALM_ArticulosWWExport*.xlsx")
     if not files:
         return stock_dict
     
@@ -143,6 +143,10 @@ def parse_price_list():
                 
     return products
 
+@app.route('/', methods=['GET'])
+def serve_app():
+    return render_template('index.html')
+
 @app.route('/api/productos', methods=['GET'])
 def get_productos():
     prods = parse_price_list()
@@ -150,4 +154,4 @@ def get_productos():
 
 if __name__ == '__main__':
     print("Iniciando API de Stock de FEDAFAR en puerto 5001...")
-    app.run(port=5001, debug=False)
+    app.run(host='0.0.0.0', port=5001, debug=False)

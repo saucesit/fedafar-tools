@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>FEDAFAR - App de Clientes</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600&display=swap" rel="stylesheet">
+    <!-- Lucide icons from CDN -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+</head>
+<body>
+    <div id="app">
+        <!-- Header -->
+        <header class="main-header">
+            <div class="logo-container">
+                <img src="{{ url_for('static', filename='logo fedafar antiguo.jpeg') }}" alt="FEDAFAR Logo" class="app-logo">
+                <div class="brand-text">
+                    <h1>FEDAFAR</h1>
+                    <span>Droguería Integral</span>
+                </div>
+            </div>
+            <div class="header-actions">
+                <button id="cart-btn" class="icon-btn">
+                    <i data-lucide="shopping-cart"></i>
+                    <span id="cart-count">0</span>
+                </button>
+            </div>
+        </header>
+
+        <!-- Search Bar -->
+        <div class="search-section">
+            <div class="search-container">
+                <i data-lucide="search"></i>
+                <input type="text" id="product-search" placeholder="Buscar por producto o laboratorio...">
+            </div>
+        </div>
+
+        <!-- Main Content -->
+        <main id="main-content">
+            <!-- Promociones Destacadas -->
+            <section id="promo-section">
+                <h2 class="section-title">Promociones Especiales</h2>
+                <div class="promo-slider">
+                    <div class="promo-card">
+                        <img src="{{ url_for('static', filename='promo_fabogesic.png') }}" alt="Promo Fabogesic" class="promo-img">
+                        <div class="promo-overlay">
+                            <div class="promo-content">
+                                <h3>Fabogesic B12</h3>
+                                <p>Descuento Especial 20% OFF</p>
+                            </div>
+                            <button class="promo-btn" onclick="document.getElementById('product-search').value='FABOGESIC B12'; document.getElementById('product-search').dispatchEvent(new Event('input'))">Ver Oferta</button>
+                        </div>
+                    </div>
+                    <div class="promo-card">
+                        <img src="{{ url_for('static', filename='promo_valsartan.png') }}" alt="Promo Valsartan" class="promo-img">
+                        <div class="promo-overlay">
+                            <div class="promo-content">
+                                <h3>Valsartan Microsules</h3>
+                                <p>Oportunidad por volumen</p>
+                            </div>
+                            <button class="promo-btn" onclick="document.getElementById('product-search').value='VALSARTAN'; document.getElementById('product-search').dispatchEvent(new Event('input'))">Ver Oferta</button>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Categories -->
+            <section id="categories-section">
+                <div class="category-pills">
+                    <button class="pill active" data-cat="all">Todos</button>
+                    <button class="pill" data-cat="Analgésicos">Analgésicos</button>
+                    <button class="pill" data-cat="Antibióticos">Antibióticos</button>
+                    <button class="pill" data-cat="Cardiovascular">Cardio</button>
+                    <button class="pill" data-cat="Corticoides">Corticoides</button>
+                </div>
+            </section>
+
+            <!-- Product Grid -->
+            <section id="products-section">
+                <div id="product-grid" class="product-grid">
+                    <!-- Products will be injected here -->
+                </div>
+            </section>
+        </main>
+
+        <!-- Cart Sidebar/Modal -->
+        <div id="cart-modal" class="cart-modal hidden">
+            <div class="cart-content">
+                <div class="cart-header">
+                    <h2>Tu Pedido</h2>
+                    <button id="close-cart" class="icon-btn"><i data-lucide="x"></i></button>
+                </div>
+                <div id="cart-items" class="cart-items-list">
+                    <!-- Cart items here -->
+                </div>
+                <div class="cart-footer">
+                    <div class="cart-total">
+                        <span>Total estimado:</span>
+                        <span id="total-price">$ 0,00</span>
+                    </div>
+                    <div class="cart-actions">
+                        <button id="back-to-shop" class="secondary-btn">Volver</button>
+                        <button id="send-order" class="primary-btn">
+                            <i data-lucide="send"></i> Enviar Pedido
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Script de la App (Ahora lee desde la API unificada) -->
+    <script src="{{ url_for('static', filename='app.js') }}"></script>
+</body>
+</html>
