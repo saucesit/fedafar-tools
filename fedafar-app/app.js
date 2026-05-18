@@ -1,5 +1,9 @@
 let PRODUCTS = [];
-let cart = [];
+let cart = JSON.parse(localStorage.getItem('fedafar_cart') || '[]');
+
+const API_URL = (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')
+    ? 'http://127.0.0.1:5001/api/productos'
+    : '/api/productos';
 
 // Initialize Lucide icons
 lucide.createIcons();
@@ -55,7 +59,8 @@ function renderProducts(filter = '', category = 'all') {
         btn.addEventListener('click', () => {
             const id = parseInt(btn.dataset.id);
             const qtyInput = document.getElementById(`qty-${id}`);
-            const qty = parseInt(qtyInput.value) || 1;
+            const qty = Math.max(1, parseInt(qtyInput.value) || 1);
+            qtyInput.value = qty;
             addToCart(id, qty);
         });
     });
@@ -116,6 +121,7 @@ function updateCart() {
     });
 
     totalPriceEl.innerText = `$ ${totalValue.toLocaleString('es-AR')}`;
+    localStorage.setItem('fedafar_cart', JSON.stringify(cart));
     lucide.createIcons();
 
     // Event listeners para los controles del carrito
@@ -184,8 +190,15 @@ sendOrderBtn.addEventListener('click', () => {
 async function fetchProducts() {
     try {
         productGrid.innerHTML = '<p style="text-align:center; width:100%;">Cargando catálogo en vivo...</p>';
-        const response = await fetch('http://127.0.0.1:5001/api/productos');
+        const response = await fetch(API_URL);
         PRODUCTS = await response.json();
+        // Sincronizar precios del carrito guardado con los datos frescos de la API
+        cart = cart.filter(item => PRODUCTS.find(p => p.id === item.id));
+        cart = cart.map(item => {
+            const fresh = PRODUCTS.find(p => p.id === item.id);
+            return { ...fresh, qty: item.qty };
+        });
+        updateCart();
         renderProducts();
     } catch (error) {
         console.error("Error cargando productos:", error);

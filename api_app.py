@@ -1,7 +1,7 @@
-import json
+import os
 import pandas as pd
 import glob
-from flask import Flask, jsonify, render_template
+from flask import Flask, jsonify, render_template, send_from_directory
 from flask_cors import CORS
 import re
 
@@ -147,11 +147,21 @@ def parse_price_list():
 def serve_app():
     return render_template('index.html')
 
+# Sirve la fedafar-app (app de clientes)
+@app.route('/tienda')
+def serve_tienda():
+    return send_from_directory('fedafar-app', 'index.html')
+
+@app.route('/tienda/<path:path>')
+def serve_tienda_static(path):
+    return send_from_directory('fedafar-app', path)
+
 @app.route('/api/productos', methods=['GET'])
 def get_productos():
     prods = parse_price_list()
     return jsonify(prods)
 
 if __name__ == '__main__':
-    print("Iniciando API de Stock de FEDAFAR en puerto 5001...")
-    app.run(host='0.0.0.0', port=5001, debug=False)
+    port = int(os.environ.get('PORT', 5001))
+    print(f"Iniciando API de Stock de FEDAFAR en puerto {port}...")
+    app.run(host='0.0.0.0', port=port, debug=False)

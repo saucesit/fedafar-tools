@@ -1,0 +1,7 @@
+services:
+  - type: web
+    name: fedafar-tools
+    env: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn api_app:app
+    plan: free
