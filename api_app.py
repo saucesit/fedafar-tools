@@ -1,7 +1,7 @@
 import os
 import pandas as pd
 import glob
-from flask import Flask, jsonify, render_template, send_from_directory, request
+from flask import Flask, jsonify, render_template, send_from_directory, request, redirect
 from flask_cors import CORS
 import re
 
@@ -153,6 +153,11 @@ def serve_app():
 
 # Sirve la fedafar-app (app de clientes)
 @app.route('/tienda')
+def serve_tienda_redirect():
+    # Redirige a /tienda/ para que los paths relativos (CSS, JS) resuelvan bien
+    return redirect('/tienda/' + ('?' + request.query_string.decode() if request.query_string else ''))
+
+@app.route('/tienda/')
 def serve_tienda():
     return send_from_directory('fedafar-app', 'index.html')
 
