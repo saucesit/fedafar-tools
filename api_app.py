@@ -1,7 +1,7 @@
 import os
 import pandas as pd
 import glob
-from flask import Flask, jsonify, render_template, send_from_directory
+from flask import Flask, jsonify, render_template, send_from_directory, request
 from flask_cors import CORS
 import re
 
@@ -74,7 +74,7 @@ def fuzzy_stock_match(price_name, stock_dict):
         
     return None # Not found in stock file
 
-def parse_price_list():
+def parse_price_list(tipo='contado'):
     products = []
     try:
         with open("full_price_list.txt", "r", encoding="utf-16") as f:
@@ -91,16 +91,20 @@ def parse_price_list():
         line = line.strip()
         if not line or "Articulo" in line or "LISTA DE PRECIO" in line:
             continue
-            
+
         parts = line.split()
         if len(parts) >= 3:
             p2_str = parts[-1]
             p1_str = parts[-2]
-            
+
             try:
                 p1_val = float(p1_str.replace('.', '').replace(',', '.'))
+                p2_val = float(p2_str.replace('.', '').replace(',', '.'))
                 if p1_val <= 0: continue
-                
+
+                # Seleccionar precio según tipo
+                price_val = p2_val if tipo == 'cta-cte' else p1_val
+
                 full_desc = " ".join(parts[:-2])
                 lab = "GENERICO"
                 if " - " in full_desc:
@@ -111,7 +115,7 @@ def parse_price_list():
                         lab = after_dash[1]
                 else:
                     name = full_desc
-                
+
                 category = "Otros"
                 n = name.upper()
                 if any(x in n for x in ["AMOX", "CEFA", "CLARITRO", "AZITRO"]): category = "Antibióticos"
@@ -119,28 +123,28 @@ def parse_price_list():
                 elif any(x in n for x in ["DEXA", "MEPRED", "BETAME"]): category = "Corticoides"
                 elif any(x in n for x in ["VALSAR", "ENALAPRIL", "ATORVA"]): category = "Cardiovascular"
                 elif any(x in n for x in ["JERINGA", "AGUJA"]): category = "Descartables"
-                
+
                 # IVA para descartables (+21%)
                 if category == "Descartables":
-                    p1_val = round(p1_val * 1.21, 2)
+                    price_val = round(price_val * 1.21, 2)
 
                 # Check Stock
                 if len(stock_dict) > 0:
                     stock_val = fuzzy_stock_match(name, stock_dict)
                     if stock_val is None or stock_val <= 0:
                         continue # Skip products with 0 stock
-                
+
                 products.append({
                     "id": id_counter,
                     "name": name,
                     "lab": lab,
-                    "price": p1_val,
+                    "price": price_val,
                     "category": category
                 })
                 id_counter += 1
             except ValueError:
                 continue
-                
+
     return products
 
 @app.route('/', methods=['GET'])
@@ -158,7 +162,8 @@ def serve_tienda_static(path):
 
 @app.route('/api/productos', methods=['GET'])
 def get_productos():
-    prods = parse_price_list()
+    tipo = request.args.get('tipo', 'contado')
+    prods = parse_price_list(tipo)
     return jsonify(prods)
 
 if __name__ == '__main__':

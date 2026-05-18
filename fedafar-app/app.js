@@ -1,9 +1,13 @@
 let PRODUCTS = [];
 let cart = JSON.parse(localStorage.getItem('fedafar_cart') || '[]');
 
-const API_URL = (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')
-    ? 'http://127.0.0.1:5001/api/productos'
-    : '/api/productos';
+const params = new URLSearchParams(window.location.search);
+const TIPO_PRECIO = params.get('tipo') === 'cta-cte' ? 'cta-cte' : 'contado';
+
+const BASE_URL = (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')
+    ? 'http://127.0.0.1:5001'
+    : '';
+const API_URL = `${BASE_URL}/api/productos?tipo=${TIPO_PRECIO}`;
 
 // Initialize Lucide icons
 lucide.createIcons();
@@ -173,7 +177,8 @@ if(backToShopBtn) backToShopBtn.addEventListener('click', () => cartModal.classL
 sendOrderBtn.addEventListener('click', () => {
     if (cart.length === 0) return alert("El carrito está vacío");
 
-    let message = "📦 *NUEVO PEDIDO - FEDAFAR*\n\n";
+    const tipoLabel = TIPO_PRECIO === 'cta-cte' ? 'Cuenta Corriente' : 'Contado';
+    let message = `📦 *NUEVO PEDIDO - FEDAFAR*\n💳 Precio: ${tipoLabel}\n\n`;
     cart.forEach(item => {
         message += `• ${item.name} (${item.lab}) x${item.qty}\n`;
     });
@@ -185,6 +190,19 @@ sendOrderBtn.addEventListener('click', () => {
     const encoded = encodeURIComponent(message);
     window.open(`https://wa.me/5493876835525?text=${encoded}`);
 });
+
+// Mostrar badge de tipo de precio en el header
+function showPriceBadge() {
+    const badge = document.createElement('span');
+    badge.id = 'price-badge';
+    badge.innerText = TIPO_PRECIO === 'cta-cte' ? 'Cta. Cte.' : 'Contado';
+    badge.style.cssText = `
+        background: ${TIPO_PRECIO === 'cta-cte' ? '#7c3aed' : '#28a745'};
+        color: white; font-size: 0.7rem; font-weight: 600;
+        padding: 3px 10px; border-radius: 20px; letter-spacing: 0.5px;
+    `;
+    document.querySelector('.brand-text').appendChild(badge);
+}
 
 // Fetch Products from API
 async function fetchProducts() {
@@ -206,5 +224,6 @@ async function fetchProducts() {
     }
 }
 
-// Initial Fetch
+// Initial
+showPriceBadge();
 fetchProducts();
