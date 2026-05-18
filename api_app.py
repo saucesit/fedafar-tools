@@ -1,12 +1,16 @@
 import os
 import pandas as pd
 import glob
-from flask import Flask, jsonify, render_template, send_from_directory, request, redirect
+from flask import Flask, jsonify, render_template, send_from_directory, request
 from flask_cors import CORS
 import re
 
 app = Flask(__name__)
 CORS(app)
+
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+FEDAFAR_APP_DIR = os.path.join(BASE_DIR, 'fedafar-app')
+PRICE_LIST_PATH = os.path.join(BASE_DIR, 'full_price_list.txt')
 
 def get_stock_data():
     stock_dict = {}
@@ -77,10 +81,10 @@ def fuzzy_stock_match(price_name, stock_dict):
 def parse_price_list(tipo='contado'):
     products = []
     try:
-        with open("full_price_list.txt", "r", encoding="utf-16") as f:
+        with open(PRICE_LIST_PATH, "r", encoding="utf-16") as f:
             lines = f.readlines()
     except UnicodeError:
-        with open("full_price_list.txt", "r", encoding="utf-8") as f:
+        with open(PRICE_LIST_PATH, "r", encoding="utf-8") as f:
             lines = f.readlines()
 
     id_counter = 1
@@ -152,18 +156,13 @@ def serve_app():
     return render_template('index.html')
 
 # Sirve la fedafar-app (app de clientes)
-@app.route('/tienda')
-def serve_tienda_redirect():
-    # Redirige a /tienda/ para que los paths relativos (CSS, JS) resuelvan bien
-    return redirect('/tienda/' + ('?' + request.query_string.decode() if request.query_string else ''))
-
 @app.route('/tienda/')
 def serve_tienda():
-    return send_from_directory('fedafar-app', 'index.html')
+    return send_from_directory(FEDAFAR_APP_DIR, 'index.html')
 
 @app.route('/tienda/<path:path>')
 def serve_tienda_static(path):
-    return send_from_directory('fedafar-app', path)
+    return send_from_directory(FEDAFAR_APP_DIR, path)
 
 @app.route('/api/productos', methods=['GET'])
 def get_productos():
