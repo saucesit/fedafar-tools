@@ -12,32 +12,25 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 FEDAFAR_APP_DIR = os.path.join(BASE_DIR, 'fedafar-app')
 PRICE_LIST_PATH = os.path.join(BASE_DIR, 'full_price_list.txt')
 
+STOCK_URL = 'http://192.168.0.35/fedafar/ALM_ArticulosPorDepositoExport-.xlsx'
+
 def get_stock_data():
     stock_dict = {}
-    # Buscar el último archivo ALM_ArticulosWWExport en la carpeta Descargas
-    files = glob.glob(r"C:\Users\FEDAFAR\Downloads\ALM_ArticulosWWExport*.xlsx")
-    if not files:
-        return stock_dict
-    
-    # Use the most recent one by name or just the first one found
-    latest_file = sorted(files)[-1]
-    
     try:
-        df = pd.read_excel(latest_file, skiprows=2)
-        # Drop the first row which is the header names
-        df = df.iloc[1:]
-        
-        for index, row in df.iterrows():
-            name = str(row['Unnamed: 1']).strip().upper()
-            stock = row['Unnamed: 2']
-            try:
-                stock_val = float(stock)
-                stock_dict[name] = stock_val
-            except (ValueError, TypeError):
-                continue
+        import requests
+        from io import BytesIO
+        r = requests.get(STOCK_URL, timeout=5)
+        r.raise_for_status()
+        df = pd.read_excel(BytesIO(r.content), skiprows=5, header=None,
+            names=['Articulo', 'Descripcion', 'Tranzable', 'Existencia', 'Lote', 'FechaVenc', 'Serie', 'Cantidad'])
+        df['Existencia'] = pd.to_numeric(df['Existencia'], errors='coerce').fillna(0)
+        # Un registro por producto con su stock total
+        grouped = df.groupby('Descripcion')['Existencia'].first()
+        for nombre, stock in grouped.items():
+            stock_dict[str(nombre).strip().upper()] = float(stock)
+        print(f"Stock cargado: {len(stock_dict)} productos desde red interna.")
     except Exception as e:
-        print(f"Error reading stock file: {e}")
-        
+        print(f"Stock no disponible (red interna no accesible): {e}")
     return stock_dict
 
 def clean_name_for_matching(name):
