@@ -265,6 +265,20 @@ body {
     background: var(--primary-light);
 }
 
+.prod-promo {
+    font-size: 0.72rem;
+    color: #b45309;
+    background: #fef3c7;
+    border-radius: 6px;
+    padding: 4px 8px;
+    margin-top: 6px;
+    font-weight: 500;
+}
+
+.prod-price--gratis {
+    color: #b45309;
+}
+
 /* Cart Modal */
 .cart-modal {
     position: fixed;

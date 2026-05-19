@@ -131,12 +131,22 @@ def parse_price_list(tipo='contado'):
                     if stock_val is None or stock_val <= 0:
                         continue # Skip products with 0 stock
 
+                # Promociones especiales
+                promo = None
+                n_upper = name.upper()
+                if "ACCU-CHEK GUIDE KIT" in n_upper or "ACCU-CHEK  GUIDE KIT" in n_upper:
+                    promo = "🎁 Gratis con la compra de 4 cajas de Tiras Reactivas x50"
+                    price_val = 0
+                elif "ACCU-CHEK GUIDE TIRAS" in n_upper and "50" in n_upper:
+                    promo = "🎁 Comprando 4 cajas, el equipo medidor va de regalo"
+
                 products.append({
                     "id": id_counter,
                     "name": name,
                     "lab": lab,
                     "price": price_val,
-                    "category": category
+                    "category": category,
+                    "promo": promo
                 })
                 id_counter += 1
             except ValueError:

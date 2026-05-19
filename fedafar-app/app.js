@@ -40,11 +40,14 @@ function renderProducts(filter = '', category = 'all') {
     filtered.forEach(product => {
         const card = document.createElement('div');
         card.className = 'product-card';
+        const precioTexto = product.price === 0 ? 'Sin cargo' : `$ ${product.price.toLocaleString('es-AR')}`;
+        const promoHtml = product.promo ? `<p class="prod-promo">${product.promo}</p>` : '';
         card.innerHTML = `
             <div class="prod-info">
                 <span class="prod-lab">${product.lab}</span>
                 <h3>${product.name}</h3>
-                <p class="prod-price">$ ${product.price.toLocaleString('es-AR')}</p>
+                <p class="prod-price ${product.price === 0 ? 'prod-price--gratis' : ''}">${precioTexto}</p>
+                ${promoHtml}
             </div>
             <div class="prod-actions">
                 <input type="number" id="qty-${product.id}" class="qty-input" value="1" min="1">
