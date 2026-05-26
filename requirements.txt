@@ -1,6 +1,10 @@
 flask
 flask-cors
+flask-login
 pandas
 openpyxl
 gunicorn
 requests
+beautifulsoup4
+python-dotenv
+supabase
