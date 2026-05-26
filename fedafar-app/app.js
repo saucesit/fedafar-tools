@@ -1,5 +1,6 @@
 let PRODUCTS = [];
 let cart = JSON.parse(localStorage.getItem('fedafar_cart') || '[]');
+let activeCategory = 'all';
 
 const params = new URLSearchParams(window.location.search);
 const TIPO_PRECIO = params.get('tipo') === 'cta-cte' ? 'cta-cte' : 'contado';
@@ -162,14 +163,15 @@ function removeItem(productId) {
 
 // Event Listeners
 searchInput.addEventListener('input', (e) => {
-    renderProducts(e.target.value);
+    renderProducts(e.target.value, activeCategory);
 });
 
 categoryPills.forEach(pill => {
     pill.addEventListener('click', () => {
         categoryPills.forEach(p => p.classList.remove('active'));
         pill.classList.add('active');
-        renderProducts(searchInput.value, pill.dataset.cat);
+        activeCategory = pill.dataset.cat;
+        renderProducts(searchInput.value, activeCategory);
     });
 });
 

@@ -25,7 +25,7 @@ def get_stock_data():
             names=['Articulo', 'Descripcion', 'Tranzable', 'Existencia', 'Lote', 'FechaVenc', 'Serie', 'Cantidad'])
         df['Existencia'] = pd.to_numeric(df['Existencia'], errors='coerce').fillna(0)
         # Un registro por producto con su stock total
-        grouped = df.groupby('Descripcion')['Existencia'].first()
+        grouped = df.groupby('Descripcion')['Existencia'].sum()
         for nombre, stock in grouped.items():
             stock_dict[str(nombre).strip().upper()] = float(stock)
         print(f"Stock cargado: {len(stock_dict)} productos desde red interna.")
@@ -119,7 +119,12 @@ def parse_price_list(tipo='contado'):
                 elif any(x in n for x in ["PARACETAMOL", "IBU", "DICLO", "NAPRO"]): category = "Analgésicos"
                 elif any(x in n for x in ["DEXA", "MEPRED", "BETAME"]): category = "Corticoides"
                 elif any(x in n for x in ["VALSAR", "ENALAPRIL", "ATORVA"]): category = "Cardiovascular"
-                elif any(x in n for x in ["JERINGA", "AGUJA"]): category = "Descartables"
+                elif any(x in n for x in [
+                    "JERINGA", "AGUJA", "APOSI", "BAJALENGUA", "BARBIJO",
+                    "CATETER", "GASA", "GUANTE", "CUBRECAMILLA", "RECOLECT",
+                    "SONDA", "MICROPORE", "TELA ADHESIVA", "TERMOMETRO",
+                    "TUBO ENDOT", "TIRAS REAC", "ALCOHOL AL 70"
+                ]): category = "Descartables"
 
                 # IVA para descartables (+21%)
                 if category == "Descartables":
