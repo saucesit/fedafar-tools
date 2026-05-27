@@ -330,8 +330,9 @@ def upload_to_supabase(genexus_client_id: int, df: pd.DataFrame):
     if fecha_col:
         df = df[pd.to_datetime(df[fecha_col], errors='coerce').notna()]
     if comp_col:
-        df = df[~df[comp_col].astype(str).str.lower().str.contains('total', na=False)]
-        df = df[df[comp_col].astype(str).str.strip().ne('').str.strip().ne('nan')]
+        comp_str = df[comp_col].astype(str).str.strip()
+        df = df[~comp_str.str.lower().str.contains('total', na=False)]
+        df = df[comp_str.ne('') & comp_str.ne('nan')]
     df = df.reset_index(drop=True)
 
     if df.empty:
