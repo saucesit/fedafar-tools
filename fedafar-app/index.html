@@ -6,11 +6,36 @@
     <title>FEDAFAR - App de Clientes</title>
     <link rel="stylesheet" href="style.css">
     <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600&display=swap" rel="stylesheet">
-    <!-- Lucide icons from CDN -->
     <script src="https://unpkg.com/lucide@latest"></script>
 </head>
 <body>
-    <div id="app">
+
+    <!-- ── Pantalla de Login ─────────────────────────────────────── -->
+    <div id="login-screen">
+        <div class="login-card">
+            <img src="/static/logo%20fedafar%20antiguo.jpeg" alt="FEDAFAR" class="login-logo">
+            <h1 class="login-title">FEDAFAR</h1>
+            <p class="login-subtitle">Droguería Integral</p>
+            <div id="login-error" class="login-error hidden"></div>
+            <div class="login-form">
+                <div class="login-input-group">
+                    <i data-lucide="user"></i>
+                    <input type="text" id="login-username" placeholder="Usuario" autocomplete="username">
+                </div>
+                <div class="login-input-group">
+                    <i data-lucide="lock"></i>
+                    <input type="password" id="login-password" placeholder="Contraseña" autocomplete="current-password">
+                </div>
+                <button id="login-btn" class="login-submit-btn">
+                    Ingresar
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ── App principal (oculta hasta login) ───────────────────── -->
+    <div id="app" class="hidden">
+
         <!-- Header -->
         <header class="main-header">
             <div class="logo-container">
@@ -21,9 +46,15 @@
                 </div>
             </div>
             <div class="header-actions">
+                <button id="cuenta-btn" class="icon-btn" title="Mi Cuenta">
+                    <i data-lucide="file-text"></i>
+                </button>
                 <button id="cart-btn" class="icon-btn">
                     <i data-lucide="shopping-cart"></i>
                     <span id="cart-count">0</span>
+                </button>
+                <button id="logout-btn" class="icon-btn" title="Cerrar sesión">
+                    <i data-lucide="log-out"></i>
                 </button>
             </div>
         </header>
@@ -38,7 +69,6 @@
 
         <!-- Main Content -->
         <main id="main-content">
-            <!-- Categories -->
             <section id="categories-section">
                 <div class="category-pills">
                     <button class="pill active" data-cat="all">Todos</button>
@@ -49,25 +79,19 @@
                     <button class="pill" data-cat="Descartables">Descartables 🩺</button>
                 </div>
             </section>
-
-            <!-- Product Grid -->
             <section id="products-section">
-                <div id="product-grid" class="product-grid">
-                    <!-- Products will be injected here -->
-                </div>
+                <div id="product-grid" class="product-grid"></div>
             </section>
         </main>
 
-        <!-- Cart Sidebar/Modal -->
+        <!-- Cart Modal -->
         <div id="cart-modal" class="cart-modal hidden">
             <div class="cart-content">
                 <div class="cart-header">
                     <h2>Tu Pedido</h2>
                     <button id="close-cart" class="icon-btn"><i data-lucide="x"></i></button>
                 </div>
-                <div id="cart-items" class="cart-items-list">
-                    <!-- Cart items here -->
-                </div>
+                <div id="cart-items" class="cart-items-list"></div>
                 <div class="cart-footer">
                     <div class="cart-total">
                         <span>Total estimado:</span>
@@ -82,9 +106,28 @@
                 </div>
             </div>
         </div>
+
+        <!-- Mi Cuenta Modal -->
+        <div id="cuenta-modal" class="cart-modal hidden">
+            <div class="cart-content">
+                <div class="cart-header">
+                    <h2>Mi Cuenta Corriente</h2>
+                    <button id="close-cuenta" class="icon-btn"><i data-lucide="x"></i></button>
+                </div>
+                <div id="cuenta-body" class="cuenta-body">
+                    <p style="text-align:center; color: var(--text-muted);">Cargando...</p>
+                </div>
+                <div class="cart-footer">
+                    <div class="cart-total">
+                        <span>Saldo total pendiente:</span>
+                        <span id="cuenta-saldo-total">$ 0,00</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
     </div>
 
-    <!-- Script de la App (Ahora lee desde la API) -->
     <script src="app.js"></script>
 </body>
 </html>

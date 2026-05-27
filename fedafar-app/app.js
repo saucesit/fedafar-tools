@@ -1,48 +1,163 @@
-let PRODUCTS = [];
-let cart = JSON.parse(localStorage.getItem('fedafar_cart') || '[]');
+let PRODUCTS    = [];
+let cart        = JSON.parse(localStorage.getItem('fedafar_cart') || '[]');
 let activeCategory = 'all';
-
-const params = new URLSearchParams(window.location.search);
-const TIPO_PRECIO = params.get('tipo') === 'cta-cte' ? 'cta-cte' : 'contado';
+let currentUser = null;  // { nombre, tipo_precio }
 
 const BASE_URL = (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')
     ? 'http://127.0.0.1:5001'
     : '';
-const API_URL = `${BASE_URL}/api/productos?tipo=${TIPO_PRECIO}`;
 
-// Initialize Lucide icons
 lucide.createIcons();
 
-// DOM Elements
-const productGrid = document.getElementById('product-grid');
-const searchInput = document.getElementById('product-search');
-const cartBtn = document.getElementById('cart-btn');
-const closeCartBtn = document.getElementById('close-cart');
-const backToShopBtn = document.getElementById('back-to-shop');
-const cartModal = document.getElementById('cart-modal');
-const cartCount = document.getElementById('cart-count');
-const cartItemsContainer = document.getElementById('cart-items');
-const totalPriceEl = document.getElementById('total-price');
-const sendOrderBtn = document.getElementById('send-order');
-const categoryPills = document.querySelectorAll('.pill');
+// ── DOM ────────────────────────────────────────────────────────────────────────
+const loginScreen     = document.getElementById('login-screen');
+const appDiv          = document.getElementById('app');
+const loginUsernameEl = document.getElementById('login-username');
+const loginPasswordEl = document.getElementById('login-password');
+const loginBtn        = document.getElementById('login-btn');
+const loginError      = document.getElementById('login-error');
+const logoutBtn       = document.getElementById('logout-btn');
 
-// Render Products
+const productGrid      = document.getElementById('product-grid');
+const searchInput      = document.getElementById('product-search');
+const cartBtn          = document.getElementById('cart-btn');
+const closeCartBtn     = document.getElementById('close-cart');
+const backToShopBtn    = document.getElementById('back-to-shop');
+const cartModal        = document.getElementById('cart-modal');
+const cartCount        = document.getElementById('cart-count');
+const cartItemsContainer = document.getElementById('cart-items');
+const totalPriceEl     = document.getElementById('total-price');
+const sendOrderBtn     = document.getElementById('send-order');
+const categoryPills    = document.querySelectorAll('.pill');
+
+const cuentaBtn        = document.getElementById('cuenta-btn');
+const cuentaModal      = document.getElementById('cuenta-modal');
+const closeCuentaBtn   = document.getElementById('close-cuenta');
+const cuentaBody       = document.getElementById('cuenta-body');
+const cuentaSaldoTotal = document.getElementById('cuenta-saldo-total');
+
+// ── Auth ───────────────────────────────────────────────────────────────────────
+
+async function checkSession() {
+    try {
+        const res = await fetch(`${BASE_URL}/api/me`, { credentials: 'include' });
+        if (res.ok) {
+            const data = await res.json();
+            if (data.authenticated) {
+                currentUser = data;
+                showApp();
+                return;
+            }
+        }
+    } catch (e) {}
+    showLogin();
+}
+
+function showLogin() {
+    loginScreen.classList.remove('hidden');
+    appDiv.classList.add('hidden');
+}
+
+function showApp() {
+    loginScreen.classList.add('hidden');
+    appDiv.classList.remove('hidden');
+    showPriceBadge();
+    fetchProducts();
+    lucide.createIcons();
+}
+
+loginBtn.addEventListener('click', doLogin);
+loginPasswordEl.addEventListener('keydown', e => { if (e.key === 'Enter') doLogin(); });
+loginUsernameEl.addEventListener('keydown', e => { if (e.key === 'Enter') loginPasswordEl.focus(); });
+
+async function doLogin() {
+    const username = loginUsernameEl.value.trim();
+    const password = loginPasswordEl.value;
+    if (!username || !password) {
+        showLoginError('Ingresá usuario y contraseña.');
+        return;
+    }
+
+    loginBtn.disabled  = true;
+    loginBtn.innerText = 'Ingresando...';
+
+    try {
+        const res  = await fetch(`${BASE_URL}/api/login`, {
+            method:      'POST',
+            credentials: 'include',
+            headers:     { 'Content-Type': 'application/json' },
+            body:        JSON.stringify({ username, password }),
+        });
+        const data = await res.json();
+
+        if (res.ok && data.ok) {
+            currentUser = data;
+            loginError.classList.add('hidden');
+            showApp();
+        } else {
+            showLoginError(data.error || 'Error al iniciar sesión.');
+        }
+    } catch (e) {
+        showLoginError('No se pudo conectar con el servidor.');
+    } finally {
+        loginBtn.disabled  = false;
+        loginBtn.innerText = 'Ingresar';
+    }
+}
+
+function showLoginError(msg) {
+    loginError.innerText = msg;
+    loginError.classList.remove('hidden');
+}
+
+logoutBtn.addEventListener('click', async () => {
+    await fetch(`${BASE_URL}/api/logout`, { method: 'POST', credentials: 'include' });
+    currentUser = null;
+    cart = [];
+    localStorage.removeItem('fedafar_cart');
+    showLogin();
+});
+
+// ── Badge de precio ────────────────────────────────────────────────────────────
+
+function showPriceBadge() {
+    const existing = document.getElementById('price-badge');
+    if (existing) existing.remove();
+
+    const tipo  = currentUser?.tipo_precio || 'contado';
+    const badge = document.createElement('span');
+    badge.id = 'price-badge';
+    badge.innerText = tipo === 'cta-cte' ? 'Cta. Cte.' : 'Contado';
+    badge.style.cssText = `
+        background: ${tipo === 'cta-cte' ? '#7c3aed' : '#28a745'};
+        color: white; font-size: 0.7rem; font-weight: 600;
+        padding: 3px 10px; border-radius: 20px; letter-spacing: 0.5px;
+        display: inline-block; margin-left: 6px;
+    `;
+    document.querySelector('.brand-text').appendChild(badge);
+}
+
+// ── Productos ──────────────────────────────────────────────────────────────────
+
 function renderProducts(filter = '', category = 'all') {
     productGrid.innerHTML = '';
-    
-    // PRODUCTS viene de products.js
     const filtered = PRODUCTS.filter(p => {
-        const matchesSearch = p.name.toLowerCase().includes(filter.toLowerCase()) || 
-                             p.lab.toLowerCase().includes(filter.toLowerCase());
+        const matchesSearch = p.name.toLowerCase().includes(filter.toLowerCase()) ||
+                              p.lab.toLowerCase().includes(filter.toLowerCase());
         const matchesCat = category === 'all' || p.category === category;
         return matchesSearch && matchesCat;
     });
+
+    if (filtered.length === 0) {
+        productGrid.innerHTML = '<p style="text-align:center;color:var(--text-muted);padding:40px 0;">Sin resultados.</p>';
+        return;
+    }
 
     filtered.forEach(product => {
         const card = document.createElement('div');
         card.className = 'product-card';
         const precioTexto = product.price === 0 ? 'Sin cargo' : `$ ${product.price.toLocaleString('es-AR')}`;
-        const promoHtml = product.promo ? `<p class="prod-promo">${product.promo}</p>` : '';
+        const promoHtml   = product.promo ? `<p class="prod-promo">${product.promo}</p>` : '';
         card.innerHTML = `
             <div class="prod-info">
                 <span class="prod-lab">${product.lab}</span>
@@ -52,62 +167,70 @@ function renderProducts(filter = '', category = 'all') {
             </div>
             <div class="prod-actions">
                 <input type="number" id="qty-${product.id}" class="qty-input" value="1" min="1">
-                <button class="add-btn" data-id="${product.id}">
-                    Añadir
-                </button>
+                <button class="add-btn" data-id="${product.id}">Añadir</button>
             </div>
         `;
         productGrid.appendChild(card);
     });
-    
+
     lucide.createIcons();
-    
-    // Add event listeners to buttons
+
     document.querySelectorAll('.add-btn').forEach(btn => {
         btn.addEventListener('click', () => {
-            const id = parseInt(btn.dataset.id);
+            const id       = parseInt(btn.dataset.id);
             const qtyInput = document.getElementById(`qty-${id}`);
-            const qty = Math.max(1, parseInt(qtyInput.value) || 1);
+            const qty      = Math.max(1, parseInt(qtyInput.value) || 1);
             qtyInput.value = qty;
             addToCart(id, qty);
         });
     });
 }
 
-// Cart Logic
-function addToCart(productId, qtyToAdd) {
-    const product = PRODUCTS.find(p => p.id === productId);
-    const existing = cart.find(item => item.id === productId);
+async function fetchProducts() {
+    productGrid.innerHTML = '<p style="text-align:center;width:100%;padding:40px 0;">Cargando catálogo...</p>';
+    try {
+        const tipo = currentUser?.tipo_precio || 'contado';
+        const res  = await fetch(`${BASE_URL}/api/productos?tipo=${tipo}`, { credentials: 'include' });
+        PRODUCTS   = await res.json();
+        cart = cart.filter(item => PRODUCTS.find(p => p.id === item.id));
+        cart = cart.map(item => {
+            const fresh = PRODUCTS.find(p => p.id === item.id);
+            return { ...fresh, qty: item.qty };
+        });
+        updateCart();
+        renderProducts();
+    } catch (error) {
+        productGrid.innerHTML = '<p style="text-align:center;color:red;width:100%;padding:40px 0;">Error al conectar con el servidor.</p>';
+    }
+}
 
+// ── Carrito ────────────────────────────────────────────────────────────────────
+
+function addToCart(productId, qtyToAdd) {
+    const product  = PRODUCTS.find(p => p.id === productId);
+    const existing = cart.find(item => item.id === productId);
     if (existing) {
         existing.qty += qtyToAdd;
     } else {
         cart.push({ ...product, qty: qtyToAdd });
     }
-    
-    // Feedback visual opcional
     const btn = document.querySelector(`.add-btn[data-id="${productId}"]`);
-    if(btn) {
-        btn.innerText = "¡Agregado!";
-        setTimeout(() => btn.innerText = "Añadir", 1500);
+    if (btn) {
+        btn.innerText = '¡Agregado!';
+        setTimeout(() => btn.innerText = 'Añadir', 1500);
     }
-    
     updateCart();
 }
 
 function updateCart() {
-    // Update count
     const totalQty = cart.reduce((sum, item) => sum + item.qty, 0);
     cartCount.innerText = totalQty;
-
-    // Update list
     cartItemsContainer.innerHTML = '';
     let totalValue = 0;
 
     cart.forEach(item => {
         const subtotal = item.price * item.qty;
         totalValue += subtotal;
-
         const itemEl = document.createElement('div');
         itemEl.className = 'cart-item';
         itemEl.innerHTML = `
@@ -132,27 +255,20 @@ function updateCart() {
     localStorage.setItem('fedafar_cart', JSON.stringify(cart));
     lucide.createIcons();
 
-    // Event listeners para los controles del carrito
-    document.querySelectorAll('.minus-btn').forEach(btn => {
-        btn.addEventListener('click', (e) => updateItemQty(parseInt(btn.dataset.id), -1));
-    });
-    document.querySelectorAll('.plus-btn').forEach(btn => {
-        btn.addEventListener('click', (e) => updateItemQty(parseInt(btn.dataset.id), 1));
-    });
-    document.querySelectorAll('.remove-btn').forEach(btn => {
-        btn.addEventListener('click', (e) => removeItem(parseInt(btn.dataset.id)));
-    });
+    document.querySelectorAll('.minus-btn').forEach(btn =>
+        btn.addEventListener('click', () => updateItemQty(parseInt(btn.dataset.id), -1)));
+    document.querySelectorAll('.plus-btn').forEach(btn =>
+        btn.addEventListener('click', () => updateItemQty(parseInt(btn.dataset.id), 1)));
+    document.querySelectorAll('.remove-btn').forEach(btn =>
+        btn.addEventListener('click', () => removeItem(parseInt(btn.dataset.id))));
 }
 
 function updateItemQty(productId, change) {
     const existing = cart.find(item => item.id === productId);
     if (existing) {
         existing.qty += change;
-        if (existing.qty <= 0) {
-            removeItem(productId);
-        } else {
-            updateCart();
-        }
+        if (existing.qty <= 0) removeItem(productId);
+        else updateCart();
     }
 }
 
@@ -161,10 +277,66 @@ function removeItem(productId) {
     updateCart();
 }
 
-// Event Listeners
-searchInput.addEventListener('input', (e) => {
-    renderProducts(e.target.value, activeCategory);
+// ── Mi Cuenta ──────────────────────────────────────────────────────────────────
+
+cuentaBtn.addEventListener('click', () => {
+    cuentaModal.classList.remove('hidden');
+    loadCuentaCorriente();
 });
+closeCuentaBtn.addEventListener('click', () => cuentaModal.classList.add('hidden'));
+
+async function loadCuentaCorriente() {
+    cuentaBody.innerHTML = '<p style="text-align:center;padding:30px;color:var(--text-muted);">Cargando...</p>';
+    cuentaSaldoTotal.innerText = '$ 0,00';
+
+    try {
+        const res  = await fetch(`${BASE_URL}/api/cta-cte`, { credentials: 'include' });
+        const data = await res.json();
+
+        if (!Array.isArray(data) || data.length === 0) {
+            cuentaBody.innerHTML = '<p style="text-align:center;padding:30px;color:var(--text-muted);">Sin comprobantes pendientes 🎉</p>';
+            return;
+        }
+
+        let totalSaldo = 0;
+        let html = `
+            <table class="cuenta-table">
+                <thead>
+                    <tr>
+                        <th>Comprobante</th>
+                        <th>Vencimiento</th>
+                        <th>Saldo</th>
+                    </tr>
+                </thead>
+                <tbody>
+        `;
+        data.forEach(row => {
+            const saldo = parseFloat(row.saldo) || 0;
+            totalSaldo += saldo;
+            const vence = row.fecha_vencimiento ? row.fecha_vencimiento.substring(0, 10) : '-';
+            const saldoClass = saldo > 0 ? 'saldo-pendiente' : 'saldo-ok';
+            html += `
+                <tr>
+                    <td>${row.comprobante || '-'}</td>
+                    <td>${vence}</td>
+                    <td class="${saldoClass}">$ ${saldo.toLocaleString('es-AR', {minimumFractionDigits:2})}</td>
+                </tr>
+            `;
+        });
+        html += '</tbody></table>';
+
+        cuentaBody.innerHTML = html;
+        cuentaSaldoTotal.innerText = `$ ${totalSaldo.toLocaleString('es-AR', {minimumFractionDigits:2})}`;
+        cuentaSaldoTotal.style.color = totalSaldo > 0 ? '#dc3545' : '#28a745';
+
+    } catch (e) {
+        cuentaBody.innerHTML = '<p style="text-align:center;color:red;padding:20px;">Error al cargar la cuenta.</p>';
+    }
+}
+
+// ── Eventos ────────────────────────────────────────────────────────────────────
+
+searchInput.addEventListener('input', (e) => renderProducts(e.target.value, activeCategory));
 
 categoryPills.forEach(pill => {
     pill.addEventListener('click', () => {
@@ -175,60 +347,22 @@ categoryPills.forEach(pill => {
     });
 });
 
-cartBtn.addEventListener('click', () => cartModal.classList.remove('hidden'));
+cartBtn.addEventListener('click',    () => cartModal.classList.remove('hidden'));
 closeCartBtn.addEventListener('click', () => cartModal.classList.add('hidden'));
-if(backToShopBtn) backToShopBtn.addEventListener('click', () => cartModal.classList.add('hidden'));
+if (backToShopBtn) backToShopBtn.addEventListener('click', () => cartModal.classList.add('hidden'));
 
 sendOrderBtn.addEventListener('click', () => {
-    if (cart.length === 0) return alert("El carrito está vacío");
-
-    const tipoLabel = TIPO_PRECIO === 'cta-cte' ? 'Cuenta Corriente' : 'Contado';
-    let message = `📦 *NUEVO PEDIDO - FEDAFAR*\n💳 Precio: ${tipoLabel}\n\n`;
-    cart.forEach(item => {
-        message += `• ${item.name} (${item.lab}) x${item.qty}\n`;
-    });
-    
-    const total = totalPriceEl.innerText;
-    message += `\n*TOTAL ESTIMADO:* ${total}`;
-    message += `\n\n_Por favor confirmar stock y precios vigentes._`;
-
-    const encoded = encodeURIComponent(message);
-    window.open(`https://wa.me/5493876835525?text=${encoded}`);
+    if (cart.length === 0) return alert('El carrito está vacío');
+    const tipo  = currentUser?.tipo_precio || 'contado';
+    const label = tipo === 'cta-cte' ? 'Cuenta Corriente' : 'Contado';
+    let msg = `📦 *NUEVO PEDIDO - FEDAFAR*\n💳 Precio: ${label}\n`;
+    if (currentUser?.nombre) msg += `🏪 Farmacia: ${currentUser.nombre}\n`;
+    msg += '\n';
+    cart.forEach(item => { msg += `• ${item.name} (${item.lab}) x${item.qty}\n`; });
+    msg += `\n*TOTAL ESTIMADO:* ${totalPriceEl.innerText}`;
+    msg += `\n\n_Por favor confirmar stock y precios vigentes._`;
+    window.open(`https://wa.me/5493876835525?text=${encodeURIComponent(msg)}`);
 });
 
-// Mostrar badge de tipo de precio en el header
-function showPriceBadge() {
-    const badge = document.createElement('span');
-    badge.id = 'price-badge';
-    badge.innerText = TIPO_PRECIO === 'cta-cte' ? 'Cta. Cte.' : 'Contado';
-    badge.style.cssText = `
-        background: ${TIPO_PRECIO === 'cta-cte' ? '#7c3aed' : '#28a745'};
-        color: white; font-size: 0.7rem; font-weight: 600;
-        padding: 3px 10px; border-radius: 20px; letter-spacing: 0.5px;
-    `;
-    document.querySelector('.brand-text').appendChild(badge);
-}
-
-// Fetch Products from API
-async function fetchProducts() {
-    try {
-        productGrid.innerHTML = '<p style="text-align:center; width:100%;">Cargando catálogo en vivo...</p>';
-        const response = await fetch(API_URL);
-        PRODUCTS = await response.json();
-        // Sincronizar precios del carrito guardado con los datos frescos de la API
-        cart = cart.filter(item => PRODUCTS.find(p => p.id === item.id));
-        cart = cart.map(item => {
-            const fresh = PRODUCTS.find(p => p.id === item.id);
-            return { ...fresh, qty: item.qty };
-        });
-        updateCart();
-        renderProducts();
-    } catch (error) {
-        console.error("Error cargando productos:", error);
-        productGrid.innerHTML = '<p style="text-align:center; color:red; width:100%;">Error al conectar con el servidor FEDAFAR. Asegúrese de que la API esté corriendo.</p>';
-    }
-}
-
-// Initial
-showPriceBadge();
-fetchProducts();
+// ── Init ───────────────────────────────────────────────────────────────────────
+checkSession();

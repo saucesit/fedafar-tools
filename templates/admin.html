@@ -1,0 +1,408 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>FEDAFAR — Panel Admin</title>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --primary: #004a99;
+            --primary-light: #0066cc;
+            --accent: #28a745;
+            --danger: #dc3545;
+            --bg: #f0f2f5;
+            --card: #ffffff;
+            --text: #1a1a1a;
+            --muted: #666;
+            --shadow: 0 4px 12px rgba(0,0,0,0.08);
+        }
+        * { margin:0; padding:0; box-sizing:border-box; }
+        body { font-family:'Outfit',sans-serif; background:var(--bg); color:var(--text); }
+
+        /* ── Login ── */
+        #login-screen {
+            min-height:100vh; display:flex; justify-content:center; align-items:center;
+            background:linear-gradient(160deg,var(--primary) 0%,#003070 100%);
+        }
+        .login-card {
+            background:white; border-radius:20px; padding:40px 32px;
+            width:100%; max-width:360px; text-align:center;
+            box-shadow:0 20px 60px rgba(0,0,0,0.3);
+        }
+        .login-card h1 { font-size:1.6rem; color:var(--primary); margin-bottom:6px; }
+        .login-card p  { color:var(--muted); margin-bottom:28px; font-size:.9rem; }
+        .input-field {
+            width:100%; padding:12px 16px; border:1.5px solid #ddd;
+            border-radius:10px; font-size:1rem; font-family:inherit;
+            outline:none; margin-bottom:14px; transition:border-color .2s;
+        }
+        .input-field:focus { border-color:var(--primary); }
+        .btn-primary {
+            width:100%; padding:14px; background:var(--primary); color:white;
+            border:none; border-radius:10px; font-size:1rem; font-weight:600;
+            cursor:pointer; font-family:inherit; transition:background .2s;
+        }
+        .btn-primary:hover   { background:var(--primary-light); }
+        .btn-primary:disabled { opacity:.6; cursor:not-allowed; }
+        .error-msg { background:#fee2e2; color:#dc2626; border-radius:8px; padding:10px 14px; font-size:.9rem; margin-bottom:14px; }
+
+        /* ── App ── */
+        #admin-app { display:none; }
+        .topbar {
+            background:var(--primary); color:white; padding:16px 24px;
+            display:flex; justify-content:space-between; align-items:center;
+            box-shadow:var(--shadow);
+        }
+        .topbar h1 { font-size:1.2rem; letter-spacing:1px; }
+        .topbar span { font-size:.8rem; opacity:.8; }
+        .btn-logout {
+            background:rgba(255,255,255,.15); border:none; color:white;
+            padding:8px 16px; border-radius:8px; cursor:pointer; font-family:inherit;
+            font-size:.85rem; transition:background .2s;
+        }
+        .btn-logout:hover { background:rgba(255,255,255,.25); }
+
+        .container { max-width:900px; margin:0 auto; padding:24px 16px; }
+
+        .card {
+            background:var(--card); border-radius:16px; padding:24px;
+            box-shadow:var(--shadow); margin-bottom:20px;
+        }
+        .card-header {
+            display:flex; justify-content:space-between; align-items:center;
+            margin-bottom:20px;
+        }
+        .card-header h2 { font-size:1.1rem; color:var(--primary); }
+
+        .btn-add {
+            background:var(--accent); color:white; border:none;
+            padding:10px 20px; border-radius:10px; font-size:.9rem;
+            font-weight:600; cursor:pointer; font-family:inherit;
+        }
+        .btn-add:hover { opacity:.9; }
+
+        /* ── Tabla ── */
+        .tabla-wrapper { overflow-x:auto; }
+        table { width:100%; border-collapse:collapse; font-size:.9rem; }
+        th {
+            background:var(--primary); color:white; padding:12px 14px;
+            text-align:left; font-weight:600;
+        }
+        td { padding:12px 14px; border-bottom:1px solid #f0f0f0; vertical-align:middle; }
+        tr:hover td { background:#f9fbff; }
+
+        .badge {
+            display:inline-block; padding:3px 10px; border-radius:20px;
+            font-size:.75rem; font-weight:600;
+        }
+        .badge-contado  { background:#d1fae5; color:#065f46; }
+        .badge-ctacte   { background:#ede9fe; color:#5b21b6; }
+        .badge-activo   { background:#d1fae5; color:#065f46; }
+        .badge-inactivo { background:#fee2e2; color:#991b1b; }
+
+        .btn-edit, .btn-toggle {
+            border:none; padding:6px 12px; border-radius:7px; cursor:pointer;
+            font-size:.8rem; font-weight:600; font-family:inherit; transition:.2s;
+        }
+        .btn-edit   { background:#e0eaff; color:var(--primary); margin-right:6px; }
+        .btn-toggle { background:#fee2e2; color:var(--danger); }
+        .btn-toggle.activar { background:#d1fae5; color:#065f46; }
+        .btn-edit:hover   { background:#c7d9ff; }
+        .btn-toggle:hover { opacity:.85; }
+
+        /* ── Modal ── */
+        .modal-overlay {
+            display:none; position:fixed; inset:0;
+            background:rgba(0,0,0,.5); z-index:1000;
+            justify-content:center; align-items:center; padding:20px;
+        }
+        .modal-overlay.open { display:flex; }
+        .modal {
+            background:white; border-radius:20px; padding:32px;
+            width:100%; max-width:460px; max-height:90vh; overflow-y:auto;
+        }
+        .modal h3 { font-size:1.2rem; color:var(--primary); margin-bottom:24px; }
+        .form-group { margin-bottom:16px; }
+        .form-group label { display:block; font-size:.85rem; font-weight:600; color:var(--muted); margin-bottom:6px; }
+        .form-group select { width:100%; padding:12px 16px; border:1.5px solid #ddd; border-radius:10px; font-size:1rem; font-family:inherit; outline:none; background:white; }
+        .form-group select:focus { border-color:var(--primary); }
+        .form-hint { font-size:.78rem; color:var(--muted); margin-top:4px; }
+        .modal-actions { display:flex; gap:12px; margin-top:24px; }
+        .btn-cancel {
+            flex:1; padding:13px; background:#e5e7eb; border:none;
+            border-radius:10px; font-size:1rem; cursor:pointer; font-family:inherit;
+        }
+        .btn-save {
+            flex:2; padding:13px; background:var(--primary); color:white;
+            border:none; border-radius:10px; font-size:1rem; font-weight:600;
+            cursor:pointer; font-family:inherit;
+        }
+        .btn-save:hover { background:var(--primary-light); }
+
+        .hidden { display:none!important; }
+        .empty-msg { text-align:center; color:var(--muted); padding:40px 0; }
+    </style>
+</head>
+<body>
+
+<!-- ── Login ── -->
+<div id="login-screen">
+    <div class="login-card">
+        <h1>FEDAFAR</h1>
+        <p>Panel de administración</p>
+        <div id="login-error" class="error-msg hidden"></div>
+        <input type="password" id="admin-password" class="input-field" placeholder="Contraseña de admin">
+        <button id="admin-login-btn" class="btn-primary">Ingresar</button>
+    </div>
+</div>
+
+<!-- ── App ── -->
+<div id="admin-app">
+    <div class="topbar">
+        <div>
+            <h1>FEDAFAR · Admin</h1>
+            <span>Gestión de clientes</span>
+        </div>
+        <button class="btn-logout" id="admin-logout-btn">Cerrar sesión</button>
+    </div>
+
+    <div class="container">
+        <div class="card">
+            <div class="card-header">
+                <h2>Farmacias registradas</h2>
+                <button class="btn-add" id="btn-nuevo">+ Nuevo cliente</button>
+            </div>
+            <div class="tabla-wrapper">
+                <table id="clientes-tabla">
+                    <thead>
+                        <tr>
+                            <th>Farmacia</th>
+                            <th>Usuario</th>
+                            <th>Precio</th>
+                            <th>Cód. Genexus</th>
+                            <th>Estado</th>
+                            <th>Acciones</th>
+                        </tr>
+                    </thead>
+                    <tbody id="clientes-tbody">
+                        <tr><td colspan="6" class="empty-msg">Cargando...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- ── Modal crear/editar ── -->
+<div class="modal-overlay" id="modal-overlay">
+    <div class="modal">
+        <h3 id="modal-title">Nuevo cliente</h3>
+        <input type="hidden" id="edit-id">
+
+        <div class="form-group">
+            <label>Nombre de la farmacia *</label>
+            <input type="text" id="f-nombre" class="input-field" placeholder="Ej: Farmacia San Martín" style="margin:0">
+        </div>
+        <div class="form-group">
+            <label>Usuario *</label>
+            <input type="text" id="f-username" class="input-field" placeholder="Ej: farmsanmartin" style="margin:0" autocomplete="off">
+        </div>
+        <div class="form-group">
+            <label id="f-password-label">Contraseña *</label>
+            <input type="password" id="f-password" class="input-field" placeholder="Contraseña de acceso" style="margin:0" autocomplete="new-password">
+            <p class="form-hint" id="f-password-hint"></p>
+        </div>
+        <div class="form-group">
+            <label>Tipo de precio *</label>
+            <select id="f-tipo">
+                <option value="contado">Contado</option>
+                <option value="cta-cte">Cuenta Corriente</option>
+            </select>
+        </div>
+        <div class="form-group">
+            <label>Código Genexus</label>
+            <input type="number" id="f-gxid" class="input-field" placeholder="Ej: 1248" style="margin:0">
+            <p class="form-hint">Código numérico del cliente en el sistema interno.</p>
+        </div>
+
+        <div id="modal-error" class="error-msg hidden"></div>
+
+        <div class="modal-actions">
+            <button class="btn-cancel" id="modal-cancel">Cancelar</button>
+            <button class="btn-save"   id="modal-save">Guardar</button>
+        </div>
+    </div>
+</div>
+
+<script>
+const BASE = '';
+
+// ── Auth ──────────────────────────────────────────────────────────────────────
+document.getElementById('admin-password').addEventListener('keydown', e => {
+    if (e.key === 'Enter') loginAdmin();
+});
+document.getElementById('admin-login-btn').addEventListener('click', loginAdmin);
+
+async function loginAdmin() {
+    const pw  = document.getElementById('admin-password').value;
+    const btn = document.getElementById('admin-login-btn');
+    const err = document.getElementById('login-error');
+    btn.disabled = true; btn.innerText = 'Ingresando...';
+    err.classList.add('hidden');
+
+    const res  = await fetch(`${BASE}/api/admin/login`, {
+        method: 'POST', credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ password: pw })
+    });
+    const data = await res.json();
+    if (res.ok) {
+        showApp();
+    } else {
+        err.innerText = data.error || 'Error';
+        err.classList.remove('hidden');
+    }
+    btn.disabled = false; btn.innerText = 'Ingresar';
+}
+
+document.getElementById('admin-logout-btn').addEventListener('click', async () => {
+    await fetch(`${BASE}/api/admin/logout`, { method: 'POST', credentials: 'include' });
+    location.reload();
+});
+
+async function checkAdmin() {
+    const res  = await fetch(`${BASE}/api/admin/me`, { credentials: 'include' });
+    const data = await res.json();
+    if (data.authenticated) showApp();
+}
+
+function showApp() {
+    document.getElementById('login-screen').style.display = 'none';
+    document.getElementById('admin-app').style.display    = 'block';
+    loadClientes();
+}
+
+// ── Clientes ──────────────────────────────────────────────────────────────────
+let clientes = [];
+
+async function loadClientes() {
+    const res  = await fetch(`${BASE}/api/admin/clientes`, { credentials: 'include' });
+    clientes   = await res.json();
+    renderTabla();
+}
+
+function renderTabla() {
+    const tbody = document.getElementById('clientes-tbody');
+    if (!clientes.length) {
+        tbody.innerHTML = '<tr><td colspan="6" class="empty-msg">Sin clientes registrados.</td></tr>';
+        return;
+    }
+    tbody.innerHTML = clientes.map(c => `
+        <tr>
+            <td><strong>${c.nombre}</strong></td>
+            <td>${c.username}</td>
+            <td><span class="badge ${c.tipo_precio === 'cta-cte' ? 'badge-ctacte' : 'badge-contado'}">
+                ${c.tipo_precio === 'cta-cte' ? 'Cta. Cte.' : 'Contado'}
+            </span></td>
+            <td>${c.genexus_client_id || '—'}</td>
+            <td><span class="badge ${c.activo ? 'badge-activo' : 'badge-inactivo'}">
+                ${c.activo ? 'Activo' : 'Inactivo'}
+            </span></td>
+            <td>
+                <button class="btn-edit"   onclick="openEdit('${c.id}')">Editar</button>
+                <button class="btn-toggle ${c.activo ? '' : 'activar'}"
+                        onclick="toggleActivo('${c.id}', ${!c.activo})">
+                    ${c.activo ? 'Desactivar' : 'Activar'}
+                </button>
+            </td>
+        </tr>
+    `).join('');
+}
+
+// ── Modal ─────────────────────────────────────────────────────────────────────
+document.getElementById('btn-nuevo').addEventListener('click', () => openModal());
+document.getElementById('modal-cancel').addEventListener('click', closeModal);
+document.getElementById('modal-overlay').addEventListener('click', e => {
+    if (e.target === document.getElementById('modal-overlay')) closeModal();
+});
+document.getElementById('modal-save').addEventListener('click', saveCliente);
+
+function openModal(cliente = null) {
+    document.getElementById('modal-error').classList.add('hidden');
+    document.getElementById('edit-id').value   = cliente?.id   || '';
+    document.getElementById('f-nombre').value  = cliente?.nombre   || '';
+    document.getElementById('f-username').value= cliente?.username || '';
+    document.getElementById('f-password').value= '';
+    document.getElementById('f-tipo').value    = cliente?.tipo_precio || 'contado';
+    document.getElementById('f-gxid').value    = cliente?.genexus_client_id || '';
+    document.getElementById('modal-title').innerText = cliente ? 'Editar cliente' : 'Nuevo cliente';
+    document.getElementById('f-password-hint').innerText = cliente
+        ? 'Dejá en blanco para no cambiar la contraseña.'
+        : '';
+    document.getElementById('f-password-label').innerText = cliente
+        ? 'Nueva contraseña'
+        : 'Contraseña *';
+    document.getElementById('modal-overlay').classList.add('open');
+}
+
+function openEdit(id) {
+    openModal(clientes.find(c => c.id === id));
+}
+
+function closeModal() {
+    document.getElementById('modal-overlay').classList.remove('open');
+}
+
+async function saveCliente() {
+    const id       = document.getElementById('edit-id').value;
+    const nombre   = document.getElementById('f-nombre').value.trim();
+    const username = document.getElementById('f-username').value.trim();
+    const password = document.getElementById('f-password').value.trim();
+    const tipo     = document.getElementById('f-tipo').value;
+    const gxid     = document.getElementById('f-gxid').value.trim();
+    const errEl    = document.getElementById('modal-error');
+    errEl.classList.add('hidden');
+
+    if (!nombre || !username || (!id && !password)) {
+        errEl.innerText = 'Completá los campos obligatorios.';
+        errEl.classList.remove('hidden');
+        return;
+    }
+
+    const body = { nombre, username, tipo_precio: tipo, genexus_client_id: gxid || null };
+    if (password) body.password = password;
+
+    const url    = id ? `${BASE}/api/admin/clientes/${id}` : `${BASE}/api/admin/clientes`;
+    const method = id ? 'PUT' : 'POST';
+
+    const res  = await fetch(url, {
+        method, credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body)
+    });
+    const data = await res.json();
+
+    if (res.ok) {
+        closeModal();
+        loadClientes();
+    } else {
+        errEl.innerText = data.error || 'Error al guardar.';
+        errEl.classList.remove('hidden');
+    }
+}
+
+async function toggleActivo(id, nuevoEstado) {
+    await fetch(`${BASE}/api/admin/clientes/${id}`, {
+        method: 'PUT', credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ activo: nuevoEstado })
+    });
+    loadClientes();
+}
+
+// ── Init ──────────────────────────────────────────────────────────────────────
+checkAdmin();
+</script>
+</body>
+</html>
