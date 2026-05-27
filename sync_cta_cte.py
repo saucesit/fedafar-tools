@@ -125,7 +125,9 @@ def export_cta_cte(page: Page, client_id: int) -> Optional[pd.DataFrame]:
                 if not sug.is_visible(timeout=500):
                     continue
                 text = sug.text_content() or ""
-                if str(client_id) in text:
+                # Verificar que la sugerencia EMPIECE con el client_id (no que lo contenga en cualquier parte)
+                import re as _re
+                if _re.match(rf'^\s*{client_id}\b', text):
                     sug.click()
                     clicked = True
                     print(f"    Sugerencia correcta seleccionada: '{text.strip()[:50]}'")
@@ -153,7 +155,8 @@ def export_cta_cte(page: Page, client_id: int) -> Optional[pd.DataFrame]:
     # Verificar el valor final del campo
     page.wait_for_timeout(500)
     current_val = client_input.input_value()
-    if str(client_id) in current_val:
+    import re as _re
+    if _re.match(rf'^\s*{client_id}\b', current_val):
         print(f"    ✓ Cliente confirmado: '{current_val.strip()[:60]}'")
     else:
         print(f"    ⚠ ADVERTENCIA: valor en campo = '{current_val.strip()[:60]}' (esperado ID {client_id})")
@@ -165,7 +168,11 @@ def export_cta_cte(page: Page, client_id: int) -> Optional[pd.DataFrame]:
         client_input.press("Tab")
         page.wait_for_timeout(1000)
         current_val = client_input.input_value()
-        print(f"    Valor tras reintento: '{current_val.strip()[:60]}'")
+        if _re.match(rf'^\s*{client_id}\b', current_val):
+            print(f"    ✓ Cliente confirmado tras reintento: '{current_val.strip()[:60]}'")
+        else:
+            print(f"    ✗ ERROR: no se pudo seleccionar cliente {client_id}. Valor: '{current_val.strip()[:60]}'")
+            return None
 
     # ── 2. Tildar "Mostrar solo con saldo" ────────────────────────────────────
     page.wait_for_timeout(2000)  # esperar que la página actualice tras seleccionar cliente
