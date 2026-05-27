@@ -73,7 +73,6 @@ def export_cta_cte(page: Page, client_id: int) -> Optional[pd.DataFrame]:
         return None
 
     # ── 1. Campo de cliente (autocomplete GeneXus) ─────────────────────────────
-    # Intentar distintos selectores posibles para el campo de cliente
     client_selectors = [
         "input[id*='Cliente']",
         "input[id*='cliente']",
@@ -92,29 +91,32 @@ def export_cta_cte(page: Page, client_id: int) -> Optional[pd.DataFrame]:
             continue
 
     if not client_input:
-        # Fallback: primer input de texto visible
         client_input = page.locator("input[type='text']:visible").first
         print("    Usando primer input visible como campo cliente.")
 
-    # Escribir el ID y esperar el dropdown
+    # Limpiar y escribir el ID lentamente para activar el autocomplete
     client_input.click()
+    client_input.triple_click()
     client_input.fill("")
-    client_input.type(str(client_id), delay=80)
-    page.wait_for_timeout(2000)  # esperar sugerencias del autocomplete
+    page.wait_for_timeout(300)
+    client_input.type(str(client_id), delay=150)
+    page.wait_for_timeout(3000)  # esperar sugerencias del autocomplete
 
-    # Seleccionar la primera sugerencia del dropdown
+    # Intentar seleccionar la sugerencia del dropdown
     suggestion_selectors = [
         ".gx_combo_suggestion",
         "[class*='suggestion']",
         "[class*='autocomplete'] li",
         "[class*='dropdown'] li",
         ".ui-menu-item",
+        "li[id*='combo']",
+        "[id*='suggestion']",
     ]
     clicked = False
     for sel in suggestion_selectors:
         try:
             sug = page.locator(sel).first
-            if sug.is_visible(timeout=1000):
+            if sug.is_visible(timeout=1500):
                 sug.click()
                 clicked = True
                 print(f"    Sugerencia seleccionada con: {sel}")
@@ -123,13 +125,27 @@ def export_cta_cte(page: Page, client_id: int) -> Optional[pd.DataFrame]:
             continue
 
     if not clicked:
-        # Si no apareció dropdown, presionar Tab para confirmar el valor
-        client_input.press("Tab")
-        page.wait_for_timeout(1500)
-        print("    Sin dropdown, Tab para confirmar cliente.")
+        # Intentar con ArrowDown + Enter para seleccionar del dropdown
+        client_input.press("ArrowDown")
+        page.wait_for_timeout(500)
+        client_input.press("Enter")
+        page.wait_for_timeout(1000)
+        # Verificar si el campo tiene el valor correcto
+        current_val = client_input.input_value()
+        if str(client_id) in current_val:
+            print(f"    Cliente seleccionado con ArrowDown+Enter (valor: {current_val[:40]}).")
+            clicked = True
+        else:
+            # Último recurso: Tab
+            client_input.press("Tab")
+            page.wait_for_timeout(1500)
+            print(f"    Sin dropdown. Tab para confirmar (valor actual: {current_val[:40]}).")
 
     # ── 2. Tildar "Mostrar solo con saldo" ────────────────────────────────────
-    page.wait_for_timeout(1500)  # esperar que la página procese el cliente
+    page.wait_for_timeout(2000)  # esperar que la página actualice tras seleccionar cliente
+    tildado = False
+
+    # Intentar todos los checkboxes visibles de la página
     checkbox_selectors = [
         "input[type='checkbox'][id*='aldo']",
         "input[type='checkbox'][id*='Saldo']",
@@ -137,29 +153,45 @@ def export_cta_cte(page: Page, client_id: int) -> Optional[pd.DataFrame]:
         "input[type='checkbox'][id*='MostrarSaldo']",
         "input[type='checkbox'][id*='Solo']",
         "input[type='checkbox'][id*='solo']",
-        "input[type='checkbox']",
+        "input[type='checkbox'][id*='Mostrar']",
     ]
-    tildado = False
     for sel in checkbox_selectors:
         try:
             cbs = page.locator(sel)
-            count = cbs.count()
-            if count > 0:
-                # Revisar todos los checkboxes visibles
-                for idx in range(count):
+            if cbs.count() > 0:
+                for idx in range(cbs.count()):
                     cb = cbs.nth(idx)
                     if cb.is_visible():
                         if not cb.is_checked():
                             cb.click()
-                        print(f"    Checkbox 'Mostrar solo con saldo' tildado (idx={idx}, sel={sel}).")
+                            page.wait_for_timeout(500)
+                        print(f"    Checkbox 'Mostrar solo con saldo' tildado ({sel}).")
                         tildado = True
                         break
             if tildado:
                 break
         except:
             continue
+
     if not tildado:
-        print("    AVISO: No se encontró checkbox 'Mostrar solo con saldo'.")
+        # Buscar todos los checkboxes de la página y tildar el primero visible
+        try:
+            all_cbs = page.locator("input[type='checkbox']")
+            for idx in range(all_cbs.count()):
+                cb = all_cbs.nth(idx)
+                if cb.is_visible():
+                    cb_id = cb.get_attribute("id") or ""
+                    if not cb.is_checked():
+                        cb.click()
+                        page.wait_for_timeout(500)
+                    print(f"    Checkbox tildado por fallback (id='{cb_id}').")
+                    tildado = True
+                    break
+        except:
+            pass
+
+    if not tildado:
+        print("    AVISO: No se encontró ningún checkbox en la página.")
 
     # ── 3. Click en Exportar y capturar la descarga ───────────────────────────
     export_selectors = [
