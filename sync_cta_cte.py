@@ -324,6 +324,22 @@ def upload_to_supabase(genexus_client_id: int, df: pd.DataFrame):
                     return col
         return None
 
+    # Filtrar la fila de totales que Genexus agrega al final del Excel
+    fecha_col = find_col(df, col_map["fecha_comprobante"])
+    comp_col  = find_col(df, col_map["comprobante"])
+    if fecha_col:
+        df = df[pd.to_datetime(df[fecha_col], errors='coerce').notna()]
+    if comp_col:
+        df = df[~df[comp_col].astype(str).str.lower().str.contains('total', na=False)]
+        df = df[df[comp_col].astype(str).str.strip().ne('').str.strip().ne('nan')]
+    df = df.reset_index(drop=True)
+
+    if df.empty:
+        print("    Sin comprobantes válidos para subir.")
+        return
+
+    print(f"    {len(df)} comprobantes válidos (sin fila de totales).")
+
     records = []
     now = datetime.now().isoformat()
     for _, row in df.iterrows():
