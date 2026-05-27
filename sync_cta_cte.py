@@ -177,22 +177,24 @@ def export_cta_cte(page: Page, client_id: int) -> Optional[pd.DataFrame]:
 
         # Leer el Excel desde el archivo temporal
         path = download.path()
-        df = pd.read_excel(path)
+
+        # Buscar la fila real del encabezado (el Excel de Genexus tiene títulos arriba)
+        keywords = ['saldo', 'importe', 'comprobante', 'fecha', 'vencimiento']
+        raw = pd.read_excel(path, header=None)
+        header_row = 0
+        for i, row in raw.iterrows():
+            row_lower = ' '.join(str(v).lower() for v in row.values if pd.notna(v))
+            matches = sum(1 for kw in keywords if kw in row_lower)
+            if matches >= 2:
+                header_row = i
+                break
+
+        df = pd.read_excel(path, skiprows=header_row, header=0)
         df.columns = [str(c).strip() for c in df.columns]
+        # Eliminar filas completamente vacías
+        df = df.dropna(how='all')
 
-        # Si las columnas parecen inválidas (ej: "Unnamed: 0"), intentar con skiprows
-        unnamed_count = sum(1 for c in df.columns if "Unnamed" in str(c))
-        if unnamed_count > len(df.columns) / 2:
-            print("    Columnas inválidas detectadas, reintentando con skiprows=1...")
-            for skip in range(1, 6):
-                df2 = pd.read_excel(path, skiprows=skip)
-                df2.columns = [str(c).strip() for c in df2.columns]
-                unnamed2 = sum(1 for c in df2.columns if "Unnamed" in str(c))
-                if unnamed2 == 0 and len(df2.columns) >= 3:
-                    df = df2
-                    print(f"    Leído con skiprows={skip}")
-                    break
-
+        print(f"    Encabezado encontrado en fila {header_row}.")
         print(f"    {len(df)} comprobantes descargados.")
         print(f"    Columnas encontradas: {list(df.columns)}")
         return df
