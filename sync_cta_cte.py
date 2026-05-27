@@ -1,199 +1,193 @@
 """
 sync_cta_cte.py — Sincronización de estado de cuenta desde Genexus → Supabase
+Usa Playwright (browser real) para autenticarse y exportar el Excel.
 
 Uso:
-    python sync_cta_cte.py 1248 1249 1250   # sincroniza esos clientes
-    python sync_cta_cte.py --todos           # sincroniza todos los clientes activos en Supabase
+    python sync_cta_cte.py 1248              # sincroniza un cliente
+    python sync_cta_cte.py 1248 1249 1250   # sincroniza varios
+    python sync_cta_cte.py --todos           # sincroniza todos los activos en Supabase
 
 Requisitos en .env:
     FEDAFAR_USER, FEDAFAR_PASS, SUPABASE_URL, SUPABASE_KEY
 """
 
 import os
-import re
 import sys
-import json
-import time
-import requests
+import tempfile
 import pandas as pd
-from io import BytesIO
 from typing import Optional
 from datetime import datetime
-from bs4 import BeautifulSoup
 from dotenv import load_dotenv
+from playwright.sync_api import sync_playwright, Page, TimeoutError as PWTimeout
 
 load_dotenv()
 
 # ── Configuración ──────────────────────────────────────────────────────────────
 BASE_URL     = "http://192.168.0.35/fedafar"
-LOGIN_PATH   = "wwpbaseobjects.seclogin.aspx"
-EXPORT_PATH  = "teso_comprobantesdecliente.aspx"
-EXPORT_HASH  = "c01d04b1610243d2a2af23e7952e8b18c9c531f9d7a51341ad848140ec23a4e5"
-
 FEDAFAR_USER = os.getenv("FEDAFAR_USER")
 FEDAFAR_PASS = os.getenv("FEDAFAR_PASS")
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY")
 
 
-# ── Sesión GeneXus ─────────────────────────────────────────────────────────────
+# ── Login ──────────────────────────────────────────────────────────────────────
 
-class GeneXusSession:
-    def __init__(self):
-        self.http            = requests.Session()
-        self.jwt             = None
-        self.security_token  = None
-
-    def _extract_security_token(self, html: str) -> str:
-        """Busca el AJAX_SECURITY_TOKEN en el HTML (variable JS o hidden input)."""
-        # Genexus suele exponerlo como: GxAjaxKey = "...";
-        m = re.search(r'GxAjaxKey\s*=\s*["\']([^"\']+)["\']', html)
-        if m:
-            return m.group(1)
-        # Alternativa: input hidden
-        soup = BeautifulSoup(html, "html.parser")
-        inp  = soup.find("input", {"name": re.compile("AJAX_SECURITY_TOKEN", re.I)})
-        if inp:
-            return inp.get("value", "")
-        return ""
-
-    def _extract_login_hash(self, html: str) -> str:
-        """Extrae el hash del action del form de login en el HTML."""
-        m = re.search(rf'{re.escape(LOGIN_PATH)}\?([a-f0-9]{{40,}})', html)
-        if m:
-            return m.group(1)
-        # Si no encontramos, usamos el hash de exportación como fallback
-        print("  [WARN] No se encontró hash de login en el HTML, usando fallback.")
-        return EXPORT_HASH
-
-    def login(self) -> bool:
-        if not FEDAFAR_USER or not FEDAFAR_PASS:
-            print("ERROR: FEDAFAR_USER o FEDAFAR_PASS no configurados en .env")
-            return False
-
-        print("Iniciando sesión en el sistema interno Fedafar...")
-
-        # 1. GET página de login para obtener cookies iniciales y tokens
-        try:
-            r = self.http.get(f"{BASE_URL}/{LOGIN_PATH}", timeout=10)
-            r.raise_for_status()
-        except requests.RequestException as e:
-            print(f"ERROR: No se pudo conectar al servidor interno: {e}")
-            print("       Verificar que estás conectado a la red de Fedafar.")
-            return False
-
-        self.security_token = self._extract_security_token(r.text)
-        login_hash          = self._extract_login_hash(r.text)
-
-        # 2. POST login — patrón GeneXus AJAX estándar
-        url  = f"{BASE_URL}/{LOGIN_PATH}?{login_hash},gx-no-cache={int(time.time()*1000)}"
-        body = {
-            "MPage":    False,
-            "cmpCtx":   "",
-            "parms":    [FEDAFAR_USER, FEDAFAR_PASS],
-            "hsh":      [],
-            "objClass": "wwpbaseobjects.seclogin",
-            "pkgName":  "GeneXus.Programs",
-            "events":   ["'ENTER'"],
-            "grids":    {}
-        }
-        headers = {
-            "GxAjaxRequest":      "1",
-            "Content-Type":       "application/json",
-            "AJAX_SECURITY_TOKEN": self.security_token,
-        }
-
-        try:
-            r = self.http.post(url, json=body, headers=headers, timeout=10)
-            r.raise_for_status()
-        except requests.RequestException as e:
-            print(f"ERROR en POST de login: {e}")
-            return False
-
-        # 3. Extraer JWT del body de respuesta
-        try:
-            data = r.json()
-        except ValueError:
-            print("ERROR: Respuesta de login no es JSON válido.")
-            return False
-
-        for cmd in data.get("gxCommands", []):
-            if "setVar" in cmd and cmd["setVar"].get("varName") == "X-GXAUTH-TOKEN":
-                self.jwt = cmd["setVar"]["value"]
-                print("  Login exitoso.")
-                return True
-
-        # Revisar si hay mensaje de error en los comandos
-        for cmd in data.get("gxCommands", []):
-            if "setVar" in cmd:
-                print(f"  setVar recibido: {cmd['setVar']}")
-
-        print("ERROR: Login fallido. Verificar credenciales en .env")
+def do_login(page: Page) -> bool:
+    """Navega a la página de login y se autentica."""
+    print("  Abriendo página de login...")
+    try:
+        page.goto(f"{BASE_URL}/wwpbaseobjects.seclogin.aspx", timeout=15000)
+        page.wait_for_load_state("networkidle", timeout=15000)
+    except PWTimeout:
+        print("  ERROR: No se pudo conectar al servidor interno.")
+        print("         Verificar que estás en la red de Fedafar.")
         return False
 
-    def export_cta_cte(self, genexus_client_id: int) -> Optional[pd.DataFrame]:
-        """Exporta el estado de cuenta de un cliente y lo devuelve como DataFrame."""
-        fecha_hasta = datetime.now().strftime("%Y/%m/%d 00:00:00")
+    # Completar formulario
+    page.fill("#vSECUSERNAME",    FEDAFAR_USER)
+    page.fill("#vSECUSERPASSWORD", FEDAFAR_PASS)
+    page.click("#BTNENTER")
 
-        url  = f"{BASE_URL}/{EXPORT_PATH}?{EXPORT_HASH},gx-no-cache={int(time.time()*1000)}"
-        body = {
-            "MPage":    False,
-            "cmpCtx":   "",
-            "parms":    [False, genexus_client_id, "    /  /   00:00:00", fecha_hasta, True],
-            "hsh":      [],
-            "objClass": "teso_comprobantesdecliente",
-            "pkgName":  "GeneXus.Programs",
-            "events":   ["'DOUEXPORTAR'"],
-            "grids":    {}
-        }
-        headers = {
-            "GxAjaxRequest":      "1",
-            "Content-Type":       "application/json",
-            "AJAX_SECURITY_TOKEN": self.security_token,
-            "X-GXAUTH-TOKEN":      self.jwt,
-        }
+    # Esperar que redirija (sale de seclogin.aspx)
+    try:
+        page.wait_for_function(
+            "() => !window.location.href.includes('seclogin')",
+            timeout=10000
+        )
+        print(f"  Login exitoso.")
+        return True
+    except PWTimeout:
+        print("  ERROR: Login fallido. Verificar credenciales en .env")
+        return False
 
+
+# ── Export ─────────────────────────────────────────────────────────────────────
+
+def export_cta_cte(page: Page, client_id: int) -> Optional[pd.DataFrame]:
+    """Navega a Comprobantes de Clientes, selecciona el cliente y descarga el Excel."""
+    try:
+        page.goto(f"{BASE_URL}/teso_comprobantesdecliente.aspx", timeout=15000)
+        page.wait_for_load_state("networkidle", timeout=15000)
+    except PWTimeout:
+        print(f"    ERROR: No se pudo abrir la página de comprobantes.")
+        return None
+
+    # ── 1. Campo de cliente (autocomplete GeneXus) ─────────────────────────────
+    # Intentar distintos selectores posibles para el campo de cliente
+    client_selectors = [
+        "input[id*='Cliente']",
+        "input[id*='cliente']",
+        "input[id*='AV6']",
+        "input[id*='Cli']",
+    ]
+    client_input = None
+    for sel in client_selectors:
         try:
-            r = self.http.post(url, json=body, headers=headers, timeout=15)
-            r.raise_for_status()
-            data = r.json()
-        except Exception as e:
-            print(f"    ERROR al solicitar exportación: {e}")
-            return None
-
-        # Extraer URL del .xlsx de la respuesta
-        xlsx_rel_path = None
-        for cmd in data.get("gxCommands", []):
-            if "redirect" in cmd:
-                xlsx_rel_path = cmd["redirect"]["url"]
+            loc = page.locator(sel).first
+            if loc.count() > 0:
+                client_input = loc
+                print(f"    Campo cliente encontrado: {sel}")
                 break
+        except:
+            continue
 
-        if not xlsx_rel_path:
-            print(f"    Sin archivo en respuesta para cliente {genexus_client_id}.")
-            return None
+    if not client_input:
+        # Fallback: primer input de texto visible
+        client_input = page.locator("input[type='text']:visible").first
+        print("    Usando primer input visible como campo cliente.")
 
-        # GET inmediato del Excel (el servidor limpia el archivo temporal rápido)
-        xlsx_url = f"{BASE_URL}/{xlsx_rel_path}"
+    # Escribir el ID y esperar el dropdown
+    client_input.click()
+    client_input.fill("")
+    client_input.type(str(client_id), delay=80)
+    page.wait_for_timeout(2000)  # esperar sugerencias del autocomplete
+
+    # Seleccionar la primera sugerencia del dropdown
+    suggestion_selectors = [
+        ".gx_combo_suggestion",
+        "[class*='suggestion']",
+        "[class*='autocomplete'] li",
+        "[class*='dropdown'] li",
+        ".ui-menu-item",
+    ]
+    clicked = False
+    for sel in suggestion_selectors:
         try:
-            r2 = self.http.get(xlsx_url, timeout=10)
-            if r2.status_code != 200:
-                print(f"    ERROR descargando xlsx: HTTP {r2.status_code}")
-                return None
-        except requests.RequestException as e:
-            print(f"    ERROR al descargar xlsx: {e}")
-            return None
+            sug = page.locator(sel).first
+            if sug.is_visible(timeout=1000):
+                sug.click()
+                clicked = True
+                print(f"    Sugerencia seleccionada con: {sel}")
+                break
+        except:
+            continue
 
-        # Parsear el Excel
+    if not clicked:
+        # Si no apareció dropdown, presionar Tab para confirmar el valor
+        client_input.press("Tab")
+        page.wait_for_timeout(500)
+        print("    Sin dropdown, Tab para confirmar cliente.")
+
+    # ── 2. Tildar "Mostrar solo con saldo" ────────────────────────────────────
+    checkbox_selectors = [
+        "input[type='checkbox'][id*='aldo']",
+        "input[type='checkbox'][id*='Saldo']",
+        "input[type='checkbox'][id*='MostrarSaldo']",
+        "input[type='checkbox']",
+    ]
+    for sel in checkbox_selectors:
         try:
-            df = pd.read_excel(BytesIO(r2.content))
-        except Exception as e:
-            print(f"    ERROR leyendo Excel: {e}")
-            return None
+            cb = page.locator(sel).first
+            if cb.count() > 0:
+                if not cb.is_checked():
+                    cb.click()
+                print(f"    Checkbox 'Mostrar solo con saldo' tildado.")
+                break
+        except:
+            continue
 
-        # Normalizar nombres de columnas (por si el Excel tiene variantes)
+    # ── 3. Click en Exportar y capturar la descarga ───────────────────────────
+    export_selectors = [
+        "input[name='DOUEXPORTAR']",
+        "input[id*='EXPORT']",
+        "input[value*='Exportar']",
+        "button[id*='EXPORT']",
+        "input[value*='xportar']",
+    ]
+    export_btn = None
+    for sel in export_selectors:
+        try:
+            loc = page.locator(sel).first
+            if loc.count() > 0:
+                export_btn = loc
+                print(f"    Botón exportar encontrado: {sel}")
+                break
+        except:
+            continue
+
+    if not export_btn:
+        # Buscar por texto
+        export_btn = page.get_by_text("Exportar").first
+        print("    Usando botón por texto 'Exportar'.")
+
+    try:
+        with page.expect_download(timeout=20000) as dl_info:
+            export_btn.click()
+        download = dl_info.value
+
+        # Leer el Excel desde el archivo temporal
+        path = download.path()
+        df = pd.read_excel(path)
         df.columns = [str(c).strip() for c in df.columns]
-        print(f"    {len(df)} comprobantes encontrados.")
+        print(f"    {len(df)} comprobantes descargados.")
         return df
+
+    except PWTimeout:
+        print(f"    ERROR: Timeout esperando descarga del Excel.")
+        return None
+    except Exception as e:
+        print(f"    ERROR al descargar/leer Excel: {e}")
+        return None
 
 
 # ── Supabase ───────────────────────────────────────────────────────────────────
@@ -206,23 +200,42 @@ def get_supabase_client():
     return create_client(SUPABASE_URL, SUPABASE_KEY)
 
 
+def ensure_client_exists(sb, genexus_client_id: int):
+    """Crea un registro placeholder en clientes si no existe todavía."""
+    res = sb.table("clientes") \
+            .select("id") \
+            .eq("genexus_client_id", genexus_client_id) \
+            .execute()
+    if not res.data:
+        sb.table("clientes").insert({
+            "username":          f"cliente_{genexus_client_id}",
+            "password_hash":     "PENDIENTE",
+            "nombre":            f"Cliente {genexus_client_id}",
+            "tipo_precio":       "contado",
+            "genexus_client_id": genexus_client_id,
+            "activo":            False,   # inactivo hasta que se configure el login
+        }).execute()
+        print(f"    Cliente {genexus_client_id} creado en Supabase (pendiente configurar login).")
+
+
 def upload_to_supabase(genexus_client_id: int, df: pd.DataFrame):
     """Reemplaza los comprobantes del cliente en Supabase con datos frescos."""
     sb = get_supabase_client()
     if not sb:
         return
 
-    # Borrar registros anteriores del cliente
+    # Garantizar que el cliente exista antes de insertar sus comprobantes
+    ensure_client_exists(sb, genexus_client_id)
+
     sb.table("cuenta_corriente") \
       .delete() \
       .eq("genexus_client_id", genexus_client_id) \
       .execute()
 
     if df.empty:
-        print(f"    Sin comprobantes para subir.")
+        print("    Sin comprobantes para subir.")
         return
 
-    # Mapeo flexible de columnas (el Excel puede traer nombres con variaciones)
     col_map = {
         "fecha_comprobante": ["Fecha de Comprobante", "FechaComprobante", "Fecha Comprobante"],
         "comprobante":       ["Comprobante"],
@@ -239,7 +252,6 @@ def upload_to_supabase(genexus_client_id: int, df: pd.DataFrame):
 
     records = []
     now = datetime.now().isoformat()
-
     for _, row in df.iterrows():
         record = {"genexus_client_id": genexus_client_id, "actualizado_en": now}
         for field, candidates in col_map.items():
@@ -262,7 +274,6 @@ def upload_to_supabase(genexus_client_id: int, df: pd.DataFrame):
 
 
 def get_all_client_ids() -> list:
-    """Obtiene todos los genexus_client_id activos desde Supabase."""
     sb = get_supabase_client()
     if not sb:
         return []
@@ -277,21 +288,32 @@ def get_all_client_ids() -> list:
 # ── Main ───────────────────────────────────────────────────────────────────────
 
 def sync_clientes(client_ids: list):
-    """Sincroniza una lista de IDs con una sola sesión (más eficiente)."""
     if not client_ids:
         print("Sin clientes para sincronizar.")
         return
 
-    session = GeneXusSession()
-    if not session.login():
+    if not FEDAFAR_USER or not FEDAFAR_PASS:
+        print("ERROR: FEDAFAR_USER o FEDAFAR_PASS no configurados en .env")
         return
 
-    total = len(client_ids)
-    for i, cid in enumerate(client_ids, 1):
-        print(f"[{i}/{total}] Sincronizando cliente {cid}...")
-        df = session.export_cta_cte(cid)
-        if df is not None:
-            upload_to_supabase(cid, df)
+    with sync_playwright() as p:
+        browser = p.chromium.launch(headless=True)
+        context = browser.new_context(accept_downloads=True)
+        page    = context.new_page()
+
+        # Login una sola vez para todos los clientes
+        if not do_login(page):
+            browser.close()
+            return
+
+        total = len(client_ids)
+        for i, cid in enumerate(client_ids, 1):
+            print(f"[{i}/{total}] Sincronizando cliente {cid}...")
+            df = export_cta_cte(page, cid)
+            if df is not None:
+                upload_to_supabase(cid, df)
+
+        browser.close()
 
     print(f"\nSincronización completada: {total} cliente(s).")
 
@@ -310,7 +332,7 @@ if __name__ == "__main__":
             print("No se encontraron clientes activos en Supabase.")
             sys.exit(1)
         ids = [c["genexus_client_id"] for c in clientes]
-        print(f"Clientes a sincronizar: {[c['nombre'] for c in clientes]}")
+        print(f"Clientes: {[c['nombre'] for c in clientes]}")
         sync_clientes(ids)
     else:
         try:
