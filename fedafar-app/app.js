@@ -303,6 +303,9 @@ async function loadCuentaCorriente() {
 
         let totalSaldo = 0;
         let html = `
+            <p style="font-size:0.8rem;color:var(--text-muted);margin-bottom:12px;">
+                📋 Solo se muestran comprobantes con saldo pendiente.
+            </p>
             <table class="cuenta-table">
                 <thead>
                     <tr>

@@ -117,6 +117,7 @@ def api_cta_cte():
         res = sb.table('cuenta_corriente') \
                 .select('fecha_comprobante,comprobante,fecha_vencimiento,importe,saldo,actualizado_en') \
                 .eq('genexus_client_id', current_user.genexus_client_id) \
+                .gt('saldo', 0) \
                 .order('fecha_comprobante', desc=False) \
                 .execute()
         return jsonify(res.data or [])

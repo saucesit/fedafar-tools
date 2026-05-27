@@ -125,26 +125,41 @@ def export_cta_cte(page: Page, client_id: int) -> Optional[pd.DataFrame]:
     if not clicked:
         # Si no apareció dropdown, presionar Tab para confirmar el valor
         client_input.press("Tab")
-        page.wait_for_timeout(500)
+        page.wait_for_timeout(1500)
         print("    Sin dropdown, Tab para confirmar cliente.")
 
     # ── 2. Tildar "Mostrar solo con saldo" ────────────────────────────────────
+    page.wait_for_timeout(1500)  # esperar que la página procese el cliente
     checkbox_selectors = [
         "input[type='checkbox'][id*='aldo']",
         "input[type='checkbox'][id*='Saldo']",
+        "input[type='checkbox'][id*='SALDO']",
         "input[type='checkbox'][id*='MostrarSaldo']",
+        "input[type='checkbox'][id*='Solo']",
+        "input[type='checkbox'][id*='solo']",
         "input[type='checkbox']",
     ]
+    tildado = False
     for sel in checkbox_selectors:
         try:
-            cb = page.locator(sel).first
-            if cb.count() > 0:
-                if not cb.is_checked():
-                    cb.click()
-                print(f"    Checkbox 'Mostrar solo con saldo' tildado.")
+            cbs = page.locator(sel)
+            count = cbs.count()
+            if count > 0:
+                # Revisar todos los checkboxes visibles
+                for idx in range(count):
+                    cb = cbs.nth(idx)
+                    if cb.is_visible():
+                        if not cb.is_checked():
+                            cb.click()
+                        print(f"    Checkbox 'Mostrar solo con saldo' tildado (idx={idx}, sel={sel}).")
+                        tildado = True
+                        break
+            if tildado:
                 break
         except:
             continue
+    if not tildado:
+        print("    AVISO: No se encontró checkbox 'Mostrar solo con saldo'.")
 
     # ── 3. Click en Exportar y capturar la descarga ───────────────────────────
     export_selectors = [
