@@ -102,76 +102,42 @@ def export_cta_cte(page: Page, client_id: int) -> Optional[pd.DataFrame]:
     client_input.type(str(client_id), delay=150)
     page.wait_for_timeout(3000)  # esperar sugerencias del autocomplete
 
-    # Buscar sugerencia que contenga el client_id específico
-    suggestion_selectors = [
-        ".gx_combo_suggestion",
-        "[class*='suggestion']",
-        "[class*='autocomplete'] li",
-        "[class*='dropdown'] li",
-        ".ui-menu-item",
-        "li[id*='combo']",
-        "[id*='suggestion']",
-    ]
-    clicked = False
-    for sel in suggestion_selectors:
-        try:
-            all_sug = page.locator(sel)
-            count = all_sug.count()
-            if count == 0:
-                continue
-            # Buscar la sugerencia que contenga el client_id
-            for idx in range(count):
-                sug = all_sug.nth(idx)
-                if not sug.is_visible(timeout=500):
-                    continue
-                text = sug.text_content() or ""
-                # Verificar que la sugerencia EMPIECE con el client_id (no que lo contenga en cualquier parte)
-                import re as _re
-                if _re.match(rf'^\s*{client_id}\b', text):
-                    sug.click()
-                    clicked = True
-                    print(f"    Sugerencia correcta seleccionada: '{text.strip()[:50]}'")
-                    break
-            if clicked:
-                break
-            # Si no encontró coincidencia exacta, clic en la primera visible
-            first = all_sug.first
-            if first.is_visible(timeout=500):
-                text = first.text_content() or ""
-                first.click()
-                clicked = True
-                print(f"    Primera sugerencia seleccionada: '{text.strip()[:50]}'")
-                break
-        except:
-            continue
-
-    if not clicked:
-        # Intentar con ArrowDown + Enter
-        client_input.press("ArrowDown")
-        page.wait_for_timeout(500)
-        client_input.press("Enter")
-        page.wait_for_timeout(1000)
-
-    # Verificar el valor final del campo
-    page.wait_for_timeout(500)
-    current_val = client_input.input_value()
     import re as _re
-    if _re.match(rf'^\s*{client_id}\b', current_val):
-        print(f"    ✓ Cliente confirmado: '{current_val.strip()[:60]}'")
-    else:
-        print(f"    ⚠ ADVERTENCIA: valor en campo = '{current_val.strip()[:60]}' (esperado ID {client_id})")
-        # Intentar limpiar y volver a escribir con Tab como último recurso
-        client_input.click()
-        client_input.press("Control+a")
-        client_input.fill(str(client_id))
-        page.wait_for_timeout(1500)
-        client_input.press("Tab")
-        page.wait_for_timeout(1000)
+
+    # Navegar el dropdown con ArrowDown hasta encontrar el cliente correcto.
+    # En Genexus, ArrowDown actualiza el valor del input con la sugerencia resaltada.
+    client_input.press("ArrowDown")
+    page.wait_for_timeout(400)
+
+    confirmed = False
+    for attempt in range(25):
         current_val = client_input.input_value()
         if _re.match(rf'^\s*{client_id}\b', current_val):
-            print(f"    ✓ Cliente confirmado tras reintento: '{current_val.strip()[:60]}'")
+            client_input.press("Enter")
+            page.wait_for_timeout(800)
+            confirmed = True
+            print(f"    ✓ Cliente confirmado (intento {attempt + 1}): '{current_val.strip()[:60]}'")
+            break
+        client_input.press("ArrowDown")
+        page.wait_for_timeout(200)
+
+    if not confirmed:
+        # Último recurso: limpiar, escribir y Tab
+        print(f"    ⚠ No encontrado en dropdown. Reintentando con Tab...")
+        client_input.click()
+        client_input.press("Control+a")
+        client_input.press("Delete")
+        page.wait_for_timeout(200)
+        client_input.type(str(client_id), delay=120)
+        page.wait_for_timeout(2000)
+        client_input.press("Tab")
+        page.wait_for_timeout(1500)
+        current_val = client_input.input_value()
+        if _re.match(rf'^\s*{client_id}\b', current_val):
+            confirmed = True
+            print(f"    ✓ Cliente confirmado tras Tab: '{current_val.strip()[:60]}'")
         else:
-            print(f"    ✗ ERROR: no se pudo seleccionar cliente {client_id}. Valor: '{current_val.strip()[:60]}'")
+            print(f"    ✗ ERROR: no se pudo seleccionar cliente {client_id}. Abortando.")
             return None
 
     # ── 2. Tildar "Mostrar solo con saldo" ────────────────────────────────────
