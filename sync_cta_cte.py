@@ -94,14 +94,15 @@ def export_cta_cte(page: Page, client_id: int) -> Optional[pd.DataFrame]:
         client_input = page.locator("input[type='text']:visible").first
         print("    Usando primer input visible como campo cliente.")
 
-    # Limpiar y escribir el ID lentamente para activar el autocomplete
-    client_input.click(click_count=3)
-    client_input.fill("")
+    # Limpiar el campo con Ctrl+A + Delete para asegurar que esté vacío
+    client_input.click()
+    client_input.press("Control+a")
+    client_input.press("Delete")
     page.wait_for_timeout(300)
     client_input.type(str(client_id), delay=150)
     page.wait_for_timeout(3000)  # esperar sugerencias del autocomplete
 
-    # Intentar seleccionar la sugerencia del dropdown
+    # Buscar sugerencia que contenga el client_id específico
     suggestion_selectors = [
         ".gx_combo_suggestion",
         "[class*='suggestion']",
@@ -114,31 +115,57 @@ def export_cta_cte(page: Page, client_id: int) -> Optional[pd.DataFrame]:
     clicked = False
     for sel in suggestion_selectors:
         try:
-            sug = page.locator(sel).first
-            if sug.is_visible(timeout=1500):
-                sug.click()
+            all_sug = page.locator(sel)
+            count = all_sug.count()
+            if count == 0:
+                continue
+            # Buscar la sugerencia que contenga el client_id
+            for idx in range(count):
+                sug = all_sug.nth(idx)
+                if not sug.is_visible(timeout=500):
+                    continue
+                text = sug.text_content() or ""
+                if str(client_id) in text:
+                    sug.click()
+                    clicked = True
+                    print(f"    Sugerencia correcta seleccionada: '{text.strip()[:50]}'")
+                    break
+            if clicked:
+                break
+            # Si no encontró coincidencia exacta, clic en la primera visible
+            first = all_sug.first
+            if first.is_visible(timeout=500):
+                text = first.text_content() or ""
+                first.click()
                 clicked = True
-                print(f"    Sugerencia seleccionada con: {sel}")
+                print(f"    Primera sugerencia seleccionada: '{text.strip()[:50]}'")
                 break
         except:
             continue
 
     if not clicked:
-        # Intentar con ArrowDown + Enter para seleccionar del dropdown
+        # Intentar con ArrowDown + Enter
         client_input.press("ArrowDown")
         page.wait_for_timeout(500)
         client_input.press("Enter")
         page.wait_for_timeout(1000)
-        # Verificar si el campo tiene el valor correcto
+
+    # Verificar el valor final del campo
+    page.wait_for_timeout(500)
+    current_val = client_input.input_value()
+    if str(client_id) in current_val:
+        print(f"    ✓ Cliente confirmado: '{current_val.strip()[:60]}'")
+    else:
+        print(f"    ⚠ ADVERTENCIA: valor en campo = '{current_val.strip()[:60]}' (esperado ID {client_id})")
+        # Intentar limpiar y volver a escribir con Tab como último recurso
+        client_input.click()
+        client_input.press("Control+a")
+        client_input.fill(str(client_id))
+        page.wait_for_timeout(1500)
+        client_input.press("Tab")
+        page.wait_for_timeout(1000)
         current_val = client_input.input_value()
-        if str(client_id) in current_val:
-            print(f"    Cliente seleccionado con ArrowDown+Enter (valor: {current_val[:40]}).")
-            clicked = True
-        else:
-            # Último recurso: Tab
-            client_input.press("Tab")
-            page.wait_for_timeout(1500)
-            print(f"    Sin dropdown. Tab para confirmar (valor actual: {current_val[:40]}).")
+        print(f"    Valor tras reintento: '{current_val.strip()[:60]}'")
 
     # ── 2. Tildar "Mostrar solo con saldo" ────────────────────────────────────
     page.wait_for_timeout(2000)  # esperar que la página actualice tras seleccionar cliente
