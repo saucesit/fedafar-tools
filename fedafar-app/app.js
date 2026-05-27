@@ -285,6 +285,9 @@ cuentaBtn.addEventListener('click', () => {
 });
 closeCuentaBtn.addEventListener('click', () => cuentaModal.classList.add('hidden'));
 
+const backFromCuentaBtn = document.getElementById('back-from-cuenta');
+if (backFromCuentaBtn) backFromCuentaBtn.addEventListener('click', () => cuentaModal.classList.add('hidden'));
+
 async function loadCuentaCorriente() {
     cuentaBody.innerHTML = '<p style="text-align:center;padding:30px;color:var(--text-muted);">Cargando...</p>';
     cuentaSaldoTotal.innerText = '$ 0,00';

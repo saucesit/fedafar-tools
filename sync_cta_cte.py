@@ -179,7 +179,22 @@ def export_cta_cte(page: Page, client_id: int) -> Optional[pd.DataFrame]:
         path = download.path()
         df = pd.read_excel(path)
         df.columns = [str(c).strip() for c in df.columns]
+
+        # Si las columnas parecen inválidas (ej: "Unnamed: 0"), intentar con skiprows
+        unnamed_count = sum(1 for c in df.columns if "Unnamed" in str(c))
+        if unnamed_count > len(df.columns) / 2:
+            print("    Columnas inválidas detectadas, reintentando con skiprows=1...")
+            for skip in range(1, 6):
+                df2 = pd.read_excel(path, skiprows=skip)
+                df2.columns = [str(c).strip() for c in df2.columns]
+                unnamed2 = sum(1 for c in df2.columns if "Unnamed" in str(c))
+                if unnamed2 == 0 and len(df2.columns) >= 3:
+                    df = df2
+                    print(f"    Leído con skiprows={skip}")
+                    break
+
         print(f"    {len(df)} comprobantes descargados.")
+        print(f"    Columnas encontradas: {list(df.columns)}")
         return df
 
     except PWTimeout:
@@ -237,17 +252,28 @@ def upload_to_supabase(genexus_client_id: int, df: pd.DataFrame):
         return
 
     col_map = {
-        "fecha_comprobante": ["Fecha de Comprobante", "FechaComprobante", "Fecha Comprobante"],
-        "comprobante":       ["Comprobante"],
-        "fecha_vencimiento": ["Fecha de Vencimiento", "FechaVencimiento", "Fecha Vencimiento"],
-        "importe":           ["Importe"],
-        "saldo":             ["Saldo"],
+        "fecha_comprobante": ["Fecha de Comprobante", "FechaComprobante", "Fecha Comprobante", "Fecha"],
+        "comprobante":       ["Comprobante", "Nro. Comprobante", "Nro Comprobante", "Número", "Numero"],
+        "fecha_vencimiento": ["Fecha de Vencimiento", "FechaVencimiento", "Fecha Vencimiento", "Vencimiento"],
+        "importe":           ["Importe", "Monto", "Total"],
+        "saldo":             ["Saldo", "Saldo Actual", "Saldo Pendiente", "Debe"],
     }
 
     def find_col(df, candidates):
+        # Exact match primero
         for c in candidates:
             if c in df.columns:
                 return c
+        # Case-insensitive match
+        cols_lower = {col.lower(): col for col in df.columns}
+        for c in candidates:
+            if c.lower() in cols_lower:
+                return cols_lower[c.lower()]
+        # Partial match (el candidato está contenido en la columna o viceversa)
+        for c in candidates:
+            for col in df.columns:
+                if c.lower() in col.lower() or col.lower() in c.lower():
+                    return col
         return None
 
     records = []
