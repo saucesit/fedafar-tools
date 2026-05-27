@@ -95,8 +95,7 @@ def export_cta_cte(page: Page, client_id: int) -> Optional[pd.DataFrame]:
         print("    Usando primer input visible como campo cliente.")
 
     # Limpiar y escribir el ID lentamente para activar el autocomplete
-    client_input.click()
-    client_input.triple_click()
+    client_input.click(click_count=3)
     client_input.fill("")
     page.wait_for_timeout(300)
     client_input.type(str(client_id), delay=150)
