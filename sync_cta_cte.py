@@ -1,4 +1,4 @@
-"""
+﻿"""
 sync_cta_cte.py — Sincronización de estado de cuenta desde Genexus → Supabase
 Usa Playwright (browser real) para autenticarse y exportar el Excel.
 
@@ -116,14 +116,14 @@ def export_cta_cte(page: Page, client_id: int) -> Optional[pd.DataFrame]:
             client_input.press("Enter")
             page.wait_for_timeout(800)
             confirmed = True
-            print(f"    ✓ Cliente confirmado (intento {attempt + 1}): '{current_val.strip()[:60]}'")
+            print(f"    [OK] Cliente confirmado (intento {attempt + 1}): '{current_val.strip()[:60]}'")
             break
         client_input.press("ArrowDown")
         page.wait_for_timeout(200)
 
     if not confirmed:
         # Último recurso: limpiar, escribir y Tab
-        print(f"    ⚠ No encontrado en dropdown. Reintentando con Tab...")
+        print(f"    [AVISO] No encontrado en dropdown. Reintentando con Tab...")
         client_input.click()
         client_input.press("Control+a")
         client_input.press("Delete")
@@ -135,9 +135,9 @@ def export_cta_cte(page: Page, client_id: int) -> Optional[pd.DataFrame]:
         current_val = client_input.input_value()
         if _re.match(rf'^\s*{client_id}\b', current_val):
             confirmed = True
-            print(f"    ✓ Cliente confirmado tras Tab: '{current_val.strip()[:60]}'")
+            print(f"    [OK] Cliente confirmado tras Tab: '{current_val.strip()[:60]}'")
         else:
-            print(f"    ✗ ERROR: no se pudo seleccionar cliente {client_id}. Abortando.")
+            print(f"    [ERROR] ERROR: no se pudo seleccionar cliente {client_id}. Abortando.")
             return None
 
     # ── 2. Tildar "Mostrar solo con saldo" ────────────────────────────────────
