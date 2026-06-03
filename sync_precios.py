@@ -16,6 +16,7 @@ Requisitos en .env:
 """
 
 import os
+import shutil
 import requests
 from dotenv import load_dotenv
 from playwright.sync_api import sync_playwright, Page, TimeoutError as PWTimeout
@@ -104,54 +105,61 @@ def download_price_list(page: Page) -> bool:
 
     page.wait_for_timeout(500)
 
-    # ── 4. Interceptar la URL del XHR con el listener nativo de Playwright ────
-    print("  Escuchando requests de red...")
-    captured_urls = []
-    page.on("request", lambda req: captured_urls.append(req.url)
-            if "WCExport" in req.url.upper() else None)
+    # ── 4. Capturar todos los requests para debug ────────────────────────────
+    all_requests = []
+    page.on("request", lambda req: all_requests.append(req.url))
 
-    # ── 5. Click en Excel ─────────────────────────────────────────────────────
-    print("  Clickeando boton Excel...")
-    page.locator("#W0033BTNEXPORT").click()
-    page.wait_for_timeout(4000)
+    # ── 5. Intentar con expect_download (captura cualquier descarga) ──────────
+    print("  Clickeando boton Excel (modo download)...")
+    try:
+        with page.expect_download(timeout=15000) as dl_info:
+            page.locator("#W0033BTNEXPORT").click()
+        download = dl_info.value
+        path = download.path()
+        shutil.copy(path, OUTPUT_PATH)
+        kb = os.path.getsize(OUTPUT_PATH) / 1024
+        print(f"  [OK] price_list.xlsx descargado ({kb:.1f} KB).")
+        return True
+    except Exception as e:
+        print(f"  [AVISO] expect_download no funciono: {e}")
 
-    # ── 6. Verificar URL capturada ────────────────────────────────────────────
-    if not captured_urls:
-        print("  ERROR: No se capturo la URL del Excel.")
+    # ── 6. Fallback: buscar URL en los requests capturados ────────────────────
+    page.wait_for_timeout(3000)
+    xlsx_urls = [u for u in all_requests if "WCExport" in u.upper() or "xlsx" in u.lower()]
+    print(f"  Requests capturados con xlsx/WCExport: {xlsx_urls}")
+    print(f"  Total requests capturados: {len(all_requests)}")
+    if len(all_requests) > 0:
+        print(f"  Ultimos 5 requests: {all_requests[-5:]}")
+
+    if not xlsx_urls:
+        print("  ERROR: No se capturo ninguna URL de descarga.")
         return False
 
-    xlsx_url = captured_urls[0]
+    xlsx_url = xlsx_urls[0]
     if not xlsx_url.startswith("http"):
         xlsx_url = f"{BASE_URL}/{xlsx_url.lstrip('/')}"
     print(f"  [OK] URL capturada: {xlsx_url}")
 
-    # ── 7. Descargar usando el contexto de Playwright (misma sesion/cookies) ──
-    print("  Descargando Excel...")
     try:
         token = page.evaluate("window.gx.sec.secToken")
     except:
         token = ""
 
-    try:
-        response = page.context.request.get(
-            xlsx_url,
-            headers={
-                "AJAX_SECURITY_TOKEN": token,
-                "X-SPA-MP":           "wwpbaseobjects.workwithplusmasterpage",
-                "X-SPA-REQUEST":      "1",
-                "Referer":            VIEW_URL,
-            }
-        )
-        with open(OUTPUT_PATH, "wb") as f:
-            f.write(response.body())
+    response = page.context.request.get(
+        xlsx_url,
+        headers={
+            "AJAX_SECURITY_TOKEN": token,
+            "X-SPA-MP":           "wwpbaseobjects.workwithplusmasterpage",
+            "X-SPA-REQUEST":      "1",
+            "Referer":            VIEW_URL,
+        }
+    )
+    with open(OUTPUT_PATH, "wb") as f:
+        f.write(response.body())
 
-        kb = len(response.body()) / 1024
-        print(f"  [OK] price_list.xlsx actualizado ({kb:.1f} KB).")
-        return True
-
-    except Exception as e:
-        print(f"  ERROR al descargar: {e}")
-        return False
+    kb = len(response.body()) / 1024
+    print(f"  [OK] price_list.xlsx actualizado ({kb:.1f} KB).")
+    return True
 
 
 # ── Main ───────────────────────────────────────────────────────────────────────
