@@ -104,64 +104,48 @@ def download_price_list(page: Page) -> bool:
 
     page.wait_for_timeout(500)
 
-    # ── 4. Inyectar JS para interceptar la URL del XHR ────────────────────────
-    print("  Inyectando interceptor de XHR...")
-    page.evaluate("""
-        window._xlsxUrl = null;
-        const origOpen = XMLHttpRequest.prototype.open;
-        XMLHttpRequest.prototype.open = function(method, url) {
-            if (url && url.toLowerCase().includes('wcexport')) {
-                window._xlsxUrl = url;
-            }
-            return origOpen.apply(this, arguments);
-        };
-    """)
+    # ── 4. Interceptar la URL del XHR con el listener nativo de Playwright ────
+    print("  Escuchando requests de red...")
+    captured_urls = []
+    page.on("request", lambda req: captured_urls.append(req.url)
+            if "WCExport" in req.url.upper() else None)
 
-    # ── 5. Click en Excel ────────────────────────────────────────────────────
+    # ── 5. Click en Excel ─────────────────────────────────────────────────────
     print("  Clickeando boton Excel...")
     page.locator("#W0033BTNEXPORT").click()
-    page.wait_for_timeout(3000)
+    page.wait_for_timeout(4000)
 
-    # ── 6. Obtener la URL capturada ───────────────────────────────────────────
-    xlsx_url = page.evaluate("window._xlsxUrl")
-    if not xlsx_url:
-        print("  ERROR: No se intercepto la URL del Excel.")
+    # ── 6. Verificar URL capturada ────────────────────────────────────────────
+    if not captured_urls:
+        print("  ERROR: No se capturo la URL del Excel.")
         return False
 
-    # Construir URL completa
+    xlsx_url = captured_urls[0]
     if not xlsx_url.startswith("http"):
         xlsx_url = f"{BASE_URL}/{xlsx_url.lstrip('/')}"
     print(f"  [OK] URL capturada: {xlsx_url}")
 
-    # ── 7. Obtener cookies y token de la sesion activa ────────────────────────
-    cookies = page.context.cookies()
+    # ── 7. Descargar usando el contexto de Playwright (misma sesion/cookies) ──
+    print("  Descargando Excel...")
     try:
         token = page.evaluate("window.gx.sec.secToken")
     except:
         token = ""
-        print("  [AVISO] No se pudo obtener AJAX_SECURITY_TOKEN.")
-
-    # ── 8. Descargar con requests ─────────────────────────────────────────────
-    print("  Descargando Excel...")
-    session = requests.Session()
-    for c in cookies:
-        session.cookies.set(c["name"], c["value"], domain=c.get("domain", ""))
-
-    headers = {
-        "AJAX_SECURITY_TOKEN": token,
-        "X-SPA-MP":            "wwpbaseobjects.workwithplusmasterpage",
-        "X-SPA-REQUEST":       "1",
-        "Referer":             VIEW_URL,
-    }
 
     try:
-        r = session.get(xlsx_url, headers=headers, timeout=60)
-        r.raise_for_status()
-
+        response = page.context.request.get(
+            xlsx_url,
+            headers={
+                "AJAX_SECURITY_TOKEN": token,
+                "X-SPA-MP":           "wwpbaseobjects.workwithplusmasterpage",
+                "X-SPA-REQUEST":      "1",
+                "Referer":            VIEW_URL,
+            }
+        )
         with open(OUTPUT_PATH, "wb") as f:
-            f.write(r.content)
+            f.write(response.body())
 
-        kb = len(r.content) / 1024
+        kb = len(response.body()) / 1024
         print(f"  [OK] price_list.xlsx actualizado ({kb:.1f} KB).")
         return True
 
