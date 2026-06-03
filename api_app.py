@@ -16,7 +16,7 @@ CORS(app, supports_credentials=True)
 
 BASE_DIR        = os.path.dirname(os.path.abspath(__file__))
 FEDAFAR_APP_DIR = os.path.join(BASE_DIR, 'fedafar-app')
-PRICE_LIST_PATH = os.path.join(BASE_DIR, 'full_price_list.txt')
+PRICE_LIST_PATH = os.path.join(BASE_DIR, 'price_list.xlsx')
 STOCK_URL       = 'http://192.168.0.35/fedafar/ALM_ArticulosPorDepositoExport-.xlsx'
 
 SUPABASE_URL   = os.getenv('SUPABASE_URL')
@@ -268,84 +268,75 @@ def fuzzy_stock_match(price_name, stock_dict):
             return stock_val
     return None
 
+MARKUP_CONTADO = 1.195
+MARKUP_CTA_CTE = 1.26
+
 def parse_price_list(tipo='contado'):
-    products = []
-    try:
-        with open(PRICE_LIST_PATH, "r", encoding="utf-16") as f:
-            lines = f.readlines()
-    except UnicodeError:
-        with open(PRICE_LIST_PATH, "r", encoding="utf-8") as f:
-            lines = f.readlines()
-
-    id_counter = 1
+    products   = []
     stock_dict = get_stock_data()
+    markup     = MARKUP_CTA_CTE if tipo == 'cta-cte' else MARKUP_CONTADO
 
-    for line in lines:
-        line = line.strip()
-        if not line or "Articulo" in line or "LISTA DE PRECIO" in line:
-            continue
-        parts = line.split()
-        if len(parts) >= 3:
-            p2_str = parts[-1]
-            p1_str = parts[-2]
-            try:
-                p1_val = float(p1_str.replace('.', '').replace(',', '.'))
-                p2_val = float(p2_str.replace('.', '').replace(',', '.'))
-                if p1_val <= 0: continue
+    try:
+        df = pd.read_excel(PRICE_LIST_PATH, skiprows=2, header=0)
+        df.columns = ['codigo', 'articulo', 'laboratorio', 'costo']
+        df['costo'] = pd.to_numeric(df['costo'], errors='coerce').fillna(0)
+        df = df[df['costo'] > 0].reset_index(drop=True)
+    except Exception as e:
+        print(f"Error leyendo lista de precios: {e}")
+        return []
 
-                price_val = p2_val if tipo == 'cta-cte' else p1_val
-                full_desc = " ".join(parts[:-2])
-                lab = "GENERICO"
-                if " - " in full_desc:
-                    desc_parts = full_desc.split(" - ")
-                    name = desc_parts[0]
-                    after_dash = desc_parts[1].split()
-                    if len(after_dash) > 1:
-                        lab = after_dash[1]
-                else:
-                    name = full_desc
+    for id_counter, (_, row) in enumerate(df.iterrows(), start=1):
+        costo     = float(row['costo'])
+        price_val = round(costo * markup, 2)
 
-                category = "Otros"
-                n = name.upper()
-                if any(x in n for x in ["AMOX", "CEFA", "CLARITRO", "AZITRO"]):
-                    category = "Antibióticos"
-                elif any(x in n for x in ["PARACETAMOL", "IBU", "DICLO", "NAPRO"]):
-                    category = "Analgésicos"
-                elif any(x in n for x in ["DEXA", "MEPRED", "BETAME"]):
-                    category = "Corticoides"
-                elif any(x in n for x in ["VALSAR", "ENALAPRIL", "ATORVA"]):
-                    category = "Cardiovascular"
-                elif any(x in n for x in [
-                    "JERINGA", "AGUJA", "APOSI", "BAJALENGUA", "BARBIJO",
-                    "CATETER", "GASA", "GUANTE", "CUBRECAMILLA", "RECOLECT",
-                    "SONDA", "MICROPORE", "TELA ADHESIVA", "TERMOMETRO",
-                    "TUBO ENDOT", "TIRAS REAC", "ALCOHOL AL 70"
-                ]):
-                    category = "Descartables"
+        # Quitar el código al final del nombre: "NOMBRE - 000000001" → "NOMBRE"
+        articulo = str(row['articulo']).strip()
+        name     = re.sub(r'\s*-\s*\d+\s*$', '', articulo).strip()
+        lab      = str(row['laboratorio']).strip() if pd.notna(row['laboratorio']) else 'GENERICO'
 
-                if category == "Descartables":
-                    price_val = round(price_val * 1.21, 2)
+        # Categoría
+        category = "Otros"
+        n = name.upper()
+        if any(x in n for x in ["AMOX", "CEFA", "CLARITRO", "AZITRO"]):
+            category = "Antibióticos"
+        elif any(x in n for x in ["PARACETAMOL", "IBU", "DICLO", "NAPRO"]):
+            category = "Analgésicos"
+        elif any(x in n for x in ["DEXA", "MEPRED", "BETAME"]):
+            category = "Corticoides"
+        elif any(x in n for x in ["VALSAR", "ENALAPRIL", "ATORVA"]):
+            category = "Cardiovascular"
+        elif any(x in n for x in [
+            "JERINGA", "AGUJA", "APOSI", "BAJALENGUA", "BARBIJO",
+            "CATETER", "GASA", "GUANTE", "CUBRECAMILLA", "RECOLECT",
+            "SONDA", "MICROPORE", "TELA ADHESIVA", "TERMOMETRO",
+            "TUBO ENDOT", "TIRAS REAC", "ALCOHOL AL 70"
+        ]):
+            category = "Descartables"
 
-                if len(stock_dict) > 0:
-                    stock_val = fuzzy_stock_match(name, stock_dict)
-                    if stock_val is None or stock_val <= 0:
-                        continue
+        # IVA 21% para descartables
+        if category == "Descartables":
+            price_val = round(price_val * 1.21, 2)
 
-                promo = None
-                n_upper = name.upper()
-                if "ACCU-CHEK GUIDE KIT" in n_upper or "ACCU-CHEK  GUIDE KIT" in n_upper:
-                    promo = "🎁 Gratis con la compra de 4 cajas de Tiras Reactivas x50"
-                    price_val = 0
-                elif "ACCU-CHEK GUIDE TIRAS" in n_upper and "50" in n_upper:
-                    promo = "🎁 Comprando 4 cajas, el equipo medidor va de regalo"
-
-                products.append({
-                    "id": id_counter, "name": name, "lab": lab,
-                    "price": price_val, "category": category, "promo": promo
-                })
-                id_counter += 1
-            except ValueError:
+        # Filtrar por stock (solo si la red interna está disponible)
+        if len(stock_dict) > 0:
+            stock_val = fuzzy_stock_match(name, stock_dict)
+            if stock_val is None or stock_val <= 0:
                 continue
+
+        # Promos ACCU-CHEK
+        promo   = None
+        n_upper = name.upper()
+        if "ACCU-CHEK GUIDE KIT" in n_upper:
+            promo     = "🎁 Gratis con la compra de 4 cajas de Tiras Reactivas x50"
+            price_val = 0
+        elif "ACCU-CHEK GUIDE TIRAS" in n_upper and "50" in n_upper:
+            promo = "🎁 Comprando 4 cajas, el equipo medidor va de regalo"
+
+        products.append({
+            "id": id_counter, "name": name, "lab": lab,
+            "price": price_val, "category": category, "promo": promo
+        })
+
     return products
 
 # ── Rutas estáticas ────────────────────────────────────────────────────────────

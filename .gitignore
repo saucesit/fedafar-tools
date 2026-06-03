@@ -10,6 +10,9 @@ env/
 *.csv
 *.pdf
 
+# Excepción: lista de precios (necesaria para el deploy en Render)
+!price_list.xlsx
+
 # Environment
 .env
 .env.local
