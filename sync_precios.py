@@ -57,206 +57,75 @@ def do_login(page: Page) -> bool:
 
 def download_price_list(page: Page) -> bool:
     """
-    Navega a Ventas > Listas de precios > Visualizar > Articulos > Export Excel
+    Navega a VTA_ListasPreciosArticulosWC.aspx > click lupita (a[href*=DSP]) >
+    limpia campos Buscar > click #W0033BTNEXPORT
     """
 
-    # Intentar URLs conocidas del modulo de listas de precios
-    candidate_urls = [
-        f"{BASE_URL}/VTA_ListasPreciosArticulosWC.aspx",
-        f"{BASE_URL}/vta_listaspreciosarticulos.aspx",
-        f"{BASE_URL}/VTA_ListasPreciosArticulos.aspx",
-        f"{BASE_URL}/vta_listasdepreciosarticulos.aspx",
-    ]
-
-    loaded = False
-    for url in candidate_urls:
-        try:
-            print(f"  Intentando: {url}")
-            page.goto(url, timeout=10000)
-            page.wait_for_load_state("networkidle", timeout=10000)
-            title = page.title().lower()
-            if "error" not in title and "not found" not in title and "404" not in title:
-                print(f"  [OK] Pagina cargada.")
-                loaded = True
-                break
-        except:
-            continue
-
-    if not loaded:
-        # Navegar desde el menu principal
-        print("  URL directa no encontrada. Navegando desde el menu...")
-        loaded = navigate_from_menu(page)
-
-    if not loaded:
-        print("  ERROR: No se pudo abrir la pagina de lista de precios.")
+    # ── 1. Abrir la pagina de listas de precios ───────────────────────────────
+    print("  Navegando a lista de precios...")
+    try:
+        page.goto(f"{BASE_URL}/VTA_ListasPreciosArticulosWC.aspx", timeout=15000)
+        page.wait_for_load_state("networkidle", timeout=15000)
+        print("  [OK] Pagina cargada.")
+    except PWTimeout:
+        print("  ERROR: No se pudo abrir la pagina de listas de precios.")
         return False
 
-    # ── Buscar y hacer clic en el boton Visualizar (lupita) ───────────────────
-    print("  Buscando boton Visualizar (lupita)...")
-    visualizar_selectors = [
-        "input[title*='isualizar']",
-        "input[value*='isualizar']",
-        "button[title*='isualizar']",
-        "img[title*='isualizar']",
-        "img[alt*='isualizar']",
-        "input[src*='lupa']",
-        "img[src*='lupa']",
-        "input[src*='search']",
-        "img[src*='search']",
-    ]
-    clicked_visualizar = False
-    for sel in visualizar_selectors:
-        try:
-            btn = page.locator(sel).first
-            if btn.is_visible(timeout=2000):
-                btn.click()
-                page.wait_for_load_state("networkidle", timeout=10000)
-                print(f"  [OK] Visualizar clickeado ({sel}).")
-                clicked_visualizar = True
-                break
-        except:
-            continue
+    # ── 2. Click en la lupita (Visualizar) ────────────────────────────────────
+    print("  Clickeando lupita (Visualizar)...")
+    try:
+        lupita = page.locator("a[href*='DSP']").first
+        lupita.wait_for(timeout=5000)
+        lupita.click()
+        page.wait_for_load_state("networkidle", timeout=15000)
+        print("  [OK] Lupita clickeada. Pagina actual:", page.url)
+    except Exception as e:
+        print(f"  ERROR: No se encontro la lupita: {e}")
+        return False
 
-    if not clicked_visualizar:
-        # Intentar por texto
+    # ── 3. Limpiar campo Buscar Articulo y Laboratorio ────────────────────────
+    print("  Limpiando campos Buscar...")
+    for field_id in [
+        "W0033vLISTAPRECIOARTICULONOMBRECOMPUESTO",
+        "W0033vLISTAPRECIOARTICULOLABORATORIONOMBRE",
+    ]:
         try:
-            btn = page.get_by_text("Visualizar", exact=False).first
-            if btn.is_visible(timeout=2000):
-                btn.click()
-                page.wait_for_load_state("networkidle", timeout=10000)
-                print("  [OK] Visualizar clickeado por texto.")
-                clicked_visualizar = True
+            inp = page.locator(f"#{field_id}")
+            if inp.is_visible(timeout=2000):
+                current = inp.input_value()
+                if current:
+                    inp.click()
+                    inp.press("Control+a")
+                    inp.press("Delete")
+                    print(f"  [OK] Campo {field_id[:30]}... limpiado (tenia: '{current[:20]}').")
+                else:
+                    print(f"  [OK] Campo {field_id[:30]}... ya estaba vacio.")
         except:
             pass
 
-    if not clicked_visualizar:
-        print("  [AVISO] No se encontro boton Visualizar. Continuando de todas formas...")
+    page.wait_for_timeout(500)
 
-    # ── Navegar a la tab / seccion Articulos ──────────────────────────────────
-    print("  Buscando seccion Articulos...")
-    articulos_selectors = [
-        "td:has-text('Articulos')",
-        "a:has-text('Articulos')",
-        "span:has-text('Articulos')",
-        "input[value*='rticulos']",
-        "button:has-text('Articulos')",
-    ]
-    for sel in articulos_selectors:
-        try:
-            el = page.locator(sel).first
-            if el.is_visible(timeout=2000):
-                el.click()
-                page.wait_for_timeout(1500)
-                print(f"  [OK] Seccion Articulos seleccionada ({sel}).")
-                break
-        except:
-            continue
-
-    # ── Limpiar el campo Buscar ───────────────────────────────────────────────
-    print("  Limpiando campo Buscar...")
-    search_selectors = [
-        "input[id*='Buscar']",
-        "input[id*='buscar']",
-        "input[id*='Search']",
-        "input[id*='Filtro']",
-        "input[placeholder*='uscar']",
-    ]
-    for sel in search_selectors:
-        try:
-            inp = page.locator(sel).first
-            if inp.is_visible(timeout=1500):
-                inp.click()
-                inp.press("Control+a")
-                inp.press("Delete")
-                print(f"  [OK] Campo Buscar limpiado ({sel}).")
-                break
-        except:
-            continue
-
-    page.wait_for_timeout(1000)
-
-    # ── Exportar a Excel ──────────────────────────────────────────────────────
-    print("  Buscando boton Excel...")
-    excel_selectors = [
-        "input[id*='EXPORT']",
-        "input[value*='xcel']",
-        "input[value*='xportar']",
-        "button[id*='EXPORT']",
-        "img[title*='xcel']",
-        "img[alt*='xcel']",
-        "input[src*='xcel']",
-        "img[src*='xcel']",
-    ]
-    export_btn = None
-    for sel in excel_selectors:
-        try:
-            btn = page.locator(sel).first
-            if btn.is_visible(timeout=2000):
-                export_btn = btn
-                print(f"  [OK] Boton Excel encontrado ({sel}).")
-                break
-        except:
-            continue
-
-    if not export_btn:
-        # Buscar por texto
-        for texto in ["Excel", "Exportar", "Export"]:
-            try:
-                btn = page.get_by_text(texto, exact=False).first
-                if btn.is_visible(timeout=1500):
-                    export_btn = btn
-                    print(f"  [OK] Boton Excel encontrado por texto '{texto}'.")
-                    break
-            except:
-                continue
-
-    if not export_btn:
-        print("  ERROR: No se encontro el boton de exportar Excel.")
-        return False
-
-    # Capturar la descarga
+    # ── 4. Click en Excel y capturar descarga ─────────────────────────────────
+    print("  Clickeando boton Excel...")
     try:
+        export_btn = page.locator("#W0033BTNEXPORT")
+        export_btn.wait_for(timeout=5000)
+
         with page.expect_download(timeout=30000) as dl_info:
             export_btn.click()
         download = dl_info.value
         path = download.path()
 
-        # Sobrescribir price_list.xlsx
         shutil.copy(path, OUTPUT_PATH)
-        print(f"  [OK] price_list.xlsx actualizado correctamente.")
+        print(f"  [OK] price_list.xlsx actualizado ({OUTPUT_PATH}).")
         return True
 
     except PWTimeout:
         print("  ERROR: Timeout esperando la descarga del Excel.")
         return False
     except Exception as e:
-        print(f"  ERROR al descargar: {e}")
+        print(f"  ERROR al exportar: {e}")
         return False
-
-
-def navigate_from_menu(page: Page) -> bool:
-    """Navega desde el menu principal de Genexus."""
-    try:
-        page.goto(f"{BASE_URL}/default.aspx", timeout=10000)
-        page.wait_for_load_state("networkidle", timeout=10000)
-
-        # Ventas
-        ventas = page.get_by_text("Ventas", exact=True).first
-        if ventas.is_visible(timeout=3000):
-            ventas.click()
-            page.wait_for_timeout(1000)
-            print("  Menu Ventas clickeado.")
-
-        # Listas de precios
-        listas = page.get_by_text("Listas de precios", exact=False).first
-        if listas.is_visible(timeout=3000):
-            listas.click()
-            page.wait_for_load_state("networkidle", timeout=10000)
-            print("  [OK] Listas de precios clickeado.")
-            return True
-    except Exception as e:
-        print(f"  ERROR navegando por menu: {e}")
-    return False
 
 
 # ── Main ───────────────────────────────────────────────────────────────────────
