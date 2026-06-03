@@ -218,6 +218,14 @@ body {
     text-transform: uppercase;
 }
 
+.prod-principio {
+    font-size: 0.72rem;
+    color: var(--text-muted);
+    font-style: italic;
+    margin-top: 2px;
+    margin-bottom: 2px;
+}
+
 .prod-price {
     font-size: 1.1rem;
     font-weight: 600;

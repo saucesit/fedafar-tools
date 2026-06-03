@@ -143,7 +143,8 @@ function renderProducts(filter = '', category = 'all') {
     productGrid.innerHTML = '';
     const filtered = PRODUCTS.filter(p => {
         const matchesSearch = p.name.toLowerCase().includes(filter.toLowerCase()) ||
-                              p.lab.toLowerCase().includes(filter.toLowerCase());
+                              p.lab.toLowerCase().includes(filter.toLowerCase()) ||
+                              (p.principio && p.principio.toLowerCase().includes(filter.toLowerCase()));
         const matchesCat = category === 'all' || p.category === category;
         return matchesSearch && matchesCat;
     });
@@ -156,12 +157,14 @@ function renderProducts(filter = '', category = 'all') {
     filtered.forEach(product => {
         const card = document.createElement('div');
         card.className = 'product-card';
-        const precioTexto = product.price === 0 ? 'Sin cargo' : `$ ${product.price.toLocaleString('es-AR')}`;
-        const promoHtml   = product.promo ? `<p class="prod-promo">${product.promo}</p>` : '';
+        const precioTexto  = product.price === 0 ? 'Sin cargo' : `$ ${product.price.toLocaleString('es-AR')}`;
+        const promoHtml    = product.promo ? `<p class="prod-promo">${product.promo}</p>` : '';
+        const principioHtml = product.principio ? `<p class="prod-principio">${product.principio}</p>` : '';
         card.innerHTML = `
             <div class="prod-info">
                 <span class="prod-lab">${product.lab}</span>
                 <h3>${product.name}</h3>
+                ${principioHtml}
                 <p class="prod-price ${product.price === 0 ? 'prod-price--gratis' : ''}">${precioTexto}</p>
                 ${promoHtml}
             </div>

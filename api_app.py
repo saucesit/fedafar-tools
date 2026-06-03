@@ -1,5 +1,6 @@
 import os
 import re
+import json
 import pandas as pd
 from flask import Flask, jsonify, render_template, send_from_directory, request, session
 from flask_cors import CORS
@@ -16,7 +17,15 @@ CORS(app, supports_credentials=True)
 
 BASE_DIR        = os.path.dirname(os.path.abspath(__file__))
 FEDAFAR_APP_DIR = os.path.join(BASE_DIR, 'fedafar-app')
-PRICE_LIST_PATH = os.path.join(BASE_DIR, 'price_list.xlsx')
+PRICE_LIST_PATH   = os.path.join(BASE_DIR, 'price_list.xlsx')
+PRINCIPIOS_PATH   = os.path.join(BASE_DIR, 'principios_activos.json')
+
+def get_principios():
+    try:
+        with open(PRINCIPIOS_PATH, 'r', encoding='utf-8') as f:
+            return json.load(f)
+    except:
+        return {}
 STOCK_URL       = 'http://192.168.0.35/fedafar/ALM_ArticulosPorDepositoExport-.xlsx'
 
 SUPABASE_URL   = os.getenv('SUPABASE_URL')
@@ -271,6 +280,7 @@ def fuzzy_stock_match(price_name, stock_dict):
 def parse_price_list(tipo='contado'):
     products   = []
     stock_dict = get_stock_data()
+    principios = get_principios()
 
     try:
         df = pd.read_excel(PRICE_LIST_PATH, skiprows=2, header=0)
@@ -338,9 +348,14 @@ def parse_price_list(tipo='contado'):
         elif "ACCU-CHEK GUIDE TIRAS" in n_upper and "50" in n_upper:
             promo = "🎁 Comprando 4 cajas, el equipo medidor va de regalo"
 
+        principio = principios.get(name, '')
+        if principio in ('insumo', 'desconocido'):
+            principio = ''
+
         products.append({
             "id": id_counter, "name": name, "lab": lab,
-            "price": price_val, "category": category, "promo": promo
+            "price": price_val, "category": category, "promo": promo,
+            "principio": principio
         })
 
     return products
