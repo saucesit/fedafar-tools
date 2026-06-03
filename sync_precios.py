@@ -64,12 +64,13 @@ def download_price_list(page: Page) -> bool:
     intercepta la URL del XHR del boton Excel y descarga el archivo.
     """
 
-    # ── 1. Navegar directo a la vista de articulos ────────────────────────────
-    VIEW_URL = f"{BASE_URL}/vta_listaspreciosview.aspx?1,DSP,"
+    # ── 1. Navegar directo a la pestaña Articulos ─────────────────────────────
+    VIEW_URL = f"{BASE_URL}/vta_listaspreciosview.aspx?1,DSP,#Articulos"
     print(f"  Navegando a {VIEW_URL} ...")
     try:
         page.goto(VIEW_URL, timeout=15000)
         page.wait_for_load_state("networkidle", timeout=15000)
+        page.wait_for_timeout(3000)  # esperar que el WebComponent renderice
         print("  [OK] Pagina cargada.")
     except PWTimeout:
         print("  ERROR: No se pudo cargar la vista de articulos.")
@@ -77,7 +78,7 @@ def download_price_list(page: Page) -> bool:
 
     # ── 2. Esperar que el boton Excel este listo ──────────────────────────────
     try:
-        page.locator("#W0033BTNEXPORT").wait_for(state="visible", timeout=10000)
+        page.locator("#W0033BTNEXPORT").wait_for(state="visible", timeout=15000)
         print("  [OK] Boton Excel visible.")
     except:
         print("  ERROR: El boton Excel no aparecio.")

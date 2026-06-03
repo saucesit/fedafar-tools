@@ -268,31 +268,37 @@ def fuzzy_stock_match(price_name, stock_dict):
             return stock_val
     return None
 
-MARKUP_CONTADO = 1.195
-MARKUP_CTA_CTE = 1.26
-
 def parse_price_list(tipo='contado'):
     products   = []
     stock_dict = get_stock_data()
-    markup     = MARKUP_CTA_CTE if tipo == 'cta-cte' else MARKUP_CONTADO
 
     try:
         df = pd.read_excel(PRICE_LIST_PATH, skiprows=2, header=0)
-        df.columns = ['codigo', 'articulo', 'laboratorio', 'costo']
-        df['costo'] = pd.to_numeric(df['costo'], errors='coerce').fillna(0)
-        df = df[df['costo'] > 0].reset_index(drop=True)
+        # Columnas: Codigo, Articulo, Laboratorio, Actualizacion, Precio Costo, Contado, Cta Cte, Activo
+        # Normalizar nombres de columnas
+        df.columns = [str(c).strip().lower().replace(' ', '_') for c in df.columns]
+        # Identificar columna de precio según tipo
+        col_precio = 'cta_cte' if tipo == 'cta-cte' else 'contado'
+        if col_precio not in df.columns:
+            # Fallback: usar precio costo con markup
+            col_precio  = 'precio_costo' if 'precio_costo' in df.columns else df.columns[4]
+            markup      = 1.26 if tipo == 'cta-cte' else 1.195
+            df[col_precio] = pd.to_numeric(df[col_precio], errors='coerce').fillna(0) * markup
+        df[col_precio] = pd.to_numeric(df[col_precio], errors='coerce').fillna(0)
+        df = df[df[col_precio] > 0].reset_index(drop=True)
     except Exception as e:
         print(f"Error leyendo lista de precios: {e}")
         return []
 
     for id_counter, (_, row) in enumerate(df.iterrows(), start=1):
-        costo     = float(row['costo'])
-        price_val = round(costo * markup, 2)
+        price_val = round(float(row[col_precio]), 2)
 
         # Quitar el código al final del nombre: "NOMBRE - 000000001" → "NOMBRE"
-        articulo = str(row['articulo']).strip()
+        col_art = 'artículo' if 'artículo' in df.columns else 'articulo'
+        col_lab = 'laboratorio'
+        articulo = str(row.get(col_art, row.iloc[1])).strip()
         name     = re.sub(r'\s*-\s*\d+\s*$', '', articulo).strip()
-        lab      = str(row['laboratorio']).strip() if pd.notna(row['laboratorio']) else 'GENERICO'
+        lab      = str(row.get(col_lab, 'GENERICO')).strip() if pd.notna(row.get(col_lab, None)) else 'GENERICO'
 
         # Categoría
         category = "Otros"
