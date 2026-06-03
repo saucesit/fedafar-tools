@@ -1,8 +1,12 @@
 """
 sync_precios.py — Descarga la lista de precios desde Genexus y actualiza price_list.xlsx
 
-Navegacion en Genexus:
-    Ventas > Listas de precios > Lupita (Visualizar) > Articulos > (limpiar Buscar) > Excel
+Flujo:
+    1. Login con Playwright
+    2. Navegar a vta_listaspreciosview.aspx?1,DSP, (vista de articulos)
+    3. Limpiar campos Buscar
+    4. Interceptar la URL del XHR con JS antes de clickear Excel
+    5. Descargar el .xlsx con requests usando las cookies y headers de sesion
 
 Uso:
     python sync_precios.py
@@ -12,7 +16,7 @@ Requisitos en .env:
 """
 
 import os
-import shutil
+import requests
 from dotenv import load_dotenv
 from playwright.sync_api import sync_playwright, Page, TimeoutError as PWTimeout
 
@@ -34,10 +38,9 @@ def do_login(page: Page) -> bool:
         page.wait_for_load_state("networkidle", timeout=15000)
     except PWTimeout:
         print("  ERROR: No se pudo conectar al servidor interno.")
-        print("         Verificar que estas en la red de Fedafar.")
         return False
 
-    page.fill("#vSECUSERNAME",    FEDAFAR_USER)
+    page.fill("#vSECUSERNAME",     FEDAFAR_USER)
     page.fill("#vSECUSERPASSWORD", FEDAFAR_PASS)
     page.click("#BTNENTER")
 
@@ -53,37 +56,34 @@ def do_login(page: Page) -> bool:
         return False
 
 
-# ── Descarga de lista de precios ───────────────────────────────────────────────
+# ── Descarga ───────────────────────────────────────────────────────────────────
 
 def download_price_list(page: Page) -> bool:
     """
-    Navega a VTA_ListasPreciosArticulosWC.aspx > click lupita (a[href*=DSP]) >
-    limpia campos Buscar > click #W0033BTNEXPORT
+    Navega a la vista de articulos, limpia los campos Buscar,
+    intercepta la URL del XHR del boton Excel y descarga el archivo.
     """
 
-    # ── 1. Abrir la pagina de listas de precios ───────────────────────────────
-    print("  Navegando a lista de precios...")
+    # ── 1. Navegar directo a la vista de articulos ────────────────────────────
+    VIEW_URL = f"{BASE_URL}/vta_listaspreciosview.aspx?1,DSP,"
+    print(f"  Navegando a {VIEW_URL} ...")
     try:
-        page.goto(f"{BASE_URL}/VTA_ListasPreciosArticulosWC.aspx", timeout=15000)
+        page.goto(VIEW_URL, timeout=15000)
         page.wait_for_load_state("networkidle", timeout=15000)
         print("  [OK] Pagina cargada.")
     except PWTimeout:
-        print("  ERROR: No se pudo abrir la pagina de listas de precios.")
+        print("  ERROR: No se pudo cargar la vista de articulos.")
         return False
 
-    # ── 2. Click en la lupita (Visualizar) ────────────────────────────────────
-    print("  Clickeando lupita (Visualizar)...")
+    # ── 2. Esperar que el boton Excel este listo ──────────────────────────────
     try:
-        lupita = page.locator("a[href*='DSP']").first
-        lupita.wait_for(timeout=5000)
-        lupita.click()
-        page.wait_for_load_state("networkidle", timeout=15000)
-        print("  [OK] Lupita clickeada. Pagina actual:", page.url)
-    except Exception as e:
-        print(f"  ERROR: No se encontro la lupita: {e}")
+        page.locator("#W0033BTNEXPORT").wait_for(state="visible", timeout=10000)
+        print("  [OK] Boton Excel visible.")
+    except:
+        print("  ERROR: El boton Excel no aparecio.")
         return False
 
-    # ── 3. Limpiar campo Buscar Articulo y Laboratorio ────────────────────────
+    # ── 3. Limpiar campos Buscar ──────────────────────────────────────────────
     print("  Limpiando campos Buscar...")
     for field_id in [
         "W0033vLISTAPRECIOARTICULONOMBRECOMPUESTO",
@@ -92,39 +92,80 @@ def download_price_list(page: Page) -> bool:
         try:
             inp = page.locator(f"#{field_id}")
             if inp.is_visible(timeout=2000):
-                current = inp.input_value()
-                if current:
-                    inp.click()
-                    inp.press("Control+a")
-                    inp.press("Delete")
-                    print(f"  [OK] Campo {field_id[:30]}... limpiado (tenia: '{current[:20]}').")
+                val = inp.input_value()
+                if val:
+                    inp.fill("")
+                    print(f"  [OK] Campo limpiado (tenia: '{val[:30]}').")
                 else:
-                    print(f"  [OK] Campo {field_id[:30]}... ya estaba vacio.")
+                    print(f"  [OK] Campo ya estaba vacio.")
         except:
             pass
 
     page.wait_for_timeout(500)
 
-    # ── 4. Click en Excel y capturar descarga ─────────────────────────────────
+    # ── 4. Inyectar JS para interceptar la URL del XHR ────────────────────────
+    print("  Inyectando interceptor de XHR...")
+    page.evaluate("""
+        window._xlsxUrl = null;
+        const origOpen = XMLHttpRequest.prototype.open;
+        XMLHttpRequest.prototype.open = function(method, url) {
+            if (url && url.toLowerCase().includes('wcexport')) {
+                window._xlsxUrl = url;
+            }
+            return origOpen.apply(this, arguments);
+        };
+    """)
+
+    # ── 5. Click en Excel ────────────────────────────────────────────────────
     print("  Clickeando boton Excel...")
+    page.locator("#W0033BTNEXPORT").click()
+    page.wait_for_timeout(3000)
+
+    # ── 6. Obtener la URL capturada ───────────────────────────────────────────
+    xlsx_url = page.evaluate("window._xlsxUrl")
+    if not xlsx_url:
+        print("  ERROR: No se intercepto la URL del Excel.")
+        return False
+
+    # Construir URL completa
+    if not xlsx_url.startswith("http"):
+        xlsx_url = f"{BASE_URL}/{xlsx_url.lstrip('/')}"
+    print(f"  [OK] URL capturada: {xlsx_url}")
+
+    # ── 7. Obtener cookies y token de la sesion activa ────────────────────────
+    cookies = page.context.cookies()
     try:
-        export_btn = page.locator("#W0033BTNEXPORT")
-        export_btn.wait_for(timeout=5000)
+        token = page.evaluate("window.gx.sec.secToken")
+    except:
+        token = ""
+        print("  [AVISO] No se pudo obtener AJAX_SECURITY_TOKEN.")
 
-        with page.expect_download(timeout=30000) as dl_info:
-            export_btn.click()
-        download = dl_info.value
-        path = download.path()
+    # ── 8. Descargar con requests ─────────────────────────────────────────────
+    print("  Descargando Excel...")
+    session = requests.Session()
+    for c in cookies:
+        session.cookies.set(c["name"], c["value"], domain=c.get("domain", ""))
 
-        shutil.copy(path, OUTPUT_PATH)
-        print(f"  [OK] price_list.xlsx actualizado ({OUTPUT_PATH}).")
+    headers = {
+        "AJAX_SECURITY_TOKEN": token,
+        "X-SPA-MP":            "wwpbaseobjects.workwithplusmasterpage",
+        "X-SPA-REQUEST":       "1",
+        "Referer":             VIEW_URL,
+    }
+
+    try:
+        r = session.get(xlsx_url, headers=headers, timeout=60)
+        r.raise_for_status()
+
+        with open(OUTPUT_PATH, "wb") as f:
+            f.write(r.content)
+
+        kb = len(r.content) / 1024
+        print(f"  [OK] price_list.xlsx actualizado ({kb:.1f} KB).")
         return True
 
-    except PWTimeout:
-        print("  ERROR: Timeout esperando la descarga del Excel.")
-        return False
     except Exception as e:
-        print(f"  ERROR al exportar: {e}")
+        print(f"  ERROR al descargar: {e}")
         return False
 
 
@@ -149,7 +190,7 @@ if __name__ == "__main__":
         browser.close()
 
     if success:
-        print("\n[OK] Lista de precios actualizada.")
+        print("\n[OK] Lista de precios actualizada exitosamente.")
     else:
         print("\n[ERROR] No se pudo actualizar la lista de precios.")
         exit(1)
