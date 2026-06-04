@@ -46,8 +46,14 @@
                 </div>
             </div>
             <div class="header-actions">
-                <button id="cuenta-btn" class="icon-btn" title="Mi Cuenta">
+                <button id="cuenta-btn" class="icon-btn hidden" title="Mi Cuenta">
                     <i data-lucide="file-text"></i>
+                </button>
+                <button id="todas-cuentas-btn" class="icon-btn hidden" title="Todas las Cuentas">
+                    <i data-lucide="users"></i>
+                </button>
+                <button id="admin-panel-btn" class="icon-btn hidden" title="Panel Admin" onclick="window.open('/admin','_blank')">
+                    <i data-lucide="settings"></i>
                 </button>
                 <button id="cart-btn" class="icon-btn">
                     <i data-lucide="shopping-cart"></i>
@@ -130,6 +136,24 @@
         </div>
 
     </div>
+
+        <!-- Todas las Cuentas Modal (Jefe / Admin) -->
+        <div id="todas-cuentas-modal" class="cart-modal hidden">
+            <div class="cart-content">
+                <div class="cart-header">
+                    <h2>Cuentas Corrientes</h2>
+                    <button id="close-todas-cuentas" class="icon-btn"><i data-lucide="x"></i></button>
+                </div>
+                <div id="todas-cuentas-body" class="cuenta-body">
+                    <p style="text-align:center; color: var(--text-muted);">Cargando...</p>
+                </div>
+                <div class="cart-footer">
+                    <div class="cart-actions">
+                        <button id="back-from-todas-cuentas" class="secondary-btn">← Volver</button>
+                    </div>
+                </div>
+            </div>
+        </div>
 
     <script src="app.js"></script>
 </body>

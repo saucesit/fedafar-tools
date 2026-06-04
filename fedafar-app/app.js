@@ -36,6 +36,12 @@ const closeCuentaBtn   = document.getElementById('close-cuenta');
 const cuentaBody       = document.getElementById('cuenta-body');
 const cuentaSaldoTotal = document.getElementById('cuenta-saldo-total');
 
+const todasCuentasBtn   = document.getElementById('todas-cuentas-btn');
+const todasCuentasModal = document.getElementById('todas-cuentas-modal');
+const closeTodasCuentas = document.getElementById('close-todas-cuentas');
+const todasCuentasBody  = document.getElementById('todas-cuentas-body');
+const adminPanelBtn     = document.getElementById('admin-panel-btn');
+
 // ── Auth ───────────────────────────────────────────────────────────────────────
 
 async function checkSession() {
@@ -62,12 +68,37 @@ function showApp() {
     loginScreen.classList.add('hidden');
     appDiv.classList.remove('hidden');
     showPriceBadge();
-    // Ocultar carrito para empleados
-    if (currentUser?.tipo_precio === 'empleado') {
+
+    const tipo = currentUser?.tipo_precio;
+
+    // Carrito: visible para cliente, jefe, admin — oculto para empleado
+    if (tipo === 'empleado') {
         cartBtn.classList.add('hidden');
     } else {
         cartBtn.classList.remove('hidden');
     }
+
+    // Mi Cuenta (propia): cliente y admin
+    if (tipo === 'cliente' || tipo === 'contado' || tipo === 'cta-cte' || tipo === 'admin') {
+        cuentaBtn.classList.remove('hidden');
+    } else {
+        cuentaBtn.classList.add('hidden');
+    }
+
+    // Todas las Cuentas: jefe y admin
+    if (tipo === 'jefe' || tipo === 'admin') {
+        todasCuentasBtn.classList.remove('hidden');
+    } else {
+        todasCuentasBtn.classList.add('hidden');
+    }
+
+    // Panel Admin: solo admin
+    if (tipo === 'admin') {
+        adminPanelBtn.classList.remove('hidden');
+    } else {
+        adminPanelBtn.classList.add('hidden');
+    }
+
     fetchProducts();
     lucide.createIcons();
 }
@@ -167,11 +198,18 @@ function renderProducts(filter = '', category = 'all') {
         card.className = 'product-card';
         const principioHtml = product.principio ? `<p class="prod-principio">${product.principio}</p>` : '';
         const promoHtml     = product.promo ? `<p class="prod-promo">${product.promo}</p>` : '';
-        const esEmpleado    = currentUser?.tipo_precio === 'empleado';
+        const tipo       = currentUser?.tipo_precio;
+        const verDual    = tipo === 'empleado' || tipo === 'jefe' || tipo === 'admin';
+        const conCarrito = tipo !== 'empleado';
 
-        if (esEmpleado) {
+        if (verDual && product.price_contado !== undefined) {
             const pc  = product.price_contado === 0 ? 'Sin cargo' : `$ ${product.price_contado.toLocaleString('es-AR')}`;
             const pcc = product.price_ctacte  === 0 ? 'Sin cargo' : `$ ${product.price_ctacte.toLocaleString('es-AR')}`;
+            const cartHtml = conCarrito ? `
+                <div class="prod-actions">
+                    <input type="number" id="qty-${product.id}" class="qty-input" value="1" min="1">
+                    <button class="add-btn" data-id="${product.id}">Añadir</button>
+                </div>` : '';
             card.innerHTML = `
                 <div class="prod-info prod-info--empleado">
                     <span class="prod-lab">${product.lab}</span>
@@ -189,6 +227,7 @@ function renderProducts(filter = '', category = 'all') {
                     </div>
                     ${promoHtml}
                 </div>
+                ${cartHtml}
             `;
         } else {
             const precioTexto = product.price === 0 ? 'Sin cargo' : `$ ${product.price.toLocaleString('es-AR')}`;
@@ -323,6 +362,58 @@ closeCuentaBtn.addEventListener('click', () => cuentaModal.classList.add('hidden
 
 const backFromCuentaBtn = document.getElementById('back-from-cuenta');
 if (backFromCuentaBtn) backFromCuentaBtn.addEventListener('click', () => cuentaModal.classList.add('hidden'));
+
+// ── Todas las Cuentas (Jefe / Admin) ──────────────────────────────────────────
+
+if (todasCuentasBtn) todasCuentasBtn.addEventListener('click', () => {
+    todasCuentasModal.classList.remove('hidden');
+    loadTodasCuentas();
+});
+if (closeTodasCuentas) closeTodasCuentas.addEventListener('click', () => todasCuentasModal.classList.add('hidden'));
+const backFromTodasCuentas = document.getElementById('back-from-todas-cuentas');
+if (backFromTodasCuentas) backFromTodasCuentas.addEventListener('click', () => todasCuentasModal.classList.add('hidden'));
+
+async function loadTodasCuentas() {
+    todasCuentasBody.innerHTML = '<p style="text-align:center;padding:30px;color:var(--text-muted);">Cargando...</p>';
+
+    try {
+        const res  = await fetch(`${BASE_URL}/api/todas-cuentas`, { credentials: 'include' });
+        const data = await res.json();
+
+        if (!Array.isArray(data) || data.length === 0) {
+            todasCuentasBody.innerHTML = '<p style="text-align:center;padding:30px;color:var(--text-muted);">Sin datos.</p>';
+            return;
+        }
+
+        let html = `
+            <table class="cuenta-table">
+                <thead>
+                    <tr>
+                        <th>Farmacia</th>
+                        <th>Fact. pendientes</th>
+                        <th>Saldo total</th>
+                    </tr>
+                </thead>
+                <tbody>
+        `;
+        data.forEach(row => {
+            const saldo = parseFloat(row.saldo_total) || 0;
+            const saldoClass = saldo > 0 ? 'saldo-pendiente' : 'saldo-ok';
+            html += `
+                <tr>
+                    <td><strong>${row.nombre}</strong></td>
+                    <td style="text-align:center">${row.comprobantes_pendientes}</td>
+                    <td class="${saldoClass}">$ ${saldo.toLocaleString('es-AR', {minimumFractionDigits:2})}</td>
+                </tr>
+            `;
+        });
+        html += '</tbody></table>';
+        todasCuentasBody.innerHTML = html;
+
+    } catch (e) {
+        todasCuentasBody.innerHTML = '<p style="text-align:center;color:red;padding:20px;">Error al cargar.</p>';
+    }
+}
 
 async function loadCuentaCorriente() {
     cuentaBody.innerHTML = '<p style="text-align:center;padding:30px;color:var(--text-muted);">Cargando...</p>';

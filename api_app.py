@@ -133,6 +133,56 @@ def api_cta_cte():
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
+@app.route('/api/todas-cuentas', methods=['GET'])
+def api_todas_cuentas():
+    if not current_user.is_authenticated:
+        return jsonify({'error': 'No autenticado'}), 401
+    if current_user.tipo_precio not in ('jefe', 'admin'):
+        return jsonify({'error': 'No autorizado'}), 403
+    try:
+        sb = get_sb()
+        # Obtener todos los clientes activos con código Genexus
+        clientes_res = sb.table('clientes') \
+            .select('id,nombre,genexus_client_id,tipo_precio') \
+            .eq('activo', True) \
+            .not_.is_('genexus_client_id', 'null') \
+            .order('nombre') \
+            .execute()
+        clientes = clientes_res.data or []
+
+        # Para cada cliente, calcular saldo total pendiente
+        ctas_res = sb.table('cuenta_corriente') \
+            .select('genexus_client_id,saldo') \
+            .gt('saldo', 0) \
+            .execute()
+        ctas = ctas_res.data or []
+
+        # Agrupar saldos por cliente
+        from collections import defaultdict
+        saldos = defaultdict(float)
+        conteos = defaultdict(int)
+        for row in ctas:
+            gx_id = row['genexus_client_id']
+            saldos[gx_id]  += float(row['saldo'] or 0)
+            conteos[gx_id] += 1
+
+        resultado = []
+        for c in clientes:
+            gx_id = c['genexus_client_id']
+            resultado.append({
+                'nombre':                  c['nombre'],
+                'genexus_client_id':       gx_id,
+                'tipo_precio':             c['tipo_precio'],
+                'saldo_total':             round(saldos.get(gx_id, 0), 2),
+                'comprobantes_pendientes': conteos.get(gx_id, 0),
+            })
+
+        # Ordenar por mayor saldo primero
+        resultado.sort(key=lambda x: x['saldo_total'], reverse=True)
+        return jsonify(resultado)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
 # ── Admin Auth ────────────────────────────────────────────────────────────────
 
 def admin_required(f):
@@ -193,7 +243,7 @@ def admin_create_cliente():
 
     if not nombre or not username or not password:
         return jsonify({'error': 'Nombre, usuario y contraseña son obligatorios'}), 400
-    if tipo not in ('contado', 'cta-cte', 'empleado'):
+    if tipo not in ('contado', 'cta-cte', 'empleado', 'jefe', 'admin'):
         return jsonify({'error': 'tipo_precio inválido'}), 400
 
     try:
@@ -281,7 +331,7 @@ def parse_price_list(tipo='contado'):
     products   = []
     stock_dict = get_stock_data()
     principios = get_principios()
-    es_empleado = (tipo == 'empleado')
+    es_empleado = tipo in ('empleado', 'jefe', 'admin')
 
     try:
         df = pd.read_excel(PRICE_LIST_PATH, skiprows=2, header=0)
