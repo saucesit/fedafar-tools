@@ -345,40 +345,39 @@ def parse_price_list(tipo='contado'):
         df = pd.read_excel(PRICE_LIST_PATH, skiprows=2, header=0)
         df.columns = [str(c).strip().lower().replace(' ', '_') for c in df.columns]
 
-        # Para empleado usamos contado como referencia para filtrar > 0
-        col_ref = 'contado' if 'contado' in df.columns else 'precio_costo'
-        if col_ref not in df.columns:
-            col_ref = df.columns[3]
-
-        # Columnas de precio para clientes normales
-        col_contado = 'contado' if 'contado' in df.columns else col_ref
-        col_ctacte  = 'cta_cte' if 'cta_cte' in df.columns else col_ref
-
         MARKUP_C  = 1.195
         MARKUP_CC = 1.26
 
-        for col in [col_contado, col_ctacte]:
-            df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
+        # Columna de costo base (siempre existe)
+        col_costo = 'precio_costo' if 'precio_costo' in df.columns else df.columns[3]
+        df[col_costo] = pd.to_numeric(df[col_costo], errors='coerce').fillna(0)
 
-        # Filtrar productos sin precio
-        df = df[df[col_ref] > 0].reset_index(drop=True)
+        # Columnas explícitas de precio (opcionales en el Excel)
+        tiene_contado = 'contado' in df.columns
+        tiene_ctacte  = 'cta_cte'  in df.columns
+        if tiene_contado:
+            df['contado'] = pd.to_numeric(df['contado'], errors='coerce').fillna(0)
+        if tiene_ctacte:
+            df['cta_cte'] = pd.to_numeric(df['cta_cte'], errors='coerce').fillna(0)
+
+        # Filtrar productos sin costo
+        df = df[df[col_costo] > 0].reset_index(drop=True)
 
     except Exception as e:
         print(f"Error leyendo lista de precios: {e}")
         return []
 
     for id_counter, (_, row) in enumerate(df.iterrows(), start=1):
-        price_contado = round(float(row[col_contado]) if row[col_contado] > 0
-                              else float(row.get('precio_costo', 0)) * MARKUP_C, 2)
-        price_ctacte  = round(float(row[col_ctacte]) if row[col_ctacte] > 0
-                              else float(row.get('precio_costo', 0)) * MARKUP_CC, 2)
+        costo = float(row[col_costo])
 
-        if es_empleado:
-            price_val = price_contado  # referencia para IVA
-        elif tipo == 'cta-cte':
-            price_val = price_ctacte
-        else:
-            price_val = price_contado
+        # Usar precios explícitos si el Excel los tiene, sino aplicar markup
+        price_contado = round(float(row['contado']), 2) if tiene_contado and row['contado'] > 0 \
+                        else round(costo * MARKUP_C, 2)
+        price_ctacte  = round(float(row['cta_cte']),  2) if tiene_ctacte  and row['cta_cte']  > 0 \
+                        else round(costo * MARKUP_CC, 2)
+
+        # price_val = precio principal de referencia (para IVA y clientes normales)
+        price_val = price_ctacte if tipo == 'cta-cte' else price_contado
 
         # Quitar el código al final del nombre: "NOMBRE - 000000001" → "NOMBRE"
         col_art = 'artículo' if 'artículo' in df.columns else 'articulo'
