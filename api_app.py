@@ -297,8 +297,12 @@ def admin_update_cliente(cliente_id):
 
 # ── Stock ──────────────────────────────────────────────────────────────────────
 
+STOCK_JSON_PATH = os.path.join(BASE_DIR, 'stock_data.json')
+
 def get_stock_data():
     stock_dict = {}
+
+    # 1. Intentar desde la red interna (tiempo real, solo en red local)
     try:
         import requests
         from io import BytesIO
@@ -311,8 +315,18 @@ def get_stock_data():
         for nombre, stock in grouped.items():
             stock_dict[str(nombre).strip().upper()] = float(stock)
         print(f"Stock cargado: {len(stock_dict)} productos desde red interna.")
+        return stock_dict
+    except Exception:
+        pass
+
+    # 2. Fallback: usar stock_data.json generado por el sync diario
+    try:
+        with open(STOCK_JSON_PATH, 'r', encoding='utf-8') as f:
+            stock_dict = json.load(f)
+        print(f"Stock cargado: {len(stock_dict)} productos desde stock_data.json.")
     except Exception as e:
-        print(f"Stock no disponible (red interna no accesible): {e}")
+        print(f"Stock no disponible: {e}")
+
     return stock_dict
 
 def clean_name_for_matching(name):
