@@ -193,7 +193,7 @@ def admin_create_cliente():
 
     if not nombre or not username or not password:
         return jsonify({'error': 'Nombre, usuario y contraseña son obligatorios'}), 400
-    if tipo not in ('contado', 'cta-cte'):
+    if tipo not in ('contado', 'cta-cte', 'empleado'):
         return jsonify({'error': 'tipo_precio inválido'}), 400
 
     try:
@@ -281,27 +281,46 @@ def parse_price_list(tipo='contado'):
     products   = []
     stock_dict = get_stock_data()
     principios = get_principios()
+    es_empleado = (tipo == 'empleado')
 
     try:
         df = pd.read_excel(PRICE_LIST_PATH, skiprows=2, header=0)
-        # Columnas: Codigo, Articulo, Laboratorio, Actualizacion, Precio Costo, Contado, Cta Cte, Activo
-        # Normalizar nombres de columnas
         df.columns = [str(c).strip().lower().replace(' ', '_') for c in df.columns]
-        # Identificar columna de precio según tipo
-        col_precio = 'cta_cte' if tipo == 'cta-cte' else 'contado'
-        if col_precio not in df.columns:
-            # Fallback: usar precio costo con markup
-            col_precio  = 'precio_costo' if 'precio_costo' in df.columns else df.columns[4]
-            markup      = 1.26 if tipo == 'cta-cte' else 1.195
-            df[col_precio] = pd.to_numeric(df[col_precio], errors='coerce').fillna(0) * markup
-        df[col_precio] = pd.to_numeric(df[col_precio], errors='coerce').fillna(0)
-        df = df[df[col_precio] > 0].reset_index(drop=True)
+
+        # Para empleado usamos contado como referencia para filtrar > 0
+        col_ref = 'contado' if 'contado' in df.columns else 'precio_costo'
+        if col_ref not in df.columns:
+            col_ref = df.columns[3]
+
+        # Columnas de precio para clientes normales
+        col_contado = 'contado' if 'contado' in df.columns else col_ref
+        col_ctacte  = 'cta_cte' if 'cta_cte' in df.columns else col_ref
+
+        MARKUP_C  = 1.195
+        MARKUP_CC = 1.26
+
+        for col in [col_contado, col_ctacte]:
+            df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
+
+        # Filtrar productos sin precio
+        df = df[df[col_ref] > 0].reset_index(drop=True)
+
     except Exception as e:
         print(f"Error leyendo lista de precios: {e}")
         return []
 
     for id_counter, (_, row) in enumerate(df.iterrows(), start=1):
-        price_val = round(float(row[col_precio]), 2)
+        price_contado = round(float(row[col_contado]) if row[col_contado] > 0
+                              else float(row.get('precio_costo', 0)) * MARKUP_C, 2)
+        price_ctacte  = round(float(row[col_ctacte]) if row[col_ctacte] > 0
+                              else float(row.get('precio_costo', 0)) * MARKUP_CC, 2)
+
+        if es_empleado:
+            price_val = price_contado  # referencia para IVA
+        elif tipo == 'cta-cte':
+            price_val = price_ctacte
+        else:
+            price_val = price_contado
 
         # Quitar el código al final del nombre: "NOMBRE - 000000001" → "NOMBRE"
         col_art = 'artículo' if 'artículo' in df.columns else 'articulo'
@@ -352,11 +371,16 @@ def parse_price_list(tipo='contado'):
         if principio in ('insumo', 'desconocido'):
             principio = ''
 
-        products.append({
+        producto = {
             "id": id_counter, "name": name, "lab": lab,
             "price": price_val, "category": category, "promo": promo,
             "principio": principio
-        })
+        }
+        if es_empleado:
+            producto["price_contado"] = price_contado
+            producto["price_ctacte"]  = price_ctacte
+
+        products.append(producto)
 
     return products
 

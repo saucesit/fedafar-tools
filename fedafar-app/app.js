@@ -62,6 +62,12 @@ function showApp() {
     loginScreen.classList.add('hidden');
     appDiv.classList.remove('hidden');
     showPriceBadge();
+    // Ocultar carrito para empleados
+    if (currentUser?.tipo_precio === 'empleado') {
+        cartBtn.classList.add('hidden');
+    } else {
+        cartBtn.classList.remove('hidden');
+    }
     fetchProducts();
     lucide.createIcons();
 }
@@ -127,9 +133,11 @@ function showPriceBadge() {
     const tipo  = currentUser?.tipo_precio || 'contado';
     const badge = document.createElement('span');
     badge.id = 'price-badge';
-    badge.innerText = tipo === 'cta-cte' ? 'Cta. Cte.' : 'Contado';
+    const labels = { 'cta-cte': 'Cta. Cte.', 'empleado': 'Empleado', 'contado': 'Contado' };
+    const colors = { 'cta-cte': '#7c3aed', 'empleado': '#e07b00', 'contado': '#28a745' };
+    badge.innerText = labels[tipo] || 'Contado';
     badge.style.cssText = `
-        background: ${tipo === 'cta-cte' ? '#7c3aed' : '#28a745'};
+        background: ${colors[tipo] || '#28a745'};
         color: white; font-size: 0.7rem; font-weight: 600;
         padding: 3px 10px; border-radius: 20px; letter-spacing: 0.5px;
         display: inline-block; margin-left: 6px;
@@ -157,22 +165,47 @@ function renderProducts(filter = '', category = 'all') {
     filtered.forEach(product => {
         const card = document.createElement('div');
         card.className = 'product-card';
-        const precioTexto  = product.price === 0 ? 'Sin cargo' : `$ ${product.price.toLocaleString('es-AR')}`;
-        const promoHtml    = product.promo ? `<p class="prod-promo">${product.promo}</p>` : '';
         const principioHtml = product.principio ? `<p class="prod-principio">${product.principio}</p>` : '';
-        card.innerHTML = `
-            <div class="prod-info">
-                <span class="prod-lab">${product.lab}</span>
-                <h3>${product.name}</h3>
-                ${principioHtml}
-                <p class="prod-price ${product.price === 0 ? 'prod-price--gratis' : ''}">${precioTexto}</p>
-                ${promoHtml}
-            </div>
-            <div class="prod-actions">
-                <input type="number" id="qty-${product.id}" class="qty-input" value="1" min="1">
-                <button class="add-btn" data-id="${product.id}">Añadir</button>
-            </div>
-        `;
+        const promoHtml     = product.promo ? `<p class="prod-promo">${product.promo}</p>` : '';
+        const esEmpleado    = currentUser?.tipo_precio === 'empleado';
+
+        if (esEmpleado) {
+            const pc  = product.price_contado === 0 ? 'Sin cargo' : `$ ${product.price_contado.toLocaleString('es-AR')}`;
+            const pcc = product.price_ctacte  === 0 ? 'Sin cargo' : `$ ${product.price_ctacte.toLocaleString('es-AR')}`;
+            card.innerHTML = `
+                <div class="prod-info prod-info--empleado">
+                    <span class="prod-lab">${product.lab}</span>
+                    <h3>${product.name}</h3>
+                    ${principioHtml}
+                    <div class="prod-precios-empleado">
+                        <div class="prod-precio-item">
+                            <span class="prod-precio-label">Contado</span>
+                            <span class="prod-precio-valor">${pc}</span>
+                        </div>
+                        <div class="prod-precio-item prod-precio-item--ctacte">
+                            <span class="prod-precio-label">Cta. Cte.</span>
+                            <span class="prod-precio-valor">${pcc}</span>
+                        </div>
+                    </div>
+                    ${promoHtml}
+                </div>
+            `;
+        } else {
+            const precioTexto = product.price === 0 ? 'Sin cargo' : `$ ${product.price.toLocaleString('es-AR')}`;
+            card.innerHTML = `
+                <div class="prod-info">
+                    <span class="prod-lab">${product.lab}</span>
+                    <h3>${product.name}</h3>
+                    ${principioHtml}
+                    <p class="prod-price ${product.price === 0 ? 'prod-price--gratis' : ''}">${precioTexto}</p>
+                    ${promoHtml}
+                </div>
+                <div class="prod-actions">
+                    <input type="number" id="qty-${product.id}" class="qty-input" value="1" min="1">
+                    <button class="add-btn" data-id="${product.id}">Añadir</button>
+                </div>
+            `;
+        }
         productGrid.appendChild(card);
     });
 

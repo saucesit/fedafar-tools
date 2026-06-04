@@ -98,6 +98,7 @@
         }
         .badge-contado  { background:#d1fae5; color:#065f46; }
         .badge-ctacte   { background:#ede9fe; color:#5b21b6; }
+        .badge-empleado { background:#fff3e0; color:#e07b00; }
         .badge-activo   { background:#d1fae5; color:#065f46; }
         .badge-inactivo { background:#fee2e2; color:#991b1b; }
 
@@ -218,6 +219,7 @@
             <select id="f-tipo">
                 <option value="contado">Contado</option>
                 <option value="cta-cte">Cuenta Corriente</option>
+                <option value="empleado">Empleado FEDAFAR</option>
             </select>
         </div>
         <div class="form-group">
@@ -302,8 +304,8 @@ function renderTabla() {
         <tr>
             <td><strong>${c.nombre}</strong></td>
             <td>${c.username}</td>
-            <td><span class="badge ${c.tipo_precio === 'cta-cte' ? 'badge-ctacte' : 'badge-contado'}">
-                ${c.tipo_precio === 'cta-cte' ? 'Cta. Cte.' : 'Contado'}
+            <td><span class="badge ${c.tipo_precio === 'cta-cte' ? 'badge-ctacte' : c.tipo_precio === 'empleado' ? 'badge-empleado' : 'badge-contado'}">
+                ${c.tipo_precio === 'cta-cte' ? 'Cta. Cte.' : c.tipo_precio === 'empleado' ? 'Empleado' : 'Contado'}
             </span></td>
             <td>${c.genexus_client_id || '—'}</td>
             <td><span class="badge ${c.activo ? 'badge-activo' : 'badge-inactivo'}">

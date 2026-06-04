@@ -226,6 +226,47 @@ body {
     margin-bottom: 2px;
 }
 
+/* Vista empleado — dos precios */
+.prod-info--empleado {
+    width: 100%;
+}
+
+.prod-precios-empleado {
+    display: flex;
+    gap: 12px;
+    margin-top: 6px;
+}
+
+.prod-precio-item {
+    display: flex;
+    flex-direction: column;
+    background: #f0f7f0;
+    border-radius: 8px;
+    padding: 5px 10px;
+    flex: 1;
+}
+
+.prod-precio-item--ctacte {
+    background: #f3f0ff;
+}
+
+.prod-precio-label {
+    font-size: 0.65rem;
+    text-transform: uppercase;
+    color: var(--text-muted);
+    font-weight: 600;
+    letter-spacing: 0.5px;
+}
+
+.prod-precio-valor {
+    font-size: 0.95rem;
+    font-weight: 600;
+    color: var(--text);
+}
+
+.prod-precio-item .prod-precio-valor { color: var(--accent); }
+.prod-precio-item--ctacte .prod-precio-valor { color: #7c3aed; }
+
 .prod-price {
     font-size: 1.1rem;
     font-weight: 600;
