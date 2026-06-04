@@ -228,6 +228,11 @@ function renderProducts(filter = '', category = 'all') {
                             <span class="prod-precio-label">Cta. Cte.</span>
                             <span class="prod-precio-valor">${pcc}</span>
                         </div>
+                        ${(tipo === 'jefe' || tipo === 'admin') && product.stock !== undefined ? `
+                        <div class="prod-precio-item prod-precio-item--stock">
+                            <span class="prod-precio-label">Stock</span>
+                            <span class="prod-precio-valor">${product.stock}</span>
+                        </div>` : ''}
                     </div>
                     ${promoHtml}
                 </div>

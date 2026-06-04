@@ -266,6 +266,8 @@ body {
 
 .prod-precio-item .prod-precio-valor { color: var(--accent); }
 .prod-precio-item--ctacte .prod-precio-valor { color: #7c3aed; }
+.prod-precio-item--stock { background: #eff6ff; }
+.prod-precio-item--stock .prod-precio-valor { color: #1d4ed8; }
 
 .prod-price {
     font-size: 1.1rem;

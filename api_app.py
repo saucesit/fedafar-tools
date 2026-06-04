@@ -423,7 +423,8 @@ def parse_price_list(tipo='contado'):
         if category == "Descartables":
             price_val = round(price_val * 1.21, 2)
 
-        # Filtrar por stock (solo si la red interna está disponible)
+        # Filtrar por stock (solo si hay datos disponibles)
+        stock_val = None
         if len(stock_dict) > 0:
             stock_val = fuzzy_stock_match(name, stock_dict)
             if stock_val is None or stock_val <= 0:
@@ -450,6 +451,8 @@ def parse_price_list(tipo='contado'):
         if es_empleado:
             producto["price_contado"] = price_contado
             producto["price_ctacte"]  = price_ctacte
+        if tipo in ('jefe', 'admin') and stock_val is not None:
+            producto["stock"] = int(stock_val)
 
         products.append(producto)
 
