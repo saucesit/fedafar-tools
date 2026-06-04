@@ -198,6 +198,14 @@ def admin_required(f):
 def serve_admin():
     return render_template('admin.html')
 
+@app.route('/api/admin/auto-auth', methods=['POST'])
+def admin_auto_auth():
+    """Autentica automáticamente al panel admin si el usuario logueado es de tipo admin."""
+    if not current_user.is_authenticated or current_user.tipo_precio != 'admin':
+        return jsonify({'error': 'No autorizado'}), 403
+    session['is_admin'] = True
+    return jsonify({'ok': True})
+
 @app.route('/api/admin/login', methods=['POST'])
 def admin_login():
     data     = request.get_json() or {}

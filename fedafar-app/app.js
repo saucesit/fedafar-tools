@@ -95,6 +95,10 @@ function showApp() {
     // Panel Admin: solo admin
     if (tipo === 'admin') {
         adminPanelBtn.classList.remove('hidden');
+        adminPanelBtn.onclick = async () => {
+            await fetch(`${BASE_URL}/api/admin/auto-auth`, { method: 'POST', credentials: 'include' });
+            window.open('/admin', '_blank');
+        };
     } else {
         adminPanelBtn.classList.add('hidden');
     }
