@@ -130,6 +130,7 @@ function showApp() {
     if (tipo === 'empleado' || tipo === 'jefe' || tipo === 'admin') {
         docsBtn.classList.remove('hidden');
         prestamosBtn.classList.remove('hidden');
+        actualizarBadgePrestamos();
     } else {
         docsBtn.classList.add('hidden');
         prestamosBtn.classList.add('hidden');
@@ -569,20 +570,27 @@ const pagoSubmitBtn     = document.getElementById('pago-submit-btn');
 const pagoMsg           = document.getElementById('pago-msg');
 
 let currentPrestamoId = null;
+const prestamosCountBadge = document.getElementById('prestamos-count');
 
-// Visibilidad del botón (se llama desde showApp)
-function setupPrestamosBtn() {
-    const tipo = currentUser?.tipo_precio;
-    if (tipo === 'empleado' || tipo === 'jefe' || tipo === 'admin') {
-        prestamosBtn.classList.remove('hidden');
-    } else {
-        prestamosBtn.classList.add('hidden');
+async function actualizarBadgePrestamos() {
+    try {
+        const res  = await fetch(`${BASE_URL}/api/prestamos/pendientes-count`, { credentials: 'include' });
+        const data = await res.json();
+        const n    = data.count || 0;
+        if (n > 0) {
+            prestamosCountBadge.textContent = n;
+            prestamosCountBadge.classList.remove('hidden');
+        } else {
+            prestamosCountBadge.classList.add('hidden');
+        }
+    } catch (e) {
+        prestamosCountBadge.classList.add('hidden');
     }
 }
 
 prestamosBtn.addEventListener('click', openPrestamosModal);
-closePrestamosBtn.addEventListener('click', () => prestamosModal.classList.add('hidden'));
-backFromPrestamos.addEventListener('click', () => prestamosModal.classList.add('hidden'));
+closePrestamosBtn.addEventListener('click', () => { prestamosModal.classList.add('hidden'); actualizarBadgePrestamos(); });
+backFromPrestamos.addEventListener('click',  () => { prestamosModal.classList.add('hidden'); actualizarBadgePrestamos(); });
 
 toggleSolicitudBtn.addEventListener('click', () => {
     const abierto = !solicitudForm.classList.contains('hidden');
@@ -1047,6 +1055,7 @@ async function confirmarPago(pagoId) {
         const data = await res.json();
         if (res.ok && data.ok) {
             await loadPrestamos();
+            actualizarBadgePrestamos();
         } else {
             alert('Error: ' + (data.error || 'desconocido'));
         }
@@ -1063,6 +1072,7 @@ async function rechazarPago(pagoId) {
             body: JSON.stringify({ nota }),
         });
         await loadPrestamos();
+        actualizarBadgePrestamos();
     } catch (e) { alert('Error'); }
 }
 

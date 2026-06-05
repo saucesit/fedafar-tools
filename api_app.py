@@ -471,19 +471,54 @@ def api_prestamos_list():
         sb  = get_sb()
         rol = current_user.tipo_precio
         if rol in ('jefe', 'admin'):
+            # Traer préstamos y enriquecer con nombre del empleado manualmente
             res = sb.table('prestamos') \
-                    .select('*, clientes(nombre)') \
+                    .select('*') \
                     .order('created_at', desc=True) \
                     .execute()
+            prestamos = res.data or []
+
+            # Obtener nombres de empleados en una sola consulta
+            if prestamos:
+                emp_ids = list({p['empleado_id'] for p in prestamos})
+                emp_res = sb.table('clientes') \
+                             .select('id,nombre') \
+                             .in_('id', emp_ids) \
+                             .execute()
+                nombres = {str(e['id']): e['nombre'] for e in (emp_res.data or [])}
+                for p in prestamos:
+                    p['clientes'] = {'nombre': nombres.get(str(p['empleado_id']), '?')}
         else:
             res = sb.table('prestamos') \
                     .select('*') \
                     .eq('empleado_id', current_user.id) \
                     .order('created_at', desc=True) \
                     .execute()
-        return jsonify(res.data or [])
+            prestamos = res.data or []
+        return jsonify(prestamos)
     except Exception as e:
         return jsonify({'error': str(e)}), 500
+
+@app.route('/api/prestamos/pendientes-count', methods=['GET'])
+@login_required
+def api_prestamos_pendientes_count():
+    """Cantidad de items que requieren acción del jefe/admin."""
+    if current_user.tipo_precio not in ('jefe', 'admin'):
+        return jsonify({'count': 0})
+    try:
+        sb = get_sb()
+        solicitudes = sb.table('prestamos') \
+                        .select('id', count='exact') \
+                        .eq('estado', 'pendiente') \
+                        .execute()
+        pagos_pend  = sb.table('prestamo_pagos') \
+                        .select('id', count='exact') \
+                        .eq('estado', 'informado') \
+                        .execute()
+        total = (solicitudes.count or 0) + (pagos_pend.count or 0)
+        return jsonify({'count': total})
+    except Exception as e:
+        return jsonify({'count': 0})
 
 @app.route('/api/prestamos', methods=['POST'])
 @login_required
