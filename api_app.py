@@ -460,6 +460,234 @@ def parse_price_list(tipo='contado'):
 
     return products
 
+# ── Préstamos internos ────────────────────────────────────────────────────────
+
+@app.route('/api/prestamos', methods=['GET'])
+@login_required
+def api_prestamos_list():
+    if not _es_empleado_interno():
+        return jsonify({'error': 'No autorizado'}), 403
+    try:
+        sb  = get_sb()
+        rol = current_user.tipo_precio
+        if rol in ('jefe', 'admin'):
+            res = sb.table('prestamos') \
+                    .select('*, clientes(nombre)') \
+                    .order('created_at', desc=True) \
+                    .execute()
+        else:
+            res = sb.table('prestamos') \
+                    .select('*') \
+                    .eq('empleado_id', current_user.id) \
+                    .order('created_at', desc=True) \
+                    .execute()
+        return jsonify(res.data or [])
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/prestamos', methods=['POST'])
+@login_required
+def api_prestamos_solicitar():
+    if not _es_empleado_interno():
+        return jsonify({'error': 'No autorizado'}), 403
+    try:
+        data   = request.get_json() or {}
+        monto  = float(data.get('monto', 0))
+        motivo = data.get('motivo', '').strip()
+        if monto <= 0:
+            return jsonify({'error': 'El monto debe ser mayor a 0'}), 400
+
+        sb       = get_sb()
+        existing = sb.table('prestamos') \
+                     .select('id') \
+                     .eq('empleado_id', current_user.id) \
+                     .in_('estado', ['pendiente', 'aprobado']) \
+                     .execute()
+        if existing.data:
+            return jsonify({'error': 'Ya tenés un préstamo pendiente o activo'}), 400
+
+        res = sb.table('prestamos').insert({
+            'empleado_id':      current_user.id,
+            'monto_solicitado': monto,
+            'motivo':           motivo or None,
+            'estado':           'pendiente',
+        }).execute()
+        return jsonify({'ok': True, 'prestamo': res.data[0]}), 201
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/prestamos/<prestamo_id>/aprobar', methods=['POST'])
+@login_required
+def api_prestamos_aprobar(prestamo_id):
+    if current_user.tipo_precio not in ('jefe', 'admin'):
+        return jsonify({'error': 'No autorizado'}), 403
+    try:
+        data           = request.get_json() or {}
+        monto_aprobado = float(data.get('monto_aprobado', 0))
+        cuotas         = int(data.get('cuotas', 1))
+        monto_cuota    = float(data.get('monto_cuota', 0))
+        condiciones    = data.get('condiciones_nota', '').strip()
+        if monto_aprobado <= 0:
+            return jsonify({'error': 'Monto aprobado inválido'}), 400
+
+        from datetime import datetime, timezone
+        now = datetime.now(timezone.utc).isoformat()
+        sb  = get_sb()
+        sb.table('prestamos').update({
+            'estado':           'aprobado',
+            'monto_aprobado':   monto_aprobado,
+            'cuotas_total':     cuotas,
+            'monto_cuota':      monto_cuota if monto_cuota > 0 else round(monto_aprobado / cuotas, 2),
+            'condiciones_nota': condiciones or None,
+            'saldo_pendiente':  monto_aprobado,
+            'aprobado_por':     current_user.id,
+            'fecha_aprobacion': now,
+        }).eq('id', prestamo_id).execute()
+        return jsonify({'ok': True})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/prestamos/<prestamo_id>/rechazar', methods=['POST'])
+@login_required
+def api_prestamos_rechazar(prestamo_id):
+    if current_user.tipo_precio not in ('jefe', 'admin'):
+        return jsonify({'error': 'No autorizado'}), 403
+    try:
+        data = request.get_json() or {}
+        nota = data.get('nota', '').strip()
+        sb   = get_sb()
+        sb.table('prestamos').update({
+            'estado':       'rechazado',
+            'nota_rechazo': nota or None,
+        }).eq('id', prestamo_id).execute()
+        return jsonify({'ok': True})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/prestamos/<prestamo_id>/pagos', methods=['GET'])
+@login_required
+def api_prestamos_get_pagos(prestamo_id):
+    if not _es_empleado_interno():
+        return jsonify({'error': 'No autorizado'}), 403
+    try:
+        sb  = get_sb()
+        pr  = sb.table('prestamos').select('empleado_id').eq('id', prestamo_id).single().execute()
+        if not pr.data:
+            return jsonify({'error': 'Préstamo no encontrado'}), 404
+        if current_user.tipo_precio == 'empleado' and str(pr.data['empleado_id']) != str(current_user.id):
+            return jsonify({'error': 'No autorizado'}), 403
+        res = sb.table('prestamo_pagos') \
+                .select('*') \
+                .eq('prestamo_id', prestamo_id) \
+                .order('created_at', desc=False) \
+                .execute()
+        return jsonify(res.data or [])
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/prestamos/<prestamo_id>/pagos', methods=['POST'])
+@login_required
+def api_prestamos_informar_pago(prestamo_id):
+    if not _es_empleado_interno():
+        return jsonify({'error': 'No autorizado'}), 403
+    try:
+        data  = request.get_json() or {}
+        monto = float(data.get('monto', 0))
+        nota  = data.get('nota', '').strip()
+        if monto <= 0:
+            return jsonify({'error': 'El monto debe ser mayor a 0'}), 400
+
+        sb   = get_sb()
+        pr   = sb.table('prestamos').select('empleado_id,estado,saldo_pendiente').eq('id', prestamo_id).single().execute()
+        if not pr.data:
+            return jsonify({'error': 'Préstamo no encontrado'}), 404
+        if current_user.tipo_precio == 'empleado' and str(pr.data['empleado_id']) != str(current_user.id):
+            return jsonify({'error': 'No autorizado'}), 403
+        if pr.data['estado'] != 'aprobado':
+            return jsonify({'error': 'El préstamo no está activo'}), 400
+
+        # Verificar que no haya ya un pago informado sin confirmar
+        pend = sb.table('prestamo_pagos') \
+                 .select('id') \
+                 .eq('prestamo_id', prestamo_id) \
+                 .eq('estado', 'informado') \
+                 .execute()
+        if pend.data:
+            return jsonify({'error': 'Ya hay un pago pendiente de confirmación'}), 400
+
+        from datetime import datetime, timezone
+        now = datetime.now(timezone.utc).isoformat()
+        res = sb.table('prestamo_pagos').insert({
+            'prestamo_id':    prestamo_id,
+            'monto':          monto,
+            'estado':         'informado',
+            'nota_empleado':  nota or None,
+            'informado_por':  current_user.id,
+            'fecha_informado': now,
+        }).execute()
+        return jsonify({'ok': True, 'pago': res.data[0]}), 201
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/prestamos/pagos/<pago_id>/confirmar', methods=['POST'])
+@login_required
+def api_prestamos_confirmar_pago(pago_id):
+    if current_user.tipo_precio not in ('jefe', 'admin'):
+        return jsonify({'error': 'No autorizado'}), 403
+    try:
+        data   = request.get_json() or {}
+        nota   = data.get('nota', '').strip()
+        sb     = get_sb()
+        pago_r = sb.table('prestamo_pagos').select('*').eq('id', pago_id).single().execute()
+        pago   = pago_r.data
+        if not pago:
+            return jsonify({'error': 'Pago no encontrado'}), 404
+        if pago['estado'] != 'informado':
+            return jsonify({'error': 'El pago ya fue procesado'}), 400
+
+        from datetime import datetime, timezone
+        now = datetime.now(timezone.utc).isoformat()
+        sb.table('prestamo_pagos').update({
+            'estado':           'confirmado',
+            'nota_jefe':        nota or None,
+            'confirmado_por':   current_user.id,
+            'fecha_confirmado': now,
+        }).eq('id', pago_id).execute()
+
+        # Descontar del saldo
+        pr_r         = sb.table('prestamos').select('saldo_pendiente').eq('id', pago['prestamo_id']).single().execute()
+        saldo_actual = float(pr_r.data['saldo_pendiente'] or 0)
+        nuevo_saldo  = round(max(0, saldo_actual - float(pago['monto'])), 2)
+        nuevo_estado = 'saldado' if nuevo_saldo == 0 else 'aprobado'
+        sb.table('prestamos').update({
+            'saldo_pendiente': nuevo_saldo,
+            'estado':          nuevo_estado,
+        }).eq('id', pago['prestamo_id']).execute()
+
+        return jsonify({'ok': True, 'nuevo_saldo': nuevo_saldo, 'estado_prestamo': nuevo_estado})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/prestamos/pagos/<pago_id>/rechazar', methods=['POST'])
+@login_required
+def api_prestamos_rechazar_pago(pago_id):
+    if current_user.tipo_precio not in ('jefe', 'admin'):
+        return jsonify({'error': 'No autorizado'}), 403
+    try:
+        data   = request.get_json() or {}
+        nota   = data.get('nota', '').strip()
+        sb     = get_sb()
+        pago_r = sb.table('prestamo_pagos').select('estado').eq('id', pago_id).single().execute()
+        if not pago_r.data or pago_r.data['estado'] != 'informado':
+            return jsonify({'error': 'Pago no encontrado o ya procesado'}), 400
+        sb.table('prestamo_pagos').update({
+            'estado':    'rechazado',
+            'nota_jefe': nota or None,
+        }).eq('id', pago_id).execute()
+        return jsonify({'ok': True})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
 # ── Documentos de empleados ────────────────────────────────────────────────────
 
 DOCS_TIPOS = {

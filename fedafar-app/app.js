@@ -126,11 +126,13 @@ function showApp() {
         adminPanelBtn.classList.add('hidden');
     }
 
-    // Documentos: empleado, jefe, admin
+    // Documentos y préstamos: empleado, jefe, admin
     if (tipo === 'empleado' || tipo === 'jefe' || tipo === 'admin') {
         docsBtn.classList.remove('hidden');
+        prestamosBtn.classList.remove('hidden');
     } else {
         docsBtn.classList.add('hidden');
+        prestamosBtn.classList.add('hidden');
     }
 
     fetchProducts();
@@ -535,6 +537,534 @@ sendOrderBtn.addEventListener('click', () => {
     msg += `\n\n_Por favor confirmar stock y precios vigentes._`;
     window.open(`https://wa.me/5493876835525?text=${encodeURIComponent(msg)}`);
 });
+
+// ── Préstamos ──────────────────────────────────────────────────────────────────
+
+const prestamosBtn      = document.getElementById('prestamos-btn');
+const prestamosModal    = document.getElementById('prestamos-modal');
+const closePrestamosBtn = document.getElementById('close-prestamos');
+const backFromPrestamos = document.getElementById('back-from-prestamos');
+const prestamosBody     = document.getElementById('prestamos-body');
+const toggleSolicitudBtn = document.getElementById('toggle-solicitud-btn');
+const solicitudForm     = document.getElementById('solicitud-form');
+const pMontoInput       = document.getElementById('p-monto-input');
+const pMotivoInput      = document.getElementById('p-motivo-input');
+const pSolicitarBtn     = document.getElementById('p-solicitar-btn');
+const pSolicitarMsg     = document.getElementById('p-solicitar-msg');
+const aprobarModal      = document.getElementById('aprobar-modal');
+const closeAprobarBtn   = document.getElementById('close-aprobar');
+const aprobarNombre     = document.getElementById('aprobar-empleado-nombre');
+const apMontoInput      = document.getElementById('ap-monto-input');
+const apCuotasInput     = document.getElementById('ap-cuotas-input');
+const apCuotaInput      = document.getElementById('ap-cuota-input');
+const apNotaInput       = document.getElementById('ap-nota-input');
+const apSubmitBtn       = document.getElementById('ap-submit-btn');
+const apMsg             = document.getElementById('ap-msg');
+const pagoModal         = document.getElementById('pago-modal');
+const closePagoBtn      = document.getElementById('close-pago');
+const pagoSaldoInfo     = document.getElementById('pago-saldo-info');
+const pagoMontoInput    = document.getElementById('pago-monto-input');
+const pagoNotaInput     = document.getElementById('pago-nota-input');
+const pagoSubmitBtn     = document.getElementById('pago-submit-btn');
+const pagoMsg           = document.getElementById('pago-msg');
+
+let currentPrestamoId = null;
+
+// Visibilidad del botón (se llama desde showApp)
+function setupPrestamosBtn() {
+    const tipo = currentUser?.tipo_precio;
+    if (tipo === 'empleado' || tipo === 'jefe' || tipo === 'admin') {
+        prestamosBtn.classList.remove('hidden');
+    } else {
+        prestamosBtn.classList.add('hidden');
+    }
+}
+
+prestamosBtn.addEventListener('click', openPrestamosModal);
+closePrestamosBtn.addEventListener('click', () => prestamosModal.classList.add('hidden'));
+backFromPrestamos.addEventListener('click', () => prestamosModal.classList.add('hidden'));
+
+toggleSolicitudBtn.addEventListener('click', () => {
+    const abierto = !solicitudForm.classList.contains('hidden');
+    solicitudForm.classList.toggle('hidden', abierto);
+    toggleSolicitudBtn.textContent = abierto ? '+ Nueva solicitud' : '— Cancelar';
+});
+
+async function openPrestamosModal() {
+    prestamosModal.classList.remove('hidden');
+    solicitudForm.classList.add('hidden');
+    toggleSolicitudBtn.textContent = '+ Nueva solicitud';
+    pSolicitarMsg.classList.add('hidden');
+    await loadPrestamos();
+}
+
+async function loadPrestamos() {
+    prestamosBody.innerHTML = '<p style="text-align:center;padding:20px;color:var(--text-muted);">Cargando...</p>';
+    try {
+        const res  = await fetch(`${BASE_URL}/api/prestamos`, { credentials: 'include' });
+        const data = await res.json();
+
+        if (!Array.isArray(data) || data.length === 0) {
+            prestamosBody.innerHTML = '<p style="text-align:center;padding:30px;color:var(--text-muted);">Sin préstamos registrados.</p>';
+            return;
+        }
+
+        // Cargar pagos para cada préstamo activo/saldado
+        const pagosMap = {};
+        await Promise.all(
+            data
+              .filter(p => p.estado === 'aprobado' || p.estado === 'saldado')
+              .map(async p => {
+                  const r = await fetch(`${BASE_URL}/api/prestamos/${p.id}/pagos`, { credentials: 'include' });
+                  pagosMap[p.id] = await r.json();
+              })
+        );
+
+        prestamosBody.innerHTML = data.map(p => renderPrestamoCarta(p, pagosMap[p.id] || [])).join('');
+        lucide.createIcons();
+    } catch (e) {
+        prestamosBody.innerHTML = '<p style="text-align:center;color:red;padding:20px;">Error al cargar préstamos.</p>';
+    }
+}
+
+function renderPrestamoCarta(p, pagos) {
+    const tipo   = currentUser?.tipo_precio;
+    const esGest = tipo === 'jefe' || tipo === 'admin';
+    const nombre = p.clientes?.nombre || '';
+
+    const estadoBadge = {
+        pendiente: '<span class="prestamo-badge badge-pendiente">⏳ Pendiente</span>',
+        aprobado:  '<span class="prestamo-badge badge-aprobado">✅ Activo</span>',
+        rechazado: '<span class="prestamo-badge badge-rechazado">❌ Rechazado</span>',
+        saldado:   '<span class="prestamo-badge badge-saldado">🏁 Saldado</span>',
+        cancelado: '<span class="prestamo-badge badge-rechazado">🚫 Cancelado</span>',
+    }[p.estado] || p.estado;
+
+    const fecha = p.created_at?.substring(0, 10);
+    const monto = n => `$${parseFloat(n || 0).toLocaleString('es-AR', {minimumFractionDigits:0})}`;
+
+    let cuerpo = '';
+
+    if (p.estado === 'pendiente') {
+        cuerpo = `
+            <div class="prestamo-monto-row">
+                <span class="prestamo-monto-label">Solicitado</span>
+                <span class="prestamo-monto-valor">${monto(p.monto_solicitado)}</span>
+            </div>
+            ${p.motivo ? `<p class="prestamo-motivo">"${p.motivo}"</p>` : ''}
+            ${esGest ? `
+            <div class="prestamo-acciones">
+                <button class="doc-btn doc-btn--firmar" onclick="abrirAprobarModal('${p.id}','${nombre.replace(/'/g,"\\'")}',${p.monto_solicitado})">
+                    ✅ Aprobar
+                </button>
+                <button class="doc-btn prestamo-btn-rechazar" onclick="rechazarPrestamo('${p.id}')">
+                    ❌ Rechazar
+                </button>
+            </div>` : '<p class="prestamo-motivo" style="color:var(--text-muted)">Aguardando revisión del jefe.</p>'}
+        `;
+    } else if (p.estado === 'aprobado' || p.estado === 'saldado') {
+        const saldo     = parseFloat(p.saldo_pendiente || 0);
+        const aprobado  = parseFloat(p.monto_aprobado || 0);
+        const pagado    = aprobado - saldo;
+        const pct       = aprobado > 0 ? Math.round((pagado / aprobado) * 100) : 0;
+        const cuotas    = p.cuotas_total || 1;
+        const mCuota    = p.monto_cuota  || 0;
+
+        cuerpo = `
+            <div class="prestamo-monto-row">
+                <span class="prestamo-monto-label">Aprobado</span>
+                <span class="prestamo-monto-valor">${monto(p.monto_aprobado)}</span>
+            </div>
+            ${saldo > 0 ? `
+            <div class="prestamo-monto-row">
+                <span class="prestamo-monto-label">Saldo pendiente</span>
+                <span class="prestamo-monto-valor" style="color:#dc2626">${monto(saldo)}</span>
+            </div>` : ''}
+            ${mCuota > 0 ? `<p class="prestamo-motivo">${cuotas} cuota${cuotas>1?'s':''} de ${monto(mCuota)}</p>` : ''}
+            ${p.condiciones_nota ? `<p class="prestamo-motivo">${p.condiciones_nota}</p>` : ''}
+            <div class="prestamo-barra-wrap">
+                <div class="prestamo-barra" style="width:${pct}%"></div>
+            </div>
+            <p class="prestamo-motivo" style="text-align:right">${monto(pagado)} pagado de ${monto(aprobado)}</p>
+            ${renderPagos(pagos, esGest, p.estado === 'aprobado' && saldo > 0)}
+        `;
+    } else if (p.estado === 'rechazado') {
+        cuerpo = `
+            <div class="prestamo-monto-row">
+                <span class="prestamo-monto-label">Solicitado</span>
+                <span class="prestamo-monto-valor">${monto(p.monto_solicitado)}</span>
+            </div>
+            ${p.nota_rechazo ? `<p class="prestamo-motivo">Motivo: "${p.nota_rechazo}"</p>` : ''}
+        `;
+    }
+
+    return `
+        <div class="prestamo-card">
+            <div class="prestamo-card-header">
+                ${esGest && nombre ? `<span class="prestamo-empleado">${nombre}</span>` : ''}
+                ${estadoBadge}
+                <span class="prestamo-fecha">${fecha}</span>
+            </div>
+            ${cuerpo}
+        </div>`;
+}
+
+function renderPagos(pagos, esGest, puedeInformar) {
+    if (!pagos || pagos.length === 0) {
+        if (!puedeInformar) return '';
+        const miId = currentUser?.id;
+        return `
+            <div class="prestamo-acciones">
+                <button class="doc-btn doc-btn--firmar" onclick="abrirPagoModal('${prestamosBody.querySelector('[data-pid]')?.dataset?.pid || ''}', 0, 0)">
+                    💸 Informar Pago
+                </button>
+            </div>`;
+    }
+
+    const monto = n => `$${parseFloat(n || 0).toLocaleString('es-AR', {minimumFractionDigits:0})}`;
+    let html = '<div class="prestamo-pagos-lista">';
+    let prestamoId = '';
+
+    pagos.forEach(pago => {
+        prestamoId = pago.prestamo_id;
+        const fecha = pago.fecha_informado?.substring(0, 10);
+        if (pago.estado === 'informado') {
+            html += `
+                <div class="pago-item pago-informado">
+                    <div>
+                        <span class="pago-icono">⏳</span>
+                        <strong>${monto(pago.monto)}</strong>
+                        <span class="pago-fecha">${fecha} · informado</span>
+                        ${pago.nota_empleado ? `<span class="pago-nota">"${pago.nota_empleado}"</span>` : ''}
+                    </div>
+                    ${esGest ? `
+                    <div class="pago-acciones">
+                        <button class="pago-btn pago-btn-ok" onclick="confirmarPago('${pago.id}')">✅</button>
+                        <button class="pago-btn pago-btn-no" onclick="rechazarPago('${pago.id}')">❌</button>
+                    </div>` : ''}
+                </div>`;
+        } else if (pago.estado === 'confirmado') {
+            const fConf = pago.fecha_confirmado?.substring(0, 10);
+            html += `
+                <div class="pago-item pago-confirmado">
+                    <span class="pago-icono">✅</span>
+                    <strong>${monto(pago.monto)}</strong>
+                    <span class="pago-fecha">${fecha} · confirmado ${fConf}</span>
+                </div>`;
+        } else if (pago.estado === 'rechazado') {
+            html += `
+                <div class="pago-item pago-rechazado">
+                    <span class="pago-icono">❌</span>
+                    <strong>${monto(pago.monto)}</strong>
+                    <span class="pago-fecha">${fecha} · rechazado</span>
+                    ${pago.nota_jefe ? `<span class="pago-nota">"${pago.nota_jefe}"</span>` : ''}
+                </div>`;
+        }
+    });
+    html += '</div>';
+
+    // Botón informar pago — solo si activo, no hay pago pendiente, y pertenece al usuario
+    const hayInformado = pagos.some(p => p.estado === 'informado');
+    if (puedeInformar && !hayInformado) {
+        const saldoActual = 0; // se pasa desde renderPrestamoCarta
+        html += `
+            <div class="prestamo-acciones">
+                <button class="doc-btn doc-btn--firmar" onclick="abrirPagoModal('${prestamoId}')">
+                    💸 Informar Pago
+                </button>
+            </div>`;
+    }
+    return html;
+}
+
+// Redefinir para pasar el prestamoId correctamente
+function renderPrestamoCarta(p, pagos) {
+    const tipo   = currentUser?.tipo_precio;
+    const esGest = tipo === 'jefe' || tipo === 'admin';
+    const nombre = p.clientes?.nombre || '';
+    const estadoBadge = {
+        pendiente: '<span class="prestamo-badge badge-pendiente">⏳ Pendiente</span>',
+        aprobado:  '<span class="prestamo-badge badge-aprobado">✅ Activo</span>',
+        rechazado: '<span class="prestamo-badge badge-rechazado">❌ Rechazado</span>',
+        saldado:   '<span class="prestamo-badge badge-saldado">🏁 Saldado</span>',
+        cancelado: '<span class="prestamo-badge badge-rechazado">🚫 Cancelado</span>',
+    }[p.estado] || p.estado;
+    const fecha = p.created_at?.substring(0, 10);
+    const monto = n => `$${parseFloat(n || 0).toLocaleString('es-AR', {minimumFractionDigits:0})}`;
+
+    let cuerpo = '';
+    if (p.estado === 'pendiente') {
+        cuerpo = `
+            <div class="prestamo-monto-row">
+                <span class="prestamo-monto-label">Solicitado</span>
+                <span class="prestamo-monto-valor">${monto(p.monto_solicitado)}</span>
+            </div>
+            ${p.motivo ? `<p class="prestamo-motivo">"${p.motivo}"</p>` : ''}
+            ${esGest ? `
+            <div class="prestamo-acciones">
+                <button class="doc-btn doc-btn--firmar" onclick="abrirAprobarModal('${p.id}','${nombre.replace(/'/g,"\\'")}',${p.monto_solicitado})">✅ Aprobar</button>
+                <button class="doc-btn prestamo-btn-rechazar" onclick="rechazarPrestamo('${p.id}')">❌ Rechazar</button>
+            </div>` : '<p class="prestamo-motivo" style="color:var(--text-muted);">Aguardando revisión.</p>'}`;
+
+    } else if (p.estado === 'aprobado' || p.estado === 'saldado') {
+        const saldo    = parseFloat(p.saldo_pendiente || 0);
+        const aprobado = parseFloat(p.monto_aprobado || 0);
+        const pagado   = aprobado - saldo;
+        const pct      = aprobado > 0 ? Math.round((pagado / aprobado) * 100) : 0;
+        const cuotas   = p.cuotas_total || 1;
+        const mCuota   = p.monto_cuota  || 0;
+        const hayInformado = pagos.some(pg => pg.estado === 'informado');
+        const puedeInformar = p.estado === 'aprobado' && saldo > 0 && !hayInformado;
+
+        cuerpo = `
+            <div class="prestamo-monto-row">
+                <span class="prestamo-monto-label">Aprobado</span>
+                <span class="prestamo-monto-valor">${monto(aprobado)}</span>
+            </div>
+            ${saldo > 0 ? `<div class="prestamo-monto-row">
+                <span class="prestamo-monto-label">Saldo pendiente</span>
+                <span class="prestamo-monto-valor" style="color:#dc2626">${monto(saldo)}</span>
+            </div>` : ''}
+            ${mCuota > 0 ? `<p class="prestamo-motivo">${cuotas} cuota${cuotas>1?'s':''} de ${monto(mCuota)}</p>` : ''}
+            ${p.condiciones_nota ? `<p class="prestamo-motivo">${p.condiciones_nota}</p>` : ''}
+            <div class="prestamo-barra-wrap">
+                <div class="prestamo-barra" style="width:${pct}%"></div>
+            </div>
+            <p class="prestamo-motivo" style="text-align:right;margin-top:2px;">${monto(pagado)} pagado de ${monto(aprobado)}</p>
+            ${renderPagosDe(p.id, pagos, esGest, puedeInformar)}
+        `;
+    } else if (p.estado === 'rechazado') {
+        cuerpo = `
+            <div class="prestamo-monto-row">
+                <span class="prestamo-monto-label">Solicitado</span>
+                <span class="prestamo-monto-valor">${monto(p.monto_solicitado)}</span>
+            </div>
+            ${p.nota_rechazo ? `<p class="prestamo-motivo">Motivo: "${p.nota_rechazo}"</p>` : ''}`;
+    }
+
+    return `
+        <div class="prestamo-card">
+            <div class="prestamo-card-header">
+                ${esGest && nombre ? `<span class="prestamo-empleado">${nombre}</span>` : ''}
+                ${estadoBadge}
+                <span class="prestamo-fecha">${fecha}</span>
+            </div>
+            ${cuerpo}
+        </div>`;
+}
+
+function renderPagosDe(prestamoId, pagos, esGest, puedeInformar) {
+    const monto = n => `$${parseFloat(n || 0).toLocaleString('es-AR', {minimumFractionDigits:0})}`;
+    let html = '';
+    if (pagos && pagos.length > 0) {
+        html += '<div class="prestamo-pagos-lista">';
+        pagos.forEach(pago => {
+            const fecha = pago.fecha_informado?.substring(0, 10);
+            if (pago.estado === 'informado') {
+                html += `
+                    <div class="pago-item pago-informado">
+                        <div class="pago-info">
+                            <span>⏳ <strong>${monto(pago.monto)}</strong> · ${fecha}</span>
+                            ${pago.nota_empleado ? `<span class="pago-nota">"${pago.nota_empleado}"</span>` : ''}
+                        </div>
+                        ${esGest ? `
+                        <div class="pago-acciones">
+                            <button class="pago-btn pago-btn-ok" onclick="confirmarPago('${pago.id}')">✅</button>
+                            <button class="pago-btn pago-btn-no" onclick="rechazarPago('${pago.id}')">❌</button>
+                        </div>` : ''}
+                    </div>`;
+            } else if (pago.estado === 'confirmado') {
+                html += `
+                    <div class="pago-item pago-confirmado">
+                        ✅ <strong>${monto(pago.monto)}</strong>
+                        <span class="pago-fecha"> · ${fecha}</span>
+                    </div>`;
+            } else {
+                html += `
+                    <div class="pago-item pago-rechazado">
+                        ❌ <strong>${monto(pago.monto)}</strong> · rechazado
+                        ${pago.nota_jefe ? `<span class="pago-nota"> "${pago.nota_jefe}"</span>` : ''}
+                    </div>`;
+            }
+        });
+        html += '</div>';
+    }
+    if (puedeInformar) {
+        html += `<div class="prestamo-acciones">
+            <button class="doc-btn doc-btn--firmar" onclick="abrirPagoModal('${prestamoId}')">
+                💸 Informar Pago
+            </button>
+        </div>`;
+    }
+    return html;
+}
+
+// Solicitar préstamo
+pSolicitarBtn.addEventListener('click', async () => {
+    const monto  = parseFloat(pMontoInput.value);
+    const motivo = pMotivoInput.value.trim();
+    pSolicitarMsg.classList.add('hidden');
+
+    if (!monto || monto <= 0) { mostrarDocMsg(pSolicitarMsg, 'Ingresá un monto válido', 'error'); return; }
+
+    pSolicitarBtn.disabled    = true;
+    pSolicitarBtn.textContent = 'Enviando...';
+    try {
+        const res  = await fetch(`${BASE_URL}/api/prestamos`, {
+            method: 'POST', credentials: 'include',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ monto, motivo }),
+        });
+        const data = await res.json();
+        if (res.ok && data.ok) {
+            mostrarDocMsg(pSolicitarMsg, '✅ Solicitud enviada exitosamente', 'ok');
+            pMontoInput.value  = '';
+            pMotivoInput.value = '';
+            solicitudForm.classList.add('hidden');
+            toggleSolicitudBtn.textContent = '+ Nueva solicitud';
+            await loadPrestamos();
+        } else {
+            mostrarDocMsg(pSolicitarMsg, data.error || 'Error desconocido', 'error');
+        }
+    } catch (e) {
+        mostrarDocMsg(pSolicitarMsg, 'Error al conectar', 'error');
+    } finally {
+        pSolicitarBtn.disabled    = false;
+        pSolicitarBtn.textContent = 'Enviar Solicitud';
+    }
+});
+
+// Aprobar préstamo
+closeAprobarBtn.addEventListener('click', () => aprobarModal.classList.add('hidden'));
+
+function abrirAprobarModal(prestamoId, nombreEmp, montoSolicitado) {
+    currentPrestamoId = prestamoId;
+    aprobarNombre.textContent = `${nombreEmp} · solicitó $${parseFloat(montoSolicitado).toLocaleString('es-AR')}`;
+    apMontoInput.value  = montoSolicitado;
+    apCuotasInput.value = 1;
+    apCuotaInput.value  = '';
+    apNotaInput.value   = '';
+    apMsg.classList.add('hidden');
+    aprobarModal.classList.remove('hidden');
+}
+
+apSubmitBtn.addEventListener('click', async () => {
+    const montoAp = parseFloat(apMontoInput.value);
+    const cuotas  = parseInt(apCuotasInput.value) || 1;
+    const mCuota  = parseFloat(apCuotaInput.value) || 0;
+    const nota    = apNotaInput.value.trim();
+    apMsg.classList.add('hidden');
+
+    if (!montoAp || montoAp <= 0) { mostrarDocMsg(apMsg, 'Ingresá un monto válido', 'error'); return; }
+
+    apSubmitBtn.disabled    = true;
+    apSubmitBtn.textContent = 'Aprobando...';
+    try {
+        const res  = await fetch(`${BASE_URL}/api/prestamos/${currentPrestamoId}/aprobar`, {
+            method: 'POST', credentials: 'include',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ monto_aprobado: montoAp, cuotas, monto_cuota: mCuota, condiciones_nota: nota }),
+        });
+        const data = await res.json();
+        if (res.ok && data.ok) {
+            aprobarModal.classList.add('hidden');
+            await loadPrestamos();
+        } else {
+            mostrarDocMsg(apMsg, data.error || 'Error', 'error');
+        }
+    } catch (e) {
+        mostrarDocMsg(apMsg, 'Error al conectar', 'error');
+    } finally {
+        apSubmitBtn.disabled    = false;
+        apSubmitBtn.textContent = 'Confirmar Aprobación';
+    }
+});
+
+async function rechazarPrestamo(prestamoId) {
+    const nota = prompt('Motivo del rechazo (opcional):') ?? null;
+    if (nota === null) return; // canceló
+    try {
+        await fetch(`${BASE_URL}/api/prestamos/${prestamoId}/rechazar`, {
+            method: 'POST', credentials: 'include',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ nota }),
+        });
+        await loadPrestamos();
+    } catch (e) { alert('Error al rechazar'); }
+}
+
+// Informar pago
+closePagoBtn.addEventListener('click', () => pagoModal.classList.add('hidden'));
+
+function abrirPagoModal(prestamoId) {
+    currentPrestamoId = prestamoId;
+    pagoMontoInput.value = '';
+    pagoNotaInput.value  = '';
+    pagoMsg.classList.add('hidden');
+    pagoModal.classList.remove('hidden');
+}
+
+pagoSubmitBtn.addEventListener('click', async () => {
+    const monto = parseFloat(pagoMontoInput.value);
+    const nota  = pagoNotaInput.value.trim();
+    pagoMsg.classList.add('hidden');
+
+    if (!monto || monto <= 0) { mostrarDocMsg(pagoMsg, 'Ingresá un monto válido', 'error'); return; }
+
+    pagoSubmitBtn.disabled    = true;
+    pagoSubmitBtn.textContent = 'Enviando...';
+    try {
+        const res  = await fetch(`${BASE_URL}/api/prestamos/${currentPrestamoId}/pagos`, {
+            method: 'POST', credentials: 'include',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ monto, nota }),
+        });
+        const data = await res.json();
+        if (res.ok && data.ok) {
+            mostrarDocMsg(pagoMsg, '✅ Pago informado. El jefe lo confirmará pronto.', 'ok');
+            setTimeout(async () => {
+                pagoModal.classList.add('hidden');
+                await loadPrestamos();
+            }, 2000);
+        } else {
+            mostrarDocMsg(pagoMsg, data.error || 'Error', 'error');
+        }
+    } catch (e) {
+        mostrarDocMsg(pagoMsg, 'Error al conectar', 'error');
+    } finally {
+        pagoSubmitBtn.disabled    = false;
+        pagoSubmitBtn.textContent = 'Confirmar Pago';
+    }
+});
+
+async function confirmarPago(pagoId) {
+    try {
+        const res  = await fetch(`${BASE_URL}/api/prestamos/pagos/${pagoId}/confirmar`, {
+            method: 'POST', credentials: 'include',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ nota: '' }),
+        });
+        const data = await res.json();
+        if (res.ok && data.ok) {
+            await loadPrestamos();
+        } else {
+            alert('Error: ' + (data.error || 'desconocido'));
+        }
+    } catch (e) { alert('Error al confirmar pago'); }
+}
+
+async function rechazarPago(pagoId) {
+    const nota = prompt('Motivo del rechazo (opcional):') ?? null;
+    if (nota === null) return;
+    try {
+        await fetch(`${BASE_URL}/api/prestamos/pagos/${pagoId}/rechazar`, {
+            method: 'POST', credentials: 'include',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ nota }),
+        });
+        await loadPrestamos();
+    } catch (e) { alert('Error'); }
+}
 
 // ── Documentos de empleados ────────────────────────────────────────────────────
 

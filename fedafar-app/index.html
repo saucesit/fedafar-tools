@@ -47,6 +47,9 @@
                 </div>
             </div>
             <div class="header-actions">
+                <button id="prestamos-btn" class="icon-btn hidden" title="Préstamos">
+                    <i data-lucide="wallet"></i>
+                </button>
                 <button id="docs-btn" class="icon-btn hidden" title="Mis Documentos">
                     <i data-lucide="folder"></i>
                 </button>
@@ -158,6 +161,75 @@
                 </div>
             </div>
         </div>
+
+    <!-- Modal Préstamos ──────────────────────────────────────────── -->
+    <div id="prestamos-modal" class="cart-modal hidden">
+        <div class="cart-content">
+            <div class="cart-header">
+                <h2>💰 Préstamos</h2>
+                <button id="close-prestamos" class="icon-btn"><i data-lucide="x"></i></button>
+            </div>
+
+            <!-- Solicitar nuevo préstamo -->
+            <div class="prestamo-solicitud-header">
+                <button id="toggle-solicitud-btn" class="prestamo-toggle-btn">
+                    + Nueva solicitud
+                </button>
+            </div>
+            <div id="solicitud-form" class="prestamo-form-section hidden">
+                <input  type="number" id="p-monto-input"  class="docs-input" placeholder="Monto solicitado ($)" min="1">
+                <textarea id="p-motivo-input" class="docs-input prestamo-textarea" placeholder="Motivo (opcional)..." rows="2"></textarea>
+                <button id="p-solicitar-btn" class="primary-btn">Enviar Solicitud</button>
+                <p id="p-solicitar-msg" class="docs-msg hidden"></p>
+            </div>
+
+            <div id="prestamos-body" class="cuenta-body">
+                <p style="text-align:center;color:var(--text-muted);">Cargando...</p>
+            </div>
+
+            <div class="cart-footer">
+                <div class="cart-actions">
+                    <button id="back-from-prestamos" class="secondary-btn">← Volver</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal Aprobar Préstamo (jefe/admin) ───────────────────────── -->
+    <div id="aprobar-modal" class="cart-modal hidden">
+        <div class="cart-content">
+            <div class="cart-header">
+                <h2>✅ Aprobar Préstamo</h2>
+                <button id="close-aprobar" class="icon-btn"><i data-lucide="x"></i></button>
+            </div>
+            <div class="firma-body">
+                <p id="aprobar-empleado-nombre" class="firma-doc-nombre"></p>
+                <input  type="number" id="ap-monto-input"  class="docs-input" placeholder="Monto aprobado ($)">
+                <input  type="number" id="ap-cuotas-input" class="docs-input" placeholder="Número de cuotas" min="1" value="1">
+                <input  type="number" id="ap-cuota-input"  class="docs-input" placeholder="Monto por cuota ($)  (opcional, se calcula solo)">
+                <textarea id="ap-nota-input" class="docs-input prestamo-textarea" placeholder="Condiciones / nota (opcional)..." rows="2"></textarea>
+                <button id="ap-submit-btn" class="primary-btn">Confirmar Aprobación</button>
+                <p id="ap-msg" class="docs-msg hidden"></p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal Informar Pago (empleado) ────────────────────────────── -->
+    <div id="pago-modal" class="cart-modal hidden">
+        <div class="cart-content">
+            <div class="cart-header">
+                <h2>💸 Informar Pago</h2>
+                <button id="close-pago" class="icon-btn"><i data-lucide="x"></i></button>
+            </div>
+            <div class="firma-body">
+                <p id="pago-saldo-info" class="firma-doc-nombre"></p>
+                <input  type="number" id="pago-monto-input" class="docs-input" placeholder="Monto del pago ($)" min="1">
+                <textarea id="pago-nota-input" class="docs-input prestamo-textarea" placeholder="Nota (opcional)..." rows="2"></textarea>
+                <button id="pago-submit-btn" class="primary-btn">Confirmar Pago</button>
+                <p id="pago-msg" class="docs-msg hidden"></p>
+            </div>
+        </div>
+    </div>
 
     <!-- Modal Documentos ─────────────────────────────────────────── -->
     <div id="docs-modal" class="cart-modal hidden">

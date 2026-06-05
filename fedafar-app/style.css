@@ -826,6 +826,179 @@ body {
 
 .doc-btn--firmar:hover { background: var(--primary-light); }
 
+/* ── Préstamos ───────────────────────────────────────────────── */
+
+.prestamo-solicitud-header {
+    padding: 12px 16px 0;
+}
+
+.prestamo-toggle-btn {
+    background: none;
+    border: 1.5px dashed var(--primary);
+    color: var(--primary);
+    border-radius: 10px;
+    padding: 8px 16px;
+    font-family: inherit;
+    font-size: 0.9rem;
+    font-weight: 600;
+    cursor: pointer;
+    width: 100%;
+    transition: 0.2s;
+}
+
+.prestamo-toggle-btn:hover { background: #f0f4ff; }
+
+.prestamo-form-section {
+    padding: 12px 16px;
+    border-bottom: 1px solid #f0f0f0;
+}
+
+.prestamo-textarea {
+    resize: none;
+    font-family: inherit;
+    line-height: 1.4;
+}
+
+.prestamo-card {
+    border-bottom: 1px solid #f0f0f0;
+    padding: 14px 16px;
+}
+
+.prestamo-card:last-child { border-bottom: none; }
+
+.prestamo-card-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+    margin-bottom: 10px;
+}
+
+.prestamo-empleado {
+    font-weight: 700;
+    font-size: 0.9rem;
+    flex: 1;
+}
+
+.prestamo-fecha {
+    font-size: 0.75rem;
+    color: var(--text-muted);
+    margin-left: auto;
+}
+
+.prestamo-badge {
+    font-size: 0.72rem;
+    font-weight: 700;
+    padding: 3px 10px;
+    border-radius: 20px;
+    white-space: nowrap;
+}
+
+.badge-pendiente { background: #fef3c7; color: #92400e; }
+.badge-aprobado  { background: #d1fae5; color: #065f46; }
+.badge-rechazado { background: #fee2e2; color: #991b1b; }
+.badge-saldado   { background: #e0e7ff; color: #3730a3; }
+
+.prestamo-monto-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 4px;
+}
+
+.prestamo-monto-label {
+    font-size: 0.8rem;
+    color: var(--text-muted);
+}
+
+.prestamo-monto-valor {
+    font-size: 1rem;
+    font-weight: 700;
+    color: var(--text);
+}
+
+.prestamo-motivo {
+    font-size: 0.8rem;
+    color: var(--text-muted);
+    margin: 4px 0;
+    font-style: italic;
+}
+
+.prestamo-barra-wrap {
+    height: 6px;
+    background: #e5e7eb;
+    border-radius: 10px;
+    overflow: hidden;
+    margin: 8px 0 2px;
+}
+
+.prestamo-barra {
+    height: 100%;
+    background: linear-gradient(90deg, var(--accent), #16a34a);
+    border-radius: 10px;
+    transition: width 0.4s;
+}
+
+.prestamo-acciones {
+    display: flex;
+    gap: 8px;
+    margin-top: 10px;
+}
+
+.prestamo-btn-rechazar {
+    background: #fee2e2;
+    color: #991b1b;
+    white-space: nowrap;
+    padding: 8px 12px;
+}
+
+.prestamo-btn-rechazar:hover { background: #fecaca; }
+
+/* Pagos */
+.prestamo-pagos-lista {
+    margin-top: 10px;
+    border-top: 1px dashed #e5e7eb;
+    padding-top: 8px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.pago-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 0.82rem;
+    padding: 5px 8px;
+    border-radius: 8px;
+    gap: 8px;
+}
+
+.pago-info { display: flex; flex-direction: column; gap: 2px; }
+.pago-fecha { color: var(--text-muted); }
+.pago-nota  { font-style: italic; color: var(--text-muted); font-size: 0.75rem; }
+
+.pago-informado  { background: #fef9c3; }
+.pago-confirmado { background: #f0fdf4; }
+.pago-rechazado  { background: #fef2f2; color: #991b1b; }
+
+.pago-acciones { display: flex; gap: 4px; flex-shrink: 0; }
+
+.pago-btn {
+    border: none;
+    border-radius: 6px;
+    padding: 4px 10px;
+    cursor: pointer;
+    font-size: 1rem;
+    line-height: 1;
+    transition: 0.2s;
+}
+
+.pago-btn-ok { background: #d1fae5; }
+.pago-btn-ok:hover { background: #a7f3d0; }
+.pago-btn-no { background: #fee2e2; }
+.pago-btn-no:hover { background: #fecaca; }
+
 /* ── Firma Digital ──────────────────────────────────────────── */
 
 .firma-body {
