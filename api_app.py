@@ -6,6 +6,7 @@ from flask import Flask, jsonify, render_template, send_from_directory, request,
 from flask_cors import CORS
 from flask_login import LoginManager, UserMixin, login_user, logout_user, login_required, current_user
 from werkzeug.security import check_password_hash, generate_password_hash
+from werkzeug.utils import secure_filename
 from functools import wraps
 from dotenv import load_dotenv
 
@@ -110,6 +111,7 @@ def api_me():
         return jsonify({'authenticated': False}), 401
     return jsonify({
         'authenticated':      True,
+        'id':                 current_user.id,
         'nombre':             current_user.nombre,
         'tipo_precio':        current_user.tipo_precio,
         'genexus_client_id':  current_user.genexus_client_id,
@@ -457,6 +459,187 @@ def parse_price_list(tipo='contado'):
         products.append(producto)
 
     return products
+
+# ── Documentos de empleados ────────────────────────────────────────────────────
+
+DOCS_TIPOS = {
+    'recibo_sueldo': 'Recibo de Sueldo',
+    'art_tarjeta':   'Tarjeta ART',
+    'otro':          'Otro',
+}
+
+def _es_empleado_interno():
+    """True si el usuario logueado tiene rol interno (empleado/jefe/admin)."""
+    return current_user.is_authenticated and \
+           current_user.tipo_precio in ('empleado', 'jefe', 'admin')
+
+@app.route('/api/docs', methods=['GET'])
+@login_required
+def api_get_docs():
+    if not _es_empleado_interno():
+        return jsonify({'error': 'No autorizado'}), 403
+    try:
+        sb   = get_sb()
+        tipo = current_user.tipo_precio
+        if tipo in ('jefe', 'admin'):
+            emp_id = request.args.get('empleado_id')
+            q = sb.table('documentos_empleados') \
+                  .select('id,tipo,nombre_archivo,periodo,estado,firma_timestamp,firma_nombre,created_at,empleado_id') \
+                  .order('created_at', desc=True)
+            if emp_id:
+                q = q.eq('empleado_id', emp_id)
+        else:
+            q = sb.table('documentos_empleados') \
+                  .select('id,tipo,nombre_archivo,periodo,estado,firma_timestamp,firma_nombre,created_at,empleado_id') \
+                  .eq('empleado_id', current_user.id) \
+                  .order('created_at', desc=True)
+        return jsonify(q.execute().data or [])
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/docs/empleados-lista', methods=['GET'])
+@login_required
+def api_docs_empleados_lista():
+    if current_user.tipo_precio not in ('jefe', 'admin'):
+        return jsonify({'error': 'No autorizado'}), 403
+    try:
+        sb  = get_sb()
+        res = sb.table('clientes') \
+                .select('id,nombre,tipo_precio') \
+                .in_('tipo_precio', ['empleado', 'jefe', 'admin']) \
+                .eq('activo', True) \
+                .order('nombre') \
+                .execute()
+        return jsonify(res.data or [])
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/docs/subir', methods=['POST'])
+@login_required
+def api_docs_subir():
+    if current_user.tipo_precio not in ('jefe', 'admin'):
+        return jsonify({'error': 'No autorizado'}), 403
+    try:
+        empleado_id = request.form.get('empleado_id', '').strip()
+        tipo        = request.form.get('tipo', 'recibo_sueldo')
+        periodo     = request.form.get('periodo', '').strip()
+        archivo     = request.files.get('archivo')
+
+        if not empleado_id or not archivo:
+            return jsonify({'error': 'empleado_id y archivo son requeridos'}), 400
+        if tipo not in DOCS_TIPOS:
+            return jsonify({'error': 'Tipo de documento inválido'}), 400
+
+        nombre = secure_filename(archivo.filename)
+        if not nombre.lower().endswith('.pdf'):
+            return jsonify({'error': 'Solo se permiten archivos PDF'}), 400
+
+        file_bytes   = archivo.read()
+        safe_periodo = periodo.replace(' ', '_') if periodo else ''
+        storage_path = f"{empleado_id}/{tipo}/{safe_periodo}_{nombre}" if safe_periodo \
+                       else f"{empleado_id}/{tipo}/{nombre}"
+
+        sb = get_sb()
+        # Subir a Supabase Storage
+        try:
+            sb.storage.from_('documentos').upload(
+                path=storage_path,
+                file=file_bytes,
+                file_options={'content-type': 'application/pdf', 'upsert': 'true'}
+            )
+        except Exception as se:
+            err = str(se)
+            if 'already exists' in err.lower() or '409' in err:
+                sb.storage.from_('documentos').update(
+                    path=storage_path,
+                    file=file_bytes,
+                    file_options={'content-type': 'application/pdf'}
+                )
+            else:
+                raise
+
+        # Guardar metadatos en DB
+        res = sb.table('documentos_empleados').insert({
+            'empleado_id':    empleado_id,
+            'tipo':           tipo,
+            'nombre_archivo': nombre,
+            'periodo':        periodo or None,
+            'storage_path':   storage_path,
+            'estado':         'pendiente',
+            'subido_por':     current_user.id,
+        }).execute()
+        return jsonify({'ok': True, 'doc': res.data[0]}), 201
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/docs/firmar/<doc_id>', methods=['POST'])
+@login_required
+def api_docs_firmar(doc_id):
+    if not _es_empleado_interno():
+        return jsonify({'error': 'No autorizado'}), 403
+    try:
+        data       = request.get_json() or {}
+        firma_data = data.get('firma_data', '')
+        if not firma_data:
+            return jsonify({'error': 'firma_data requerido'}), 400
+
+        sb      = get_sb()
+        doc_res = sb.table('documentos_empleados').select('*').eq('id', doc_id).single().execute()
+        doc     = doc_res.data
+        if not doc:
+            return jsonify({'error': 'Documento no encontrado'}), 404
+        if str(doc['empleado_id']) != str(current_user.id):
+            return jsonify({'error': 'No autorizado para firmar este documento'}), 403
+        if doc['estado'] == 'firmado':
+            return jsonify({'error': 'El documento ya fue firmado anteriormente'}), 400
+
+        ip = request.headers.get('X-Forwarded-For', request.remote_addr or '')
+        if ',' in ip:
+            ip = ip.split(',')[0].strip()
+
+        from datetime import datetime, timezone
+        now = datetime.now(timezone.utc).isoformat()
+
+        sb.table('documentos_empleados').update({
+            'estado':          'firmado',
+            'firma_data':      firma_data,
+            'firma_timestamp': now,
+            'firma_ip':        ip,
+            'firma_nombre':    current_user.nombre,
+        }).eq('id', doc_id).execute()
+
+        return jsonify({'ok': True, 'timestamp': now})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/docs/descargar/<doc_id>', methods=['GET'])
+@login_required
+def api_docs_descargar(doc_id):
+    if not _es_empleado_interno():
+        return jsonify({'error': 'No autorizado'}), 403
+    try:
+        sb      = get_sb()
+        doc_res = sb.table('documentos_empleados').select('*').eq('id', doc_id).single().execute()
+        doc     = doc_res.data
+        if not doc:
+            return jsonify({'error': 'Documento no encontrado'}), 404
+        if current_user.tipo_precio == 'empleado' and str(doc['empleado_id']) != str(current_user.id):
+            return jsonify({'error': 'No autorizado'}), 403
+
+        signed = sb.storage.from_('documentos').create_signed_url(doc['storage_path'], 3600)
+        # supabase-py v2 devuelve objeto con .signed_url
+        if hasattr(signed, 'signed_url'):
+            url = signed.signed_url
+        elif isinstance(signed, dict):
+            url = signed.get('signedURL') or signed.get('signed_url') or signed.get('signedUrl')
+        else:
+            url = None
+
+        if not url:
+            return jsonify({'error': 'No se pudo generar URL de descarga'}), 500
+        return jsonify({'url': url})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
 
 # ── Rutas estáticas ────────────────────────────────────────────────────────────
 

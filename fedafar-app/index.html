@@ -7,6 +7,7 @@
     <link rel="stylesheet" href="style.css">
     <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600&display=swap" rel="stylesheet">
     <script src="https://unpkg.com/lucide@latest"></script>
+    <script src="https://cdn.jsdelivr.net/npm/signature_pad@4.1.5/dist/signature_pad.umd.min.js"></script>
 </head>
 <body>
 
@@ -46,6 +47,9 @@
                 </div>
             </div>
             <div class="header-actions">
+                <button id="docs-btn" class="icon-btn hidden" title="Mis Documentos">
+                    <i data-lucide="folder"></i>
+                </button>
                 <button id="cuenta-btn" class="icon-btn hidden" title="Mi Cuenta">
                     <i data-lucide="file-text"></i>
                 </button>
@@ -154,6 +158,68 @@
                 </div>
             </div>
         </div>
+
+    <!-- Modal Documentos ─────────────────────────────────────────── -->
+    <div id="docs-modal" class="cart-modal hidden">
+        <div class="cart-content">
+            <div class="cart-header">
+                <h2 id="docs-modal-title">Documentos</h2>
+                <button id="close-docs" class="icon-btn"><i data-lucide="x"></i></button>
+            </div>
+
+            <!-- Sección subir (jefe / admin) -->
+            <div id="docs-upload-section" class="hidden docs-upload-form">
+                <h3 class="docs-section-title">📤 Subir Documento</h3>
+                <select id="docs-empleado-sel" class="docs-input">
+                    <option value="">Seleccioná un empleado...</option>
+                </select>
+                <select id="docs-tipo-sel" class="docs-input">
+                    <option value="recibo_sueldo">Recibo de Sueldo</option>
+                    <option value="art_tarjeta">Tarjeta ART</option>
+                    <option value="otro">Otro</option>
+                </select>
+                <input type="text" id="docs-periodo-input" class="docs-input" placeholder="Período  ej: Mayo 2026">
+                <label class="docs-file-label">
+                    <i data-lucide="upload"></i> Seleccionar PDF
+                    <input type="file" id="docs-file-input" accept=".pdf" class="hidden">
+                </label>
+                <span id="docs-file-name" class="docs-file-name">Ningún archivo seleccionado</span>
+                <button id="docs-upload-btn" class="primary-btn" style="margin-top:4px;">Subir Documento</button>
+                <p id="docs-upload-msg" class="docs-msg hidden"></p>
+            </div>
+
+            <!-- Lista de documentos -->
+            <div id="docs-body" class="cuenta-body" style="margin-top:8px;">
+                <p style="text-align:center;color:var(--text-muted);">Cargando...</p>
+            </div>
+
+            <div class="cart-footer">
+                <div class="cart-actions">
+                    <button id="back-from-docs" class="secondary-btn">← Volver</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal Firma Digital ───────────────────────────────────────── -->
+    <div id="firma-modal" class="cart-modal hidden">
+        <div class="cart-content">
+            <div class="cart-header">
+                <h2>✍️ Firmar Documento</h2>
+                <button id="close-firma" class="icon-btn"><i data-lucide="x"></i></button>
+            </div>
+            <div class="firma-body">
+                <p id="firma-doc-nombre" class="firma-doc-nombre"></p>
+                <p class="firma-instruccion">Dibujá tu firma con el dedo o el mouse:</p>
+                <canvas id="firma-canvas" class="firma-canvas"></canvas>
+                <div class="firma-acciones">
+                    <button id="firma-limpiar-btn" class="secondary-btn">Limpiar</button>
+                    <button id="firma-confirmar-btn" class="primary-btn">Confirmar Firma</button>
+                </div>
+                <p id="firma-msg" class="docs-msg hidden"></p>
+            </div>
+        </div>
+    </div>
 
     <script src="app.js"></script>
 </body>

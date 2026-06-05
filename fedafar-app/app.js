@@ -42,6 +42,29 @@ const closeTodasCuentas = document.getElementById('close-todas-cuentas');
 const todasCuentasBody  = document.getElementById('todas-cuentas-body');
 const adminPanelBtn     = document.getElementById('admin-panel-btn');
 
+// Documentos
+const docsBtn           = document.getElementById('docs-btn');
+const docsModal         = document.getElementById('docs-modal');
+const closeDocsBtn      = document.getElementById('close-docs');
+const backFromDocs      = document.getElementById('back-from-docs');
+const docsModalTitle    = document.getElementById('docs-modal-title');
+const docsBody          = document.getElementById('docs-body');
+const docsUploadSection = document.getElementById('docs-upload-section');
+const docsEmpleadoSel   = document.getElementById('docs-empleado-sel');
+const docsTipoSel       = document.getElementById('docs-tipo-sel');
+const docsPeriodoInput  = document.getElementById('docs-periodo-input');
+const docsFileInput     = document.getElementById('docs-file-input');
+const docsFileName      = document.getElementById('docs-file-name');
+const docsUploadBtn     = document.getElementById('docs-upload-btn');
+const docsUploadMsg     = document.getElementById('docs-upload-msg');
+// Firma
+const firmaModal        = document.getElementById('firma-modal');
+const closeFirmaBtn     = document.getElementById('close-firma');
+const firmaDocNombre    = document.getElementById('firma-doc-nombre');
+const firmaLimpiarBtn   = document.getElementById('firma-limpiar-btn');
+const firmaConfirmarBtn = document.getElementById('firma-confirmar-btn');
+const firmaMsgEl        = document.getElementById('firma-msg');
+
 // ── Auth ───────────────────────────────────────────────────────────────────────
 
 async function checkSession() {
@@ -101,6 +124,13 @@ function showApp() {
         };
     } else {
         adminPanelBtn.classList.add('hidden');
+    }
+
+    // Documentos: empleado, jefe, admin
+    if (tipo === 'empleado' || tipo === 'jefe' || tipo === 'admin') {
+        docsBtn.classList.remove('hidden');
+    } else {
+        docsBtn.classList.add('hidden');
     }
 
     fetchProducts();
@@ -168,9 +198,9 @@ function showPriceBadge() {
     const tipo  = currentUser?.tipo_precio || 'contado';
     const badge = document.createElement('span');
     badge.id = 'price-badge';
-    const labels = { 'cta-cte': 'Cta. Cte.', 'empleado': 'Empleado', 'contado': 'Contado' };
-    const colors = { 'cta-cte': '#7c3aed', 'empleado': '#e07b00', 'contado': '#28a745' };
-    badge.innerText = labels[tipo] || 'Contado';
+    const labels = { 'cta-cte': 'Cta. Cte.', 'empleado': 'Empleado', 'contado': 'Contado', 'jefe': 'Jefe', 'admin': 'Admin' };
+    const colors = { 'cta-cte': '#7c3aed', 'empleado': '#e07b00', 'contado': '#28a745', 'jefe': '#db2777', 'admin': '#dc2626' };
+    badge.innerText = labels[tipo] || tipo;
     badge.style.cssText = `
         background: ${colors[tipo] || '#28a745'};
         color: white; font-size: 0.7rem; font-weight: 600;
@@ -505,6 +535,246 @@ sendOrderBtn.addEventListener('click', () => {
     msg += `\n\n_Por favor confirmar stock y precios vigentes._`;
     window.open(`https://wa.me/5493876835525?text=${encodeURIComponent(msg)}`);
 });
+
+// ── Documentos de empleados ────────────────────────────────────────────────────
+
+const TIPO_LABEL = { recibo_sueldo: 'Recibo de Sueldo', art_tarjeta: 'Tarjeta ART', otro: 'Otro' };
+
+docsBtn.addEventListener('click', () => openDocsModal());
+closeDocsBtn.addEventListener('click', () => docsModal.classList.add('hidden'));
+backFromDocs.addEventListener('click',  () => docsModal.classList.add('hidden'));
+
+async function openDocsModal() {
+    docsModal.classList.remove('hidden');
+    const tipo = currentUser?.tipo_precio;
+    const esGestor = tipo === 'jefe' || tipo === 'admin';
+
+    docsModalTitle.textContent = esGestor ? '📁 Gestión de Documentos' : '📄 Mis Documentos';
+    docsUploadSection.classList.toggle('hidden', !esGestor);
+
+    if (esGestor) {
+        await cargarEmpleadosSelector();
+    }
+    await loadDocs();
+}
+
+async function cargarEmpleadosSelector() {
+    try {
+        const res  = await fetch(`${BASE_URL}/api/docs/empleados-lista`, { credentials: 'include' });
+        const list = await res.json();
+        docsEmpleadoSel.innerHTML = '<option value="">Seleccioná un empleado...</option>';
+        list.forEach(emp => {
+            const opt = document.createElement('option');
+            opt.value       = emp.id;
+            opt.textContent = `${emp.nombre} (${emp.tipo_precio})`;
+            docsEmpleadoSel.appendChild(opt);
+        });
+    } catch (e) {
+        docsEmpleadoSel.innerHTML = '<option value="">Error al cargar empleados</option>';
+    }
+}
+
+async function loadDocs() {
+    docsBody.innerHTML = '<p style="text-align:center;padding:20px;color:var(--text-muted);">Cargando...</p>';
+    try {
+        const res  = await fetch(`${BASE_URL}/api/docs`, { credentials: 'include' });
+        const data = await res.json();
+
+        if (!Array.isArray(data) || data.length === 0) {
+            docsBody.innerHTML = '<p style="text-align:center;padding:30px;color:var(--text-muted);">Sin documentos aún.</p>';
+            return;
+        }
+
+        const miId = currentUser?.id;
+        let html = '';
+        data.forEach(doc => {
+            const esFirmado   = doc.estado === 'firmado';
+            const tipoLabel   = TIPO_LABEL[doc.tipo] || doc.tipo;
+            const esMio       = String(doc.empleado_id) === String(miId);
+            const estadoHtml  = esFirmado
+                ? `<span class="doc-estado estado-firmado">✅ Firmado el ${doc.firma_timestamp?.substring(0, 10)} — ${doc.firma_nombre}</span>`
+                : `<span class="doc-estado estado-pendiente">⏳ Pendiente de firma</span>`;
+
+            html += `
+                <div class="doc-card">
+                    <div class="doc-info">
+                        <span class="doc-tipo">${tipoLabel}</span>
+                        <strong class="doc-nombre">${doc.nombre_archivo}</strong>
+                        ${doc.periodo ? `<span class="doc-periodo">${doc.periodo}</span>` : ''}
+                        ${estadoHtml}
+                    </div>
+                    <div class="doc-acciones">
+                        <button class="doc-btn" onclick="descargarDoc('${doc.id}','${doc.nombre_archivo}')" title="Descargar">
+                            <i data-lucide="download"></i>
+                        </button>
+                        ${!esFirmado && esMio ? `
+                        <button class="doc-btn doc-btn--firmar" onclick="openSignPad('${doc.id}','${doc.nombre_archivo.replace(/'/g,'\\\'')}')" title="Firmar">
+                            ✍️ Firmar
+                        </button>` : ''}
+                    </div>
+                </div>`;
+        });
+        docsBody.innerHTML = html;
+        lucide.createIcons();
+    } catch (e) {
+        docsBody.innerHTML = '<p style="text-align:center;color:red;padding:20px;">Error al cargar documentos.</p>';
+    }
+}
+
+async function descargarDoc(docId, nombre) {
+    try {
+        const res  = await fetch(`${BASE_URL}/api/docs/descargar/${docId}`, { credentials: 'include' });
+        const data = await res.json();
+        if (data.url) {
+            const a = document.createElement('a');
+            a.href   = data.url;
+            a.target = '_blank';
+            a.rel    = 'noopener';
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+        } else {
+            alert('Error: ' + (data.error || 'No se pudo descargar'));
+        }
+    } catch (e) {
+        alert('Error al descargar el documento');
+    }
+}
+
+// Subida de documentos (admin / jefe)
+docsFileInput.addEventListener('change', () => {
+    docsFileName.textContent = docsFileInput.files[0]?.name || 'Ningún archivo seleccionado';
+});
+
+docsUploadBtn.addEventListener('click', async () => {
+    const empleadoId = docsEmpleadoSel.value;
+    const tipo       = docsTipoSel.value;
+    const periodo    = docsPeriodoInput.value.trim();
+    const file       = docsFileInput.files[0];
+
+    docsUploadMsg.classList.add('hidden');
+
+    if (!empleadoId) {
+        mostrarDocMsg(docsUploadMsg, 'Seleccioná un empleado', 'error');
+        return;
+    }
+    if (!file) {
+        mostrarDocMsg(docsUploadMsg, 'Seleccioná un archivo PDF', 'error');
+        return;
+    }
+
+    docsUploadBtn.disabled   = true;
+    docsUploadBtn.textContent = 'Subiendo...';
+
+    const fd = new FormData();
+    fd.append('empleado_id', empleadoId);
+    fd.append('tipo',        tipo);
+    fd.append('periodo',     periodo);
+    fd.append('archivo',     file);
+
+    try {
+        const res  = await fetch(`${BASE_URL}/api/docs/subir`, {
+            method: 'POST', credentials: 'include', body: fd
+        });
+        const data = await res.json();
+        if (res.ok && data.ok) {
+            mostrarDocMsg(docsUploadMsg, '✅ Documento subido exitosamente', 'ok');
+            docsFileInput.value     = '';
+            docsFileName.textContent = 'Ningún archivo seleccionado';
+            docsPeriodoInput.value  = '';
+            await loadDocs();
+        } else {
+            mostrarDocMsg(docsUploadMsg, 'Error: ' + (data.error || 'desconocido'), 'error');
+        }
+    } catch (e) {
+        mostrarDocMsg(docsUploadMsg, 'Error al conectar con el servidor', 'error');
+    } finally {
+        docsUploadBtn.disabled   = false;
+        docsUploadBtn.textContent = 'Subir Documento';
+    }
+});
+
+function mostrarDocMsg(el, texto, tipo) {
+    el.textContent = texto;
+    el.style.color = tipo === 'ok' ? '#28a745' : '#dc2626';
+    el.classList.remove('hidden');
+}
+
+// ── Firma Digital ──────────────────────────────────────────────────────────────
+
+let signaturePad  = null;
+let currentDocId  = null;
+
+closeFirmaBtn.addEventListener('click', () => firmaModal.classList.add('hidden'));
+
+firmaLimpiarBtn.addEventListener('click', () => {
+    if (signaturePad) signaturePad.clear();
+    firmaMsgEl.classList.add('hidden');
+});
+
+firmaConfirmarBtn.addEventListener('click', submitFirma);
+
+function openSignPad(docId, docNombre) {
+    currentDocId = docId;
+    firmaDocNombre.textContent = docNombre;
+    firmaMsgEl.classList.add('hidden');
+    firmaModal.classList.remove('hidden');
+
+    // Inicializar o limpiar el canvas
+    const canvas = document.getElementById('firma-canvas');
+    // Ajustar tamaño real del canvas al display
+    const rect   = canvas.getBoundingClientRect();
+    canvas.width  = rect.width  || 320;
+    canvas.height = rect.height || 200;
+
+    if (signaturePad) {
+        signaturePad.clear();
+    } else {
+        signaturePad = new SignaturePad(canvas, {
+            backgroundColor: 'rgb(255,255,255)',
+            penColor:        'rgb(10,10,40)',
+            minWidth: 1.5,
+            maxWidth: 3,
+        });
+    }
+}
+
+async function submitFirma() {
+    if (!signaturePad || signaturePad.isEmpty()) {
+        mostrarDocMsg(firmaMsgEl, 'Por favor dibujá tu firma primero', 'error');
+        return;
+    }
+
+    const firmaData = signaturePad.toDataURL('image/png');
+
+    firmaConfirmarBtn.disabled   = true;
+    firmaConfirmarBtn.textContent = 'Firmando...';
+    firmaMsgEl.classList.add('hidden');
+
+    try {
+        const res  = await fetch(`${BASE_URL}/api/docs/firmar/${currentDocId}`, {
+            method:      'POST',
+            credentials: 'include',
+            headers:     { 'Content-Type': 'application/json' },
+            body:        JSON.stringify({ firma_data: firmaData }),
+        });
+        const data = await res.json();
+        if (res.ok && data.ok) {
+            mostrarDocMsg(firmaMsgEl, '✅ ¡Documento firmado exitosamente!', 'ok');
+            setTimeout(async () => {
+                firmaModal.classList.add('hidden');
+                await loadDocs();
+            }, 2000);
+        } else {
+            mostrarDocMsg(firmaMsgEl, 'Error: ' + (data.error || 'desconocido'), 'error');
+        }
+    } catch (e) {
+        mostrarDocMsg(firmaMsgEl, 'Error al conectar con el servidor', 'error');
+    } finally {
+        firmaConfirmarBtn.disabled   = false;
+        firmaConfirmarBtn.textContent = 'Confirmar Firma';
+    }
+}
 
 // ── Init ───────────────────────────────────────────────────────────────────────
 checkSession();
