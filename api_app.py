@@ -463,10 +463,13 @@ def parse_price_list(tipo='contado'):
 # ── Documentos de empleados ────────────────────────────────────────────────────
 
 DOCS_TIPOS = {
-    'recibo_sueldo': 'Recibo de Sueldo',
-    'art_tarjeta':   'Tarjeta ART',
-    'otro':          'Otro',
+    'recibo_sueldo':   'Recibo de Sueldo',
+    'credencial_art':  'Credencial ART',
+    'seguro_vehiculo': 'Seguro Vehículo',
+    'carnet_conducir': 'Carnet de Conducir',
 }
+DOCS_RECIBOS        = {'recibo_sueldo'}
+DOCS_DOCUMENTACION  = {'credencial_art', 'seguro_vehiculo', 'carnet_conducir'}
 
 def _es_empleado_interno():
     """True si el usuario logueado tiene rol interno (empleado/jefe/admin)."""
@@ -479,12 +482,23 @@ def api_get_docs():
     if not _es_empleado_interno():
         return jsonify({'error': 'No autorizado'}), 403
     try:
-        sb   = get_sb()
-        tipo = current_user.tipo_precio
-        if tipo in ('jefe', 'admin'):
+        sb        = get_sb()
+        rol       = current_user.tipo_precio
+        categoria = request.args.get('categoria')  # 'recibos' | 'documentacion'
+
+        # Determinar qué tipos mostrar según categoría solicitada
+        if categoria == 'recibos':
+            tipos_filtro = list(DOCS_RECIBOS)
+        elif categoria == 'documentacion':
+            tipos_filtro = list(DOCS_DOCUMENTACION)
+        else:
+            tipos_filtro = list(DOCS_TIPOS.keys())
+
+        if rol in ('jefe', 'admin'):
             emp_id = request.args.get('empleado_id')
             q = sb.table('documentos_empleados') \
                   .select('id,tipo,nombre_archivo,periodo,estado,firma_timestamp,firma_nombre,created_at,empleado_id') \
+                  .in_('tipo', tipos_filtro) \
                   .order('created_at', desc=True)
             if emp_id:
                 q = q.eq('empleado_id', emp_id)
@@ -492,6 +506,7 @@ def api_get_docs():
             q = sb.table('documentos_empleados') \
                   .select('id,tipo,nombre_archivo,periodo,estado,firma_timestamp,firma_nombre,created_at,empleado_id') \
                   .eq('empleado_id', current_user.id) \
+                  .in_('tipo', tipos_filtro) \
                   .order('created_at', desc=True)
         return jsonify(q.execute().data or [])
     except Exception as e:

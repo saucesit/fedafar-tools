@@ -163,22 +163,44 @@
     <div id="docs-modal" class="cart-modal hidden">
         <div class="cart-content">
             <div class="cart-header">
-                <h2 id="docs-modal-title">Documentos</h2>
+                <h2>Legajo Personal</h2>
                 <button id="close-docs" class="icon-btn"><i data-lucide="x"></i></button>
             </div>
 
-            <!-- Sección subir (jefe / admin) -->
-            <div id="docs-upload-section" class="hidden docs-upload-form">
+            <!-- Pestañas -->
+            <div class="docs-tabs">
+                <button class="docs-tab active" data-tab="recibos">📋 Recibos</button>
+                <button class="docs-tab" data-tab="documentacion">📁 Documentación</button>
+                <button class="docs-tab hidden" id="docs-tab-subir" data-tab="subir">📤 Subir</button>
+            </div>
+
+            <!-- Tab: Recibos de Sueldo -->
+            <div id="docs-panel-recibos" class="docs-panel cuenta-body">
+                <p style="text-align:center;color:var(--text-muted);">Cargando...</p>
+            </div>
+
+            <!-- Tab: Documentación personal -->
+            <div id="docs-panel-documentacion" class="docs-panel cuenta-body hidden">
+                <p style="text-align:center;color:var(--text-muted);">Cargando...</p>
+            </div>
+
+            <!-- Tab: Subir (jefe / admin) -->
+            <div id="docs-panel-subir" class="docs-panel hidden docs-upload-form">
                 <h3 class="docs-section-title">📤 Subir Documento</h3>
                 <select id="docs-empleado-sel" class="docs-input">
                     <option value="">Seleccioná un empleado...</option>
                 </select>
                 <select id="docs-tipo-sel" class="docs-input">
-                    <option value="recibo_sueldo">Recibo de Sueldo</option>
-                    <option value="art_tarjeta">Tarjeta ART</option>
-                    <option value="otro">Otro</option>
+                    <optgroup label="Recibos">
+                        <option value="recibo_sueldo">Recibo de Sueldo</option>
+                    </optgroup>
+                    <optgroup label="Documentación">
+                        <option value="credencial_art">Credencial ART</option>
+                        <option value="seguro_vehiculo">Seguro Vehículo</option>
+                        <option value="carnet_conducir">Carnet de Conducir</option>
+                    </optgroup>
                 </select>
-                <input type="text" id="docs-periodo-input" class="docs-input" placeholder="Período  ej: Mayo 2026">
+                <input type="text" id="docs-periodo-input" class="docs-input" placeholder="Período  ej: Mayo 2026  (solo para recibos)">
                 <label class="docs-file-label">
                     <i data-lucide="upload"></i> Seleccionar PDF
                     <input type="file" id="docs-file-input" accept=".pdf" class="hidden">
@@ -186,11 +208,6 @@
                 <span id="docs-file-name" class="docs-file-name">Ningún archivo seleccionado</span>
                 <button id="docs-upload-btn" class="primary-btn" style="margin-top:4px;">Subir Documento</button>
                 <p id="docs-upload-msg" class="docs-msg hidden"></p>
-            </div>
-
-            <!-- Lista de documentos -->
-            <div id="docs-body" class="cuenta-body" style="margin-top:8px;">
-                <p style="text-align:center;color:var(--text-muted);">Cargando...</p>
             </div>
 
             <div class="cart-footer">

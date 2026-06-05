@@ -538,24 +538,65 @@ sendOrderBtn.addEventListener('click', () => {
 
 // ── Documentos de empleados ────────────────────────────────────────────────────
 
-const TIPO_LABEL = { recibo_sueldo: 'Recibo de Sueldo', art_tarjeta: 'Tarjeta ART', otro: 'Otro' };
+const TIPO_LABEL = {
+    recibo_sueldo:   'Recibo de Sueldo',
+    credencial_art:  'Credencial ART',
+    seguro_vehiculo: 'Seguro Vehículo',
+    carnet_conducir: 'Carnet de Conducir',
+};
+
+let activeDocsTab = 'recibos';
+
+// Panel DOM refs (por tab)
+const panelRecibos      = document.getElementById('docs-panel-recibos');
+const panelDocumentacion = document.getElementById('docs-panel-documentacion');
+const panelSubir        = document.getElementById('docs-panel-subir');
+const tabSubirBtn       = document.getElementById('docs-tab-subir');
 
 docsBtn.addEventListener('click', () => openDocsModal());
 closeDocsBtn.addEventListener('click', () => docsModal.classList.add('hidden'));
 backFromDocs.addEventListener('click',  () => docsModal.classList.add('hidden'));
 
+// Cambio de pestaña
+document.querySelectorAll('.docs-tab').forEach(tab => {
+    tab.addEventListener('click', () => {
+        activeDocsTab = tab.dataset.tab;
+        document.querySelectorAll('.docs-tab').forEach(t => t.classList.remove('active'));
+        tab.classList.add('active');
+        panelRecibos.classList.add('hidden');
+        panelDocumentacion.classList.add('hidden');
+        panelSubir.classList.add('hidden');
+
+        if (activeDocsTab === 'recibos') {
+            panelRecibos.classList.remove('hidden');
+            loadDocs('recibos');
+        } else if (activeDocsTab === 'documentacion') {
+            panelDocumentacion.classList.remove('hidden');
+            loadDocs('documentacion');
+        } else if (activeDocsTab === 'subir') {
+            panelSubir.classList.remove('hidden');
+        }
+    });
+});
+
 async function openDocsModal() {
     docsModal.classList.remove('hidden');
-    const tipo = currentUser?.tipo_precio;
+    const tipo     = currentUser?.tipo_precio;
     const esGestor = tipo === 'jefe' || tipo === 'admin';
 
-    docsModalTitle.textContent = esGestor ? '📁 Gestión de Documentos' : '📄 Mis Documentos';
-    docsUploadSection.classList.toggle('hidden', !esGestor);
+    // Mostrar pestaña "Subir" solo para gestores
+    tabSubirBtn.classList.toggle('hidden', !esGestor);
+    if (esGestor) await cargarEmpleadosSelector();
 
-    if (esGestor) {
-        await cargarEmpleadosSelector();
-    }
-    await loadDocs();
+    // Arrancar siempre en la pestaña Recibos
+    activeDocsTab = 'recibos';
+    document.querySelectorAll('.docs-tab').forEach(t => t.classList.remove('active'));
+    document.querySelector('.docs-tab[data-tab="recibos"]').classList.add('active');
+    panelRecibos.classList.remove('hidden');
+    panelDocumentacion.classList.add('hidden');
+    panelSubir.classList.add('hidden');
+
+    await loadDocs('recibos');
 }
 
 async function cargarEmpleadosSelector() {
@@ -574,51 +615,100 @@ async function cargarEmpleadosSelector() {
     }
 }
 
-async function loadDocs() {
-    docsBody.innerHTML = '<p style="text-align:center;padding:20px;color:var(--text-muted);">Cargando...</p>';
+async function loadDocs(categoria) {
+    const panel = categoria === 'recibos' ? panelRecibos : panelDocumentacion;
+    panel.innerHTML = '<p style="text-align:center;padding:20px;color:var(--text-muted);">Cargando...</p>';
+
     try {
-        const res  = await fetch(`${BASE_URL}/api/docs`, { credentials: 'include' });
+        const res  = await fetch(`${BASE_URL}/api/docs?categoria=${categoria}`, { credentials: 'include' });
         const data = await res.json();
 
         if (!Array.isArray(data) || data.length === 0) {
-            docsBody.innerHTML = '<p style="text-align:center;padding:30px;color:var(--text-muted);">Sin documentos aún.</p>';
+            const msg = categoria === 'recibos'
+                ? 'Sin recibos de sueldo aún.'
+                : 'Sin documentación cargada aún.';
+            panel.innerHTML = `<p style="text-align:center;padding:30px;color:var(--text-muted);">${msg}</p>`;
             return;
         }
 
-        const miId = currentUser?.id;
-        let html = '';
-        data.forEach(doc => {
-            const esFirmado   = doc.estado === 'firmado';
-            const tipoLabel   = TIPO_LABEL[doc.tipo] || doc.tipo;
-            const esMio       = String(doc.empleado_id) === String(miId);
-            const estadoHtml  = esFirmado
-                ? `<span class="doc-estado estado-firmado">✅ Firmado el ${doc.firma_timestamp?.substring(0, 10)} — ${doc.firma_nombre}</span>`
-                : `<span class="doc-estado estado-pendiente">⏳ Pendiente de firma</span>`;
+        panel.innerHTML = categoria === 'recibos'
+            ? renderRecibos(data)
+            : renderDocumentacion(data);
+        lucide.createIcons();
+    } catch (e) {
+        panel.innerHTML = '<p style="text-align:center;color:red;padding:20px;">Error al cargar.</p>';
+    }
+}
 
+function renderRecibos(docs) {
+    const miId = currentUser?.id;
+    // Agrupar por período
+    const grupos = {};
+    docs.forEach(doc => {
+        const key = doc.periodo || 'Sin período';
+        if (!grupos[key]) grupos[key] = [];
+        grupos[key].push(doc);
+    });
+
+    let html = '';
+    Object.entries(grupos).forEach(([periodo, lista]) => {
+        html += `<div class="doc-grupo-titulo">${periodo}</div>`;
+        lista.forEach(doc => {
+            const esFirmado = doc.estado === 'firmado';
+            const esMio     = String(doc.empleado_id) === String(miId);
             html += `
                 <div class="doc-card">
                     <div class="doc-info">
-                        <span class="doc-tipo">${tipoLabel}</span>
                         <strong class="doc-nombre">${doc.nombre_archivo}</strong>
-                        ${doc.periodo ? `<span class="doc-periodo">${doc.periodo}</span>` : ''}
-                        ${estadoHtml}
+                        ${esFirmado
+                            ? `<span class="doc-estado estado-firmado">✅ Firmado el ${doc.firma_timestamp?.substring(0,10)} — ${doc.firma_nombre}</span>`
+                            : `<span class="doc-estado estado-pendiente">⏳ Pendiente de firma</span>`}
                     </div>
                     <div class="doc-acciones">
                         <button class="doc-btn" onclick="descargarDoc('${doc.id}','${doc.nombre_archivo}')" title="Descargar">
                             <i data-lucide="download"></i>
                         </button>
                         ${!esFirmado && esMio ? `
-                        <button class="doc-btn doc-btn--firmar" onclick="openSignPad('${doc.id}','${doc.nombre_archivo.replace(/'/g,'\\\'')}')" title="Firmar">
+                        <button class="doc-btn doc-btn--firmar" onclick="openSignPad('${doc.id}','${doc.nombre_archivo.replace(/'/g,"\\'")}')">
                             ✍️ Firmar
                         </button>` : ''}
                     </div>
                 </div>`;
         });
-        docsBody.innerHTML = html;
-        lucide.createIcons();
-    } catch (e) {
-        docsBody.innerHTML = '<p style="text-align:center;color:red;padding:20px;">Error al cargar documentos.</p>';
-    }
+    });
+    return html;
+}
+
+function renderDocumentacion(docs) {
+    const miId = currentUser?.id;
+    // Agrupar por tipo de documento
+    const grupos = {};
+    docs.forEach(doc => {
+        const key = TIPO_LABEL[doc.tipo] || doc.tipo;
+        if (!grupos[key]) grupos[key] = [];
+        grupos[key].push(doc);
+    });
+
+    let html = '';
+    Object.entries(grupos).forEach(([tipoLabel, lista]) => {
+        html += `<div class="doc-grupo-titulo">${tipoLabel}</div>`;
+        lista.forEach(doc => {
+            const fecha = doc.created_at ? doc.created_at.substring(0, 10) : '';
+            html += `
+                <div class="doc-card">
+                    <div class="doc-info">
+                        <strong class="doc-nombre">${doc.nombre_archivo}</strong>
+                        <span class="doc-estado" style="color:var(--text-muted);">Subido el ${fecha}</span>
+                    </div>
+                    <div class="doc-acciones">
+                        <button class="doc-btn" onclick="descargarDoc('${doc.id}','${doc.nombre_archivo}')" title="Descargar">
+                            <i data-lucide="download"></i>
+                        </button>
+                    </div>
+                </div>`;
+        });
+    });
+    return html;
 }
 
 async function descargarDoc(docId, nombre) {
@@ -641,7 +731,7 @@ async function descargarDoc(docId, nombre) {
     }
 }
 
-// Subida de documentos (admin / jefe)
+// Subida (admin / jefe)
 docsFileInput.addEventListener('change', () => {
     docsFileName.textContent = docsFileInput.files[0]?.name || 'Ningún archivo seleccionado';
 });
@@ -653,17 +743,10 @@ docsUploadBtn.addEventListener('click', async () => {
     const file       = docsFileInput.files[0];
 
     docsUploadMsg.classList.add('hidden');
+    if (!empleadoId) { mostrarDocMsg(docsUploadMsg, 'Seleccioná un empleado', 'error'); return; }
+    if (!file)       { mostrarDocMsg(docsUploadMsg, 'Seleccioná un archivo PDF', 'error'); return; }
 
-    if (!empleadoId) {
-        mostrarDocMsg(docsUploadMsg, 'Seleccioná un empleado', 'error');
-        return;
-    }
-    if (!file) {
-        mostrarDocMsg(docsUploadMsg, 'Seleccioná un archivo PDF', 'error');
-        return;
-    }
-
-    docsUploadBtn.disabled   = true;
+    docsUploadBtn.disabled    = true;
     docsUploadBtn.textContent = 'Subiendo...';
 
     const fd = new FormData();
@@ -673,23 +756,20 @@ docsUploadBtn.addEventListener('click', async () => {
     fd.append('archivo',     file);
 
     try {
-        const res  = await fetch(`${BASE_URL}/api/docs/subir`, {
-            method: 'POST', credentials: 'include', body: fd
-        });
+        const res  = await fetch(`${BASE_URL}/api/docs/subir`, { method: 'POST', credentials: 'include', body: fd });
         const data = await res.json();
         if (res.ok && data.ok) {
             mostrarDocMsg(docsUploadMsg, '✅ Documento subido exitosamente', 'ok');
-            docsFileInput.value     = '';
+            docsFileInput.value      = '';
             docsFileName.textContent = 'Ningún archivo seleccionado';
-            docsPeriodoInput.value  = '';
-            await loadDocs();
+            docsPeriodoInput.value   = '';
         } else {
             mostrarDocMsg(docsUploadMsg, 'Error: ' + (data.error || 'desconocido'), 'error');
         }
     } catch (e) {
         mostrarDocMsg(docsUploadMsg, 'Error al conectar con el servidor', 'error');
     } finally {
-        docsUploadBtn.disabled   = false;
+        docsUploadBtn.disabled    = false;
         docsUploadBtn.textContent = 'Subir Documento';
     }
 });
