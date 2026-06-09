@@ -197,6 +197,167 @@ def api_todas_cuentas():
         print(f"[ERROR] {e}")
         return jsonify({'error': 'Error interno del servidor'}), 500
 
+@app.route('/api/cliente/<int:gx_id>/comprobantes', methods=['GET'])
+def api_cliente_comprobantes(gx_id):
+    """Comprobantes pendientes de una farmacia puntual (solo jefe/admin)."""
+    if not current_user.is_authenticated:
+        return jsonify({'error': 'No autenticado'}), 401
+    if current_user.tipo_precio not in ('jefe', 'admin'):
+        return jsonify({'error': 'No autorizado'}), 403
+    try:
+        sb  = get_sb()
+        cli = sb.table('clientes').select('nombre') \
+                .eq('genexus_client_id', gx_id).limit(1).execute()
+        nombre = cli.data[0]['nombre'] if cli.data else f'Cliente {gx_id}'
+
+        res = sb.table('cuenta_corriente') \
+                .select('fecha_comprobante,comprobante,fecha_vencimiento,importe,saldo') \
+                .eq('genexus_client_id', gx_id) \
+                .gt('saldo', 0) \
+                .order('fecha_comprobante', desc=False) \
+                .execute()
+        return jsonify({'nombre': nombre, 'comprobantes': res.data or []})
+    except Exception as e:
+        print(f"[ERROR] {e}")
+        return jsonify({'error': 'Error interno del servidor'}), 500
+
+# ── Generación de comprobante PDF (BETA — fase 1) ──────────────────────────────
+
+def _fmt_money(v):
+    try:
+        v = float(v)
+    except (ValueError, TypeError):
+        v = 0.0
+    s = f"{v:,.2f}"  # formato 1,234.56
+    return s.replace(',', 'X').replace('.', ',').replace('X', '.')  # → 1.234,56
+
+def _latin1(s):
+    """fpdf2 con fuentes core usa latin-1; limpiamos caracteres no soportados."""
+    return str(s if s is not None else '').encode('latin-1', 'replace').decode('latin-1')
+
+def _build_comprobante_pdf(cliente_nombre, gx_id, comp):
+    """Genera un PDF informativo de un comprobante. comp es un dict de cuenta_corriente."""
+    from fpdf import FPDF
+    from datetime import datetime
+
+    pdf = FPDF(orientation='P', unit='mm', format='A4')
+    pdf.set_auto_page_break(auto=True, margin=20)
+    pdf.add_page()
+
+    AZUL = (0, 74, 153)
+
+    # Logo (si existe)
+    logo_path = os.path.join(BASE_DIR, 'static', 'logo fedafar antiguo.jpeg')
+    try:
+        if os.path.exists(logo_path):
+            pdf.image(logo_path, x=15, y=12, h=22)
+    except Exception:
+        pass
+
+    # Encabezado
+    pdf.set_xy(42, 14)
+    pdf.set_text_color(*AZUL)
+    pdf.set_font('Helvetica', 'B', 22)
+    pdf.cell(0, 9, 'FEDAFAR', ln=True)
+    pdf.set_x(42)
+    pdf.set_text_color(90, 90, 90)
+    pdf.set_font('Helvetica', '', 11)
+    pdf.cell(0, 6, _latin1('Droguería Integral'), ln=True)
+
+    pdf.ln(14)
+
+    # Título del documento
+    pdf.set_text_color(*AZUL)
+    pdf.set_font('Helvetica', 'B', 14)
+    pdf.cell(0, 8, 'COMPROBANTE DE CUENTA CORRIENTE', ln=True, align='C')
+    pdf.ln(2)
+
+    # Aviso: no es factura fiscal
+    pdf.set_fill_color(255, 247, 224)
+    pdf.set_draw_color(230, 180, 60)
+    pdf.set_text_color(140, 90, 0)
+    pdf.set_font('Helvetica', 'I', 9)
+    pdf.multi_cell(0, 5,
+        _latin1('Documento informativo generado por la app FEDAFAR. '
+                'NO válido como factura fiscal. La factura oficial es la emitida por el sistema de gestión.'),
+        border=1, fill=True, align='C')
+    pdf.ln(6)
+
+    # Datos del cliente
+    pdf.set_text_color(30, 30, 30)
+    pdf.set_font('Helvetica', 'B', 11)
+    pdf.cell(0, 7, 'Cliente', ln=True)
+    pdf.set_font('Helvetica', '', 11)
+    pdf.cell(0, 6, _latin1(f'{cliente_nombre}   (Código {gx_id})'), ln=True)
+    pdf.ln(6)
+
+    # Detalle del comprobante (tabla simple de pares etiqueta/valor)
+    filas = [
+        ('Comprobante',          comp.get('comprobante', '')),
+        ('Fecha de emisión',     comp.get('fecha_comprobante', '')),
+        ('Fecha de vencimiento', comp.get('fecha_vencimiento', '')),
+        ('Importe',              '$ ' + _fmt_money(comp.get('importe', 0))),
+        ('Saldo pendiente',      '$ ' + _fmt_money(comp.get('saldo', 0))),
+    ]
+    pdf.set_draw_color(210, 210, 210)
+    for i, (etiqueta, valor) in enumerate(filas):
+        destacar = etiqueta == 'Saldo pendiente'
+        pdf.set_fill_color(245, 248, 252) if i % 2 == 0 else pdf.set_fill_color(255, 255, 255)
+        pdf.set_font('Helvetica', 'B', 11)
+        pdf.set_text_color(60, 60, 60)
+        pdf.cell(60, 9, _latin1(etiqueta), border=1, fill=True)
+        pdf.set_font('Helvetica', 'B' if destacar else '', 11)
+        pdf.set_text_color(*(AZUL if destacar else (30, 30, 30)))
+        pdf.cell(0, 9, _latin1(str(valor)), border=1, fill=True, ln=True)
+
+    pdf.ln(12)
+
+    # Pie
+    pdf.set_text_color(140, 140, 140)
+    pdf.set_font('Helvetica', '', 8)
+    emitido = datetime.now().strftime('%d/%m/%Y %H:%M')
+    pdf.cell(0, 5, _latin1(f'Emitido el {emitido} - FEDAFAR Droguería Integral, Salta, Argentina.'), ln=True, align='C')
+
+    return bytes(pdf.output())
+
+@app.route('/api/factura-pdf', methods=['GET'])
+def api_factura_pdf():
+    """Descarga el comprobante PDF de una factura puntual (solo jefe/admin)."""
+    if not current_user.is_authenticated:
+        return jsonify({'error': 'No autenticado'}), 401
+    if current_user.tipo_precio not in ('jefe', 'admin'):
+        return jsonify({'error': 'No autorizado'}), 403
+
+    gx_id       = request.args.get('cliente', '').strip()
+    comprobante = request.args.get('comprobante', '').strip()
+    if not gx_id or not comprobante:
+        return jsonify({'error': 'Faltan parámetros cliente/comprobante'}), 400
+
+    try:
+        sb  = get_sb()
+        cli = sb.table('clientes').select('nombre') \
+                .eq('genexus_client_id', gx_id).limit(1).execute()
+        nombre = cli.data[0]['nombre'] if cli.data else f'Cliente {gx_id}'
+
+        res = sb.table('cuenta_corriente') \
+                .select('fecha_comprobante,comprobante,fecha_vencimiento,importe,saldo') \
+                .eq('genexus_client_id', gx_id) \
+                .eq('comprobante', comprobante) \
+                .limit(1).execute()
+        if not res.data:
+            return jsonify({'error': 'Comprobante no encontrado'}), 404
+
+        pdf_bytes = _build_comprobante_pdf(nombre, gx_id, res.data[0])
+
+        from flask import Response
+        safe = re.sub(r'[^A-Za-z0-9_-]+', '-', comprobante).strip('-') or 'comprobante'
+        return Response(pdf_bytes, mimetype='application/pdf', headers={
+            'Content-Disposition': f'attachment; filename="comprobante_{safe}.pdf"'
+        })
+    except Exception as e:
+        print(f"[ERROR factura-pdf] {e}")
+        return jsonify({'error': 'No se pudo generar el PDF'}), 500
+
 # ── Admin Auth ────────────────────────────────────────────────────────────────
 
 def admin_required(f):

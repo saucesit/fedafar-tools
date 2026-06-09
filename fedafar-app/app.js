@@ -441,19 +441,88 @@ async function loadTodasCuentas() {
         data.forEach(row => {
             const saldo = parseFloat(row.saldo_total) || 0;
             const saldoClass = saldo > 0 ? 'saldo-pendiente' : 'saldo-ok';
+            const tieneComp = (row.comprobantes_pendientes || 0) > 0;
+            const onclick = tieneComp
+                ? `onclick="verComprobantesCliente(${row.genexus_client_id}, '${(row.nombre||'').replace(/'/g,"\\'")}')"`
+                : '';
             html += `
-                <tr>
-                    <td><strong>${row.nombre}</strong></td>
+                <tr class="${tieneComp ? 'cuenta-row-click' : ''}" ${onclick}>
+                    <td><strong>${row.nombre}</strong>${tieneComp ? ' <span style="color:var(--text-muted);font-size:0.75rem;">›</span>' : ''}</td>
                     <td style="text-align:center">${row.comprobantes_pendientes}</td>
                     <td class="${saldoClass}">$ ${saldo.toLocaleString('es-AR', {minimumFractionDigits:2})}</td>
                 </tr>
             `;
         });
         html += '</tbody></table>';
+        html += '<p style="text-align:center;font-size:0.75rem;color:var(--text-muted);margin-top:10px;">Tocá una farmacia para ver sus comprobantes y descargar el PDF.</p>';
         todasCuentasBody.innerHTML = html;
 
     } catch (e) {
         todasCuentasBody.innerHTML = '<p style="text-align:center;color:red;padding:20px;">Error al cargar.</p>';
+    }
+}
+
+async function verComprobantesCliente(gxId, nombre) {
+    todasCuentasBody.innerHTML = '<p style="text-align:center;padding:30px;color:var(--text-muted);">Cargando...</p>';
+    try {
+        const res  = await fetch(`${BASE_URL}/api/cliente/${gxId}/comprobantes`, { credentials: 'include' });
+        const data = await res.json();
+        const comps = data.comprobantes || [];
+
+        let html = `<button class="secondary-btn" onclick="loadTodasCuentas()" style="margin-bottom:14px;">← Volver al listado</button>`;
+        html += `<h3 style="color:var(--primary);margin:0 0 12px;">${data.nombre || nombre}</h3>`;
+
+        if (comps.length === 0) {
+            html += '<p style="text-align:center;padding:20px;color:var(--text-muted);">Sin comprobantes pendientes 🎉</p>';
+        } else {
+            html += `
+                <table class="cuenta-table">
+                    <thead>
+                        <tr><th>Comprobante</th><th>Vence</th><th>Saldo</th><th style="text-align:center">PDF</th></tr>
+                    </thead>
+                    <tbody>`;
+            comps.forEach(c => {
+                const saldo = parseFloat(c.saldo) || 0;
+                const comp  = (c.comprobante || '').replace(/'/g,"\\'");
+                html += `
+                    <tr>
+                        <td>${c.comprobante || ''}</td>
+                        <td>${(c.fecha_vencimiento || '').substring(0,10)}</td>
+                        <td class="saldo-pendiente">$ ${saldo.toLocaleString('es-AR', {minimumFractionDigits:2})}</td>
+                        <td style="text-align:center">
+                            <button class="factura-pdf-btn" title="Descargar comprobante PDF"
+                                    onclick="descargarFacturaPDF(${gxId}, '${comp}', this)">📄</button>
+                        </td>
+                    </tr>`;
+            });
+            html += '</tbody></table>';
+        }
+        todasCuentasBody.innerHTML = html;
+    } catch (e) {
+        todasCuentasBody.innerHTML = '<p style="text-align:center;color:red;padding:20px;">Error al cargar comprobantes.</p>';
+    }
+}
+
+async function descargarFacturaPDF(gxId, comprobante, btn) {
+    const original = btn ? btn.textContent : '';
+    if (btn) { btn.disabled = true; btn.textContent = '⏳'; }
+    try {
+        const url = `${BASE_URL}/api/factura-pdf?cliente=${gxId}&comprobante=${encodeURIComponent(comprobante)}`;
+        const res = await fetch(url, { credentials: 'include' });
+        if (!res.ok) { alert('No se pudo generar el PDF.'); return; }
+        const blob = await res.blob();
+        const objUrl = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = objUrl;
+        a.download = `comprobante_${comprobante.replace(/[^A-Za-z0-9_-]+/g, '-')}.pdf`;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        setTimeout(() => URL.revokeObjectURL(objUrl), 1500);
+    } catch (e) {
+        alert('Error al descargar el PDF.');
+    } finally {
+        if (btn) { btn.disabled = false; btn.textContent = original; }
     }
 }
 
