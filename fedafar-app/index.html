@@ -2,8 +2,19 @@
 <html lang="es">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
     <title>FEDAFAR - App de Clientes</title>
+
+    <!-- ── PWA ─────────────────────────────────────────────── -->
+    <link rel="manifest" href="/tienda/manifest.json">
+    <meta name="theme-color" content="#004a99">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="FEDAFAR">
+    <link rel="apple-touch-icon" href="/tienda/apple-touch-icon.png">
+    <link rel="icon" type="image/png" sizes="192x192" href="/tienda/icon-192.png">
+
     <link rel="stylesheet" href="style.css">
     <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600&display=swap" rel="stylesheet">
     <script src="https://unpkg.com/lucide@latest"></script>
@@ -317,5 +328,16 @@
     </div>
 
     <script src="app.js"></script>
+
+    <!-- ── Registro del Service Worker (PWA) ──────────────────── -->
+    <script>
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', () => {
+                navigator.serviceWorker.register('/tienda/sw.js', { scope: '/tienda/' })
+                    .then(reg => console.log('SW registrado:', reg.scope))
+                    .catch(err => console.warn('SW no se pudo registrar:', err));
+            });
+        }
+    </script>
 </body>
 </html>
