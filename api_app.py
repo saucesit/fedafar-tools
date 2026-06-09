@@ -211,42 +211,61 @@ def api_cliente_comprobantes(gx_id):
         nombre = cli.data[0]['nombre'] if cli.data else f'Cliente {gx_id}'
 
         res = sb.table('cuenta_corriente') \
-                .select('fecha_comprobante,comprobante,fecha_vencimiento,importe,saldo') \
+                .select('fecha_comprobante,comprobante,fecha_vencimiento,importe,saldo,genexus_factura_id,iva_total,total_factura') \
                 .eq('genexus_client_id', gx_id) \
                 .gt('saldo', 0) \
                 .order('fecha_comprobante', desc=False) \
                 .execute()
-        return jsonify({'nombre': nombre, 'comprobantes': res.data or []})
+        comps = res.data or []
+
+        # Marcar cuáles tienen ítems sincronizados
+        if comps:
+            fac_ids = [c['genexus_factura_id'] for c in comps if c.get('genexus_factura_id')]
+            if fac_ids:
+                items_res = sb.table('comprobante_items') \
+                              .select('genexus_factura_id') \
+                              .in_('genexus_factura_id', fac_ids) \
+                              .execute()
+                con_items = {str(r['genexus_factura_id']) for r in (items_res.data or [])}
+                for c in comps:
+                    c['tiene_items'] = str(c.get('genexus_factura_id', '')) in con_items
+
+        return jsonify({'nombre': nombre, 'comprobantes': comps})
     except Exception as e:
         print(f"[ERROR] {e}")
         return jsonify({'error': 'Error interno del servidor'}), 500
 
-# ── Generación de comprobante PDF (BETA — fase 1) ──────────────────────────────
+# ── Generación de comprobante PDF ─────────────────────────────────────────────
 
 def _fmt_money(v):
     try:
         v = float(v)
     except (ValueError, TypeError):
         v = 0.0
-    s = f"{v:,.2f}"  # formato 1,234.56
+    s = f"{v:,.2f}"
     return s.replace(',', 'X').replace('.', ',').replace('X', '.')  # → 1.234,56
 
 def _latin1(s):
-    """fpdf2 con fuentes core usa latin-1; limpiamos caracteres no soportados."""
+    """fpdf2 con fuentes core usa latin-1; reemplazamos caracteres no soportados."""
     return str(s if s is not None else '').encode('latin-1', 'replace').decode('latin-1')
 
-def _build_comprobante_pdf(cliente_nombre, gx_id, comp):
-    """Genera un PDF informativo de un comprobante. comp es un dict de cuenta_corriente."""
+def _build_comprobante_pdf(cliente_nombre, gx_id, comp, items=None):
+    """
+    Genera PDF del comprobante.
+    Si items (list) está presente, incluye la tabla de renglones con totales.
+    """
     from fpdf import FPDF
     from datetime import datetime
 
     pdf = FPDF(orientation='P', unit='mm', format='A4')
-    pdf.set_auto_page_break(auto=True, margin=20)
+    pdf.set_auto_page_break(auto=True, margin=18)
     pdf.add_page()
 
-    AZUL = (0, 74, 153)
+    AZUL  = (0, 74, 153)
+    GRIS  = (90, 90, 90)
+    NEGRO = (30, 30, 30)
 
-    # Logo (si existe)
+    # ── Logo + encabezado ──────────────────────────────────────────────────────
     logo_path = os.path.join(BASE_DIR, 'static', 'logo fedafar antiguo.jpeg')
     try:
         if os.path.exists(logo_path):
@@ -254,69 +273,175 @@ def _build_comprobante_pdf(cliente_nombre, gx_id, comp):
     except Exception:
         pass
 
-    # Encabezado
     pdf.set_xy(42, 14)
     pdf.set_text_color(*AZUL)
     pdf.set_font('Helvetica', 'B', 22)
     pdf.cell(0, 9, 'FEDAFAR', ln=True)
     pdf.set_x(42)
-    pdf.set_text_color(90, 90, 90)
+    pdf.set_text_color(*GRIS)
     pdf.set_font('Helvetica', '', 11)
     pdf.cell(0, 6, _latin1('Droguería Integral'), ln=True)
+    pdf.ln(12)
 
-    pdf.ln(14)
-
-    # Título del documento
+    # ── Título ─────────────────────────────────────────────────────────────────
     pdf.set_text_color(*AZUL)
-    pdf.set_font('Helvetica', 'B', 14)
-    pdf.cell(0, 8, 'COMPROBANTE DE CUENTA CORRIENTE', ln=True, align='C')
+    pdf.set_font('Helvetica', 'B', 13)
+    pdf.cell(0, 7, 'COMPROBANTE DE CUENTA CORRIENTE', ln=True, align='C')
     pdf.ln(2)
 
-    # Aviso: no es factura fiscal
+    # ── Aviso informativo ──────────────────────────────────────────────────────
     pdf.set_fill_color(255, 247, 224)
     pdf.set_draw_color(230, 180, 60)
     pdf.set_text_color(140, 90, 0)
-    pdf.set_font('Helvetica', 'I', 9)
-    pdf.multi_cell(0, 5,
+    pdf.set_font('Helvetica', 'I', 8)
+    pdf.multi_cell(0, 4.5,
         _latin1('Documento informativo generado por la app FEDAFAR. '
-                'NO válido como factura fiscal. La factura oficial es la emitida por el sistema de gestión.'),
+                'NO valido como factura fiscal. La factura oficial es la emitida por el sistema de gestion.'),
         border=1, fill=True, align='C')
-    pdf.ln(6)
+    pdf.ln(5)
 
-    # Datos del cliente
-    pdf.set_text_color(30, 30, 30)
-    pdf.set_font('Helvetica', 'B', 11)
-    pdf.cell(0, 7, 'Cliente', ln=True)
-    pdf.set_font('Helvetica', '', 11)
-    pdf.cell(0, 6, _latin1(f'{cliente_nombre}   (Código {gx_id})'), ln=True)
-    pdf.ln(6)
-
-    # Detalle del comprobante (tabla simple de pares etiqueta/valor)
-    filas = [
-        ('Comprobante',          comp.get('comprobante', '')),
-        ('Fecha de emisión',     comp.get('fecha_comprobante', '')),
-        ('Fecha de vencimiento', comp.get('fecha_vencimiento', '')),
-        ('Importe',              '$ ' + _fmt_money(comp.get('importe', 0))),
-        ('Saldo pendiente',      '$ ' + _fmt_money(comp.get('saldo', 0))),
-    ]
+    # ── Datos del comprobante (encabezado) ─────────────────────────────────────
     pdf.set_draw_color(210, 210, 210)
-    for i, (etiqueta, valor) in enumerate(filas):
-        destacar = etiqueta == 'Saldo pendiente'
-        pdf.set_fill_color(245, 248, 252) if i % 2 == 0 else pdf.set_fill_color(255, 255, 255)
-        pdf.set_font('Helvetica', 'B', 11)
-        pdf.set_text_color(60, 60, 60)
-        pdf.cell(60, 9, _latin1(etiqueta), border=1, fill=True)
-        pdf.set_font('Helvetica', 'B' if destacar else '', 11)
-        pdf.set_text_color(*(AZUL if destacar else (30, 30, 30)))
-        pdf.cell(0, 9, _latin1(str(valor)), border=1, fill=True, ln=True)
+    pdf.set_text_color(*NEGRO)
 
-    pdf.ln(12)
+    # Bloque izquierdo: cliente / bloque derecho: número y fechas
+    y_bloque = pdf.get_y()
+    ancho    = (pdf.w - 30) / 2   # mitad del ancho útil
 
-    # Pie
-    pdf.set_text_color(140, 140, 140)
-    pdf.set_font('Helvetica', '', 8)
+    # Columna izquierda — cliente
+    pdf.set_xy(15, y_bloque)
+    pdf.set_font('Helvetica', 'B', 9)
+    pdf.set_text_color(*AZUL)
+    pdf.cell(ancho, 6, 'CLIENTE', ln=False)
+    pdf.set_font('Helvetica', 'B', 9)
+    pdf.set_text_color(*AZUL)
+    pdf.cell(ancho, 6, 'COMPROBANTE', ln=True)
+
+    pdf.set_x(15)
+    pdf.set_font('Helvetica', 'B', 11)
+    pdf.set_text_color(*NEGRO)
+    pdf.cell(ancho, 6, _latin1(cliente_nombre[:40]), ln=False)
+    pdf.set_font('Helvetica', 'B', 11)
+    pdf.cell(ancho, 6, _latin1(comp.get('comprobante', '')), ln=True)
+
+    pdf.set_x(15)
+    pdf.set_font('Helvetica', '', 9)
+    pdf.set_text_color(*GRIS)
+    pdf.cell(ancho, 5, _latin1(f'Codigo {gx_id}'), ln=False)
+    pdf.cell(ancho, 5,
+             _latin1(f"Emision: {(comp.get('fecha_comprobante') or '')[:10]}   "
+                     f"Vence: {(comp.get('fecha_vencimiento') or '')[:10]}"),
+             ln=True)
+    pdf.ln(4)
+
+    # ── Tabla de renglones (si hay ítems sincronizados) ────────────────────────
+    if items:
+        # Encabezados de columna
+        # Anchos (mm): Articulo=80, Lab=30, Cant=15, P.Unit=22, IVA=13, Total=25
+        cols = [
+            ('Articulo',    80, 'L'),
+            ('Laboratorio', 30, 'L'),
+            ('Cant.',       15, 'C'),
+            ('P. Unit.',    22, 'R'),
+            ('IVA',         13, 'C'),
+            ('Total',       25, 'R'),
+        ]
+        H = 7   # altura de fila
+
+        pdf.set_fill_color(*AZUL)
+        pdf.set_text_color(255, 255, 255)
+        pdf.set_font('Helvetica', 'B', 8)
+        pdf.set_draw_color(255, 255, 255)
+        for label, w, _ in cols:
+            pdf.cell(w, H, _latin1(label), border=1, fill=True, align='C')
+        pdf.ln()
+
+        pdf.set_draw_color(210, 210, 210)
+        pdf.set_text_color(*NEGRO)
+        pdf.set_font('Helvetica', '', 8)
+
+        for i, it in enumerate(items):
+            pdf.set_fill_color(245, 248, 252) if i % 2 == 0 else pdf.set_fill_color(255, 255, 255)
+
+            # Artículo puede ser largo → truncar con elipsis si es necesario
+            art = _latin1(str(it.get('articulo', ''))[:46])
+            lab = _latin1(str(it.get('laboratorio', ''))[:14])
+            cant = f"{float(it.get('cantidad', 0)):g}"
+            punit = '$ ' + _fmt_money(it.get('precio', 0))
+            iva_label = _latin1(str(it.get('iva_label', '')).replace('I.V.A. ', '').replace('IVA ', ''))
+            linea = '$ ' + _fmt_money(it.get('linea', 0))
+
+            datos = [
+                (art,       80, 'L'),
+                (lab,       30, 'L'),
+                (cant,      15, 'C'),
+                (punit,     22, 'R'),
+                (iva_label, 13, 'C'),
+                (linea,     25, 'R'),
+            ]
+            for val, w, align in datos:
+                pdf.cell(w, H, val, border=1, fill=True, align=align)
+            pdf.ln()
+
+        # ── Totales ──────────────────────────────────────────────────────────
+        pdf.ln(2)
+        pdf.set_draw_color(0, 74, 153)
+
+        def fila_total(etiqueta, valor, bold=False, highlight=False):
+            pdf.set_x(15 + 80 + 30 + 15)   # alineado a la derecha
+            ancho_et = 35
+            ancho_val = 25
+            pdf.set_fill_color(*(AZUL if highlight else (240, 244, 250)))
+            pdf.set_text_color(*(255, 255, 255) if highlight else NEGRO)
+            pdf.set_font('Helvetica', 'B' if bold else '', 9)
+            pdf.cell(ancho_et,  7, _latin1(etiqueta), border=1, fill=True, align='R')
+            pdf.set_font('Helvetica', 'B' if bold else '', 9)
+            pdf.cell(ancho_val, 7, _latin1('$ ' + _fmt_money(valor)), border=1, fill=True, align='R')
+            pdf.ln()
+
+        # Calcular totales desde los ítems si los de Genexus no están
+        total_neto = sum(float(it.get('subtotal', 0)) for it in items)
+        total_iva  = sum(float(it.get('impuesto', 0)) for it in items)
+        total_tot  = sum(float(it.get('linea', 0))    for it in items)
+
+        # Usar los del comprobante si están (vienen de la solapa General de Genexus)
+        if comp.get('iva_total'):    total_iva = float(comp['iva_total'])
+        if comp.get('total_factura'): total_tot = float(comp['total_factura'])
+
+        fila_total('Neto sin IVA', total_neto)
+        fila_total('IVA',          total_iva)
+        fila_total('TOTAL',        total_tot,  bold=True, highlight=True)
+
+    else:
+        # Sin ítems: mostrar solo los datos del encabezado
+        filas_hdrs = [
+            ('Importe',         comp.get('importe', 0)),
+            ('Saldo pendiente', comp.get('saldo',   0)),
+        ]
+        pdf.set_draw_color(210, 210, 210)
+        for i, (et, val) in enumerate(filas_hdrs):
+            es_saldo = et == 'Saldo pendiente'
+            pdf.set_fill_color(245, 248, 252) if i % 2 == 0 else pdf.set_fill_color(255, 255, 255)
+            pdf.set_font('Helvetica', 'B', 11)
+            pdf.set_text_color(60, 60, 60)
+            pdf.cell(60, 9, _latin1(et), border=1, fill=True)
+            pdf.set_font('Helvetica', 'B' if es_saldo else '', 11)
+            pdf.set_text_color(*(AZUL if es_saldo else NEGRO))
+            pdf.cell(0, 9, _latin1('$ ' + _fmt_money(val)), border=1, fill=True, ln=True)
+
+        pdf.ln(4)
+        pdf.set_text_color(*GRIS)
+        pdf.set_font('Helvetica', 'I', 8)
+        pdf.cell(0, 5, _latin1('Los items detallados estaran disponibles tras el proximo sync nocturno.'), ln=True, align='C')
+
+    # ── Pie ───────────────────────────────────────────────────────────────────
+    pdf.ln(8)
+    pdf.set_text_color(160, 160, 160)
+    pdf.set_font('Helvetica', '', 7)
     emitido = datetime.now().strftime('%d/%m/%Y %H:%M')
-    pdf.cell(0, 5, _latin1(f'Emitido el {emitido} - FEDAFAR Droguería Integral, Salta, Argentina.'), ln=True, align='C')
+    pdf.cell(0, 4,
+             _latin1(f'Emitido el {emitido} - FEDAFAR Drogueria Integral, Salta, Argentina.'),
+             ln=True, align='C')
 
     return bytes(pdf.output())
 
@@ -340,14 +465,28 @@ def api_factura_pdf():
         nombre = cli.data[0]['nombre'] if cli.data else f'Cliente {gx_id}'
 
         res = sb.table('cuenta_corriente') \
-                .select('fecha_comprobante,comprobante,fecha_vencimiento,importe,saldo') \
+                .select('fecha_comprobante,comprobante,fecha_vencimiento,importe,saldo,'
+                        'genexus_factura_id,iva_total,total_factura') \
                 .eq('genexus_client_id', gx_id) \
                 .eq('comprobante', comprobante) \
                 .limit(1).execute()
         if not res.data:
             return jsonify({'error': 'Comprobante no encontrado'}), 404
 
-        pdf_bytes = _build_comprobante_pdf(nombre, gx_id, res.data[0])
+        comp_row = res.data[0]
+
+        # Intentar traer ítems desde comprobante_items
+        items = []
+        fac_id = comp_row.get('genexus_factura_id')
+        if fac_id:
+            items_res = sb.table('comprobante_items') \
+                          .select('*') \
+                          .eq('genexus_factura_id', fac_id) \
+                          .order('item_num') \
+                          .execute()
+            items = items_res.data or []
+
+        pdf_bytes = _build_comprobante_pdf(nombre, gx_id, comp_row, items=items)
 
         from flask import Response
         safe = re.sub(r'[^A-Za-z0-9_-]+', '-', comprobante).strip('-') or 'comprobante'
