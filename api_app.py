@@ -523,29 +523,46 @@ def api_prestamos_pendientes_count():
 @app.route('/api/prestamos', methods=['POST'])
 @login_required
 def api_prestamos_solicitar():
-    if not _es_empleado_interno():
-        return jsonify({'error': 'No autorizado'}), 403
+    """Solo jefe/admin pueden crear préstamos directamente (aprobados)."""
+    if current_user.tipo_precio not in ('jefe', 'admin'):
+        return jsonify({'error': 'La creación de préstamos está deshabilitada para empleados. Consultá con tu jefe.'}), 403
     try:
-        data   = request.get_json() or {}
-        monto  = float(data.get('monto', 0))
-        motivo = data.get('motivo', '').strip()
+        from datetime import datetime, timezone
+        data           = request.get_json() or {}
+        empleado_id    = data.get('empleado_id')
+        monto          = float(data.get('monto', 0))
+        cuotas         = int(data.get('cuotas', 1))
+        monto_cuota    = float(data.get('monto_cuota') or 0)
+        condiciones    = (data.get('condiciones_nota') or '').strip()
+
+        if not empleado_id:
+            return jsonify({'error': 'Seleccioná un empleado'}), 400
         if monto <= 0:
             return jsonify({'error': 'El monto debe ser mayor a 0'}), 400
+        if cuotas < 1:
+            return jsonify({'error': 'Las cuotas deben ser al menos 1'}), 400
 
         sb       = get_sb()
         existing = sb.table('prestamos') \
                      .select('id') \
-                     .eq('empleado_id', current_user.id) \
+                     .eq('empleado_id', empleado_id) \
                      .in_('estado', ['pendiente', 'aprobado']) \
                      .execute()
         if existing.data:
-            return jsonify({'error': 'Ya tenés un préstamo pendiente o activo'}), 400
+            return jsonify({'error': 'Este empleado ya tiene un préstamo activo'}), 400
 
+        now = datetime.now(timezone.utc).isoformat()
         res = sb.table('prestamos').insert({
-            'empleado_id':      current_user.id,
+            'empleado_id':      empleado_id,
             'monto_solicitado': monto,
-            'motivo':           motivo or None,
-            'estado':           'pendiente',
+            'monto_aprobado':   monto,
+            'cuotas_total':     cuotas,
+            'monto_cuota':      monto_cuota if monto_cuota > 0 else None,
+            'condiciones_nota': condiciones or None,
+            'saldo_pendiente':  monto,
+            'estado':           'aprobado',
+            'aprobado_por':     current_user.id,
+            'fecha_aprobacion': now,
         }).execute()
         return jsonify({'ok': True, 'prestamo': res.data[0]}), 201
     except Exception as e:
@@ -595,6 +612,52 @@ def api_prestamos_rechazar(prestamo_id):
             'estado':       'rechazado',
             'nota_rechazo': nota or None,
         }).eq('id', prestamo_id).execute()
+        return jsonify({'ok': True})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/prestamos/<prestamo_id>/pago-directo', methods=['POST'])
+@login_required
+def api_prestamos_pago_directo(prestamo_id):
+    """Jefe/admin registra un pago confirmado directamente (sin paso de informar)."""
+    if current_user.tipo_precio not in ('jefe', 'admin'):
+        return jsonify({'error': 'No autorizado'}), 403
+    try:
+        from datetime import datetime, timezone
+        data  = request.get_json() or {}
+        monto = float(data.get('monto', 0))
+        nota  = (data.get('nota') or '').strip()
+
+        if monto <= 0:
+            return jsonify({'error': 'El monto debe ser mayor a 0'}), 400
+
+        sb = get_sb()
+        pr = sb.table('prestamos').select('*').eq('id', prestamo_id).single().execute()
+        if not pr.data or pr.data['estado'] != 'aprobado':
+            return jsonify({'error': 'Préstamo no válido o no activo'}), 400
+
+        now = datetime.now(timezone.utc).isoformat()
+
+        # Insertar pago ya confirmado
+        sb.table('prestamo_pagos').insert({
+            'prestamo_id':     prestamo_id,
+            'monto':           monto,
+            'estado':          'confirmado',
+            'nota_jefe':       nota or None,
+            'informado_por':   current_user.id,
+            'confirmado_por':  current_user.id,
+            'fecha_informado': now,
+            'fecha_confirmado': now,
+        }).execute()
+
+        # Actualizar saldo y estado del préstamo
+        nuevo_saldo  = max(0, float(pr.data.get('saldo_pendiente') or 0) - monto)
+        nuevo_estado = 'saldado' if nuevo_saldo == 0 else 'aprobado'
+        sb.table('prestamos').update({
+            'saldo_pendiente': nuevo_saldo,
+            'estado':          nuevo_estado,
+        }).eq('id', prestamo_id).execute()
+
         return jsonify({'ok': True})
     except Exception as e:
         return jsonify({'error': str(e)}), 500

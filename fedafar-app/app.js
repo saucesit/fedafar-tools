@@ -548,7 +548,10 @@ const backFromPrestamos = document.getElementById('back-from-prestamos');
 const prestamosBody     = document.getElementById('prestamos-body');
 const toggleSolicitudBtn = document.getElementById('toggle-solicitud-btn');
 const solicitudForm     = document.getElementById('solicitud-form');
+const pEmpleadoSel      = document.getElementById('p-empleado-sel');
 const pMontoInput       = document.getElementById('p-monto-input');
+const pCuotasInput      = document.getElementById('p-cuotas-input');
+const pCuotaInput       = document.getElementById('p-cuota-input');
 const pMotivoInput      = document.getElementById('p-motivo-input');
 const pSolicitarBtn     = document.getElementById('p-solicitar-btn');
 const pSolicitarMsg     = document.getElementById('p-solicitar-msg');
@@ -570,6 +573,7 @@ const pagoSubmitBtn     = document.getElementById('pago-submit-btn');
 const pagoMsg           = document.getElementById('pago-msg');
 
 let currentPrestamoId = null;
+let pagoDirecto       = false;   // true cuando jefe registra pago confirmado directo
 const prestamosCountBadge = document.getElementById('prestamos-count');
 
 async function actualizarBadgePrestamos() {
@@ -588,6 +592,22 @@ async function actualizarBadgePrestamos() {
     }
 }
 
+async function cargarEmpleadosPrestamos() {
+    try {
+        const res  = await fetch(`${BASE_URL}/api/docs/empleados-lista`, { credentials: 'include' });
+        const list = await res.json();
+        pEmpleadoSel.innerHTML = '<option value="">Seleccioná un empleado...</option>';
+        list.forEach(emp => {
+            const opt = document.createElement('option');
+            opt.value       = emp.id;
+            opt.textContent = emp.nombre;
+            pEmpleadoSel.appendChild(opt);
+        });
+    } catch (e) {
+        pEmpleadoSel.innerHTML = '<option value="">Error al cargar empleados</option>';
+    }
+}
+
 prestamosBtn.addEventListener('click', openPrestamosModal);
 closePrestamosBtn.addEventListener('click', () => { prestamosModal.classList.add('hidden'); actualizarBadgePrestamos(); });
 backFromPrestamos.addEventListener('click',  () => { prestamosModal.classList.add('hidden'); actualizarBadgePrestamos(); });
@@ -595,14 +615,23 @@ backFromPrestamos.addEventListener('click',  () => { prestamosModal.classList.ad
 toggleSolicitudBtn.addEventListener('click', () => {
     const abierto = !solicitudForm.classList.contains('hidden');
     solicitudForm.classList.toggle('hidden', abierto);
-    toggleSolicitudBtn.textContent = abierto ? '+ Nueva solicitud' : '— Cancelar';
+    toggleSolicitudBtn.textContent = abierto ? '+ Nuevo Préstamo' : '— Cancelar';
 });
 
 async function openPrestamosModal() {
     prestamosModal.classList.remove('hidden');
     solicitudForm.classList.add('hidden');
-    toggleSolicitudBtn.textContent = '+ Nueva solicitud';
     pSolicitarMsg.classList.add('hidden');
+
+    const esGest = currentUser?.tipo_precio === 'jefe' || currentUser?.tipo_precio === 'admin';
+    if (esGest) {
+        toggleSolicitudBtn.classList.remove('hidden');
+        toggleSolicitudBtn.textContent = '+ Nuevo Préstamo';
+        await cargarEmpleadosPrestamos();
+    } else {
+        toggleSolicitudBtn.classList.add('hidden');
+    }
+
     await loadPrestamos();
 }
 
@@ -719,14 +748,8 @@ function renderPrestamoCarta(p, pagos) {
 
 function renderPagos(pagos, esGest, puedeInformar) {
     if (!pagos || pagos.length === 0) {
-        if (!puedeInformar) return '';
-        const miId = currentUser?.id;
-        return `
-            <div class="prestamo-acciones">
-                <button class="doc-btn doc-btn--firmar" onclick="abrirPagoModal('${prestamosBody.querySelector('[data-pid]')?.dataset?.pid || ''}', 0, 0)">
-                    💸 Informar Pago
-                </button>
-            </div>`;
+        if (!puedeInformar || !esGest) return '';
+        return '';   // prestamoId no disponible en este punto, se maneja desde renderPrestamoCarta
     }
 
     const monto = n => `$${parseFloat(n || 0).toLocaleString('es-AR', {minimumFractionDigits:0})}`;
@@ -771,14 +794,13 @@ function renderPagos(pagos, esGest, puedeInformar) {
     });
     html += '</div>';
 
-    // Botón informar pago — solo si activo, no hay pago pendiente, y pertenece al usuario
+    // Botón de pago — solo jefe/admin pueden registrar pagos directos
     const hayInformado = pagos.some(p => p.estado === 'informado');
-    if (puedeInformar && !hayInformado) {
-        const saldoActual = 0; // se pasa desde renderPrestamoCarta
+    if (puedeInformar && !hayInformado && esGest) {
         html += `
             <div class="prestamo-acciones">
-                <button class="doc-btn doc-btn--firmar" onclick="abrirPagoModal('${prestamoId}')">
-                    💸 Informar Pago
+                <button class="doc-btn doc-btn--firmar" onclick="abrirPagoDirectoModal('${prestamoId}')">
+                    💰 Registrar Pago
                 </button>
             </div>`;
     }
@@ -907,29 +929,43 @@ function renderPagosDe(prestamoId, pagos, esGest, puedeInformar) {
     return html;
 }
 
-// Solicitar préstamo
+// Crear préstamo (solo jefe/admin)
 pSolicitarBtn.addEventListener('click', async () => {
-    const monto  = parseFloat(pMontoInput.value);
-    const motivo = pMotivoInput.value.trim();
+    const empleadoId = pEmpleadoSel.value;
+    const monto      = parseFloat(pMontoInput.value);
+    const cuotas     = parseInt(pCuotasInput.value) || 1;
+    const montoCuota = parseFloat(pCuotaInput.value) || 0;
+    const nota       = pMotivoInput.value.trim();
     pSolicitarMsg.classList.add('hidden');
 
-    if (!monto || monto <= 0) { mostrarDocMsg(pSolicitarMsg, 'Ingresá un monto válido', 'error'); return; }
+    if (!empleadoId)             { mostrarDocMsg(pSolicitarMsg, 'Seleccioná un empleado', 'error'); return; }
+    if (!monto || monto <= 0)    { mostrarDocMsg(pSolicitarMsg, 'Ingresá un monto válido', 'error'); return; }
+    if (cuotas < 1)              { mostrarDocMsg(pSolicitarMsg, 'Las cuotas deben ser al menos 1', 'error'); return; }
 
     pSolicitarBtn.disabled    = true;
-    pSolicitarBtn.textContent = 'Enviando...';
+    pSolicitarBtn.textContent = 'Guardando...';
     try {
         const res  = await fetch(`${BASE_URL}/api/prestamos`, {
             method: 'POST', credentials: 'include',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ monto, motivo }),
+            body: JSON.stringify({
+                empleado_id:      empleadoId,
+                monto,
+                cuotas,
+                monto_cuota:      montoCuota || null,
+                condiciones_nota: nota || null,
+            }),
         });
         const data = await res.json();
         if (res.ok && data.ok) {
-            mostrarDocMsg(pSolicitarMsg, '✅ Solicitud enviada exitosamente', 'ok');
+            mostrarDocMsg(pSolicitarMsg, '✅ Préstamo creado exitosamente', 'ok');
+            pEmpleadoSel.value = '';
             pMontoInput.value  = '';
+            pCuotasInput.value = '1';
+            pCuotaInput.value  = '';
             pMotivoInput.value = '';
             solicitudForm.classList.add('hidden');
-            toggleSolicitudBtn.textContent = '+ Nueva solicitud';
+            toggleSolicitudBtn.textContent = '+ Nuevo Préstamo';
             await loadPrestamos();
         } else {
             mostrarDocMsg(pSolicitarMsg, data.error || 'Error desconocido', 'error');
@@ -938,7 +974,7 @@ pSolicitarBtn.addEventListener('click', async () => {
         mostrarDocMsg(pSolicitarMsg, 'Error al conectar', 'error');
     } finally {
         pSolicitarBtn.disabled    = false;
-        pSolicitarBtn.textContent = 'Enviar Solicitud';
+        pSolicitarBtn.textContent = 'Crear Préstamo';
     }
 });
 
@@ -1001,11 +1037,23 @@ async function rechazarPrestamo(prestamoId) {
     } catch (e) { alert('Error al rechazar'); }
 }
 
-// Informar pago
-closePagoBtn.addEventListener('click', () => pagoModal.classList.add('hidden'));
+// Registrar / Informar pago
+closePagoBtn.addEventListener('click', () => { pagoModal.classList.add('hidden'); pagoDirecto = false; });
+
+function abrirPagoDirectoModal(prestamoId) {
+    pagoDirecto         = true;
+    currentPrestamoId   = prestamoId;
+    pagoSaldoInfo.textContent = 'Registrar pago — se confirma directamente';
+    pagoMontoInput.value = '';
+    pagoNotaInput.value  = '';
+    pagoMsg.classList.add('hidden');
+    pagoModal.classList.remove('hidden');
+}
 
 function abrirPagoModal(prestamoId) {
-    currentPrestamoId = prestamoId;
+    pagoDirecto         = false;
+    currentPrestamoId   = prestamoId;
+    pagoSaldoInfo.textContent = '';
     pagoMontoInput.value = '';
     pagoNotaInput.value  = '';
     pagoMsg.classList.add('hidden');
@@ -1020,20 +1068,28 @@ pagoSubmitBtn.addEventListener('click', async () => {
     if (!monto || monto <= 0) { mostrarDocMsg(pagoMsg, 'Ingresá un monto válido', 'error'); return; }
 
     pagoSubmitBtn.disabled    = true;
-    pagoSubmitBtn.textContent = 'Enviando...';
+    pagoSubmitBtn.textContent = 'Guardando...';
+
+    const endpoint = pagoDirecto
+        ? `${BASE_URL}/api/prestamos/${currentPrestamoId}/pago-directo`
+        : `${BASE_URL}/api/prestamos/${currentPrestamoId}/pagos`;
+
     try {
-        const res  = await fetch(`${BASE_URL}/api/prestamos/${currentPrestamoId}/pagos`, {
+        const res  = await fetch(endpoint, {
             method: 'POST', credentials: 'include',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ monto, nota }),
         });
         const data = await res.json();
         if (res.ok && data.ok) {
-            mostrarDocMsg(pagoMsg, '✅ Pago informado. El jefe lo confirmará pronto.', 'ok');
+            const msg = pagoDirecto ? '✅ Pago registrado y confirmado.' : '✅ Pago informado. El jefe lo confirmará pronto.';
+            mostrarDocMsg(pagoMsg, msg, 'ok');
             setTimeout(async () => {
                 pagoModal.classList.add('hidden');
+                pagoDirecto = false;
                 await loadPrestamos();
-            }, 2000);
+                actualizarBadgePrestamos();
+            }, 1500);
         } else {
             mostrarDocMsg(pagoMsg, data.error || 'Error', 'error');
         }

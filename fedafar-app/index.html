@@ -171,16 +171,21 @@
                 <button id="close-prestamos" class="icon-btn"><i data-lucide="x"></i></button>
             </div>
 
-            <!-- Solicitar nuevo préstamo -->
+            <!-- Crear nuevo préstamo (solo jefe/admin) -->
             <div class="prestamo-solicitud-header">
-                <button id="toggle-solicitud-btn" class="prestamo-toggle-btn">
-                    + Nueva solicitud
+                <button id="toggle-solicitud-btn" class="prestamo-toggle-btn hidden">
+                    + Nuevo Préstamo
                 </button>
             </div>
             <div id="solicitud-form" class="prestamo-form-section hidden">
-                <input  type="number" id="p-monto-input"  class="docs-input" placeholder="Monto solicitado ($)" min="1">
-                <textarea id="p-motivo-input" class="docs-input prestamo-textarea" placeholder="Motivo (opcional)..." rows="2"></textarea>
-                <button id="p-solicitar-btn" class="primary-btn">Enviar Solicitud</button>
+                <select id="p-empleado-sel" class="docs-input">
+                    <option value="">Seleccioná un empleado...</option>
+                </select>
+                <input  type="number" id="p-monto-input"   class="docs-input" placeholder="Monto ($)" min="1">
+                <input  type="number" id="p-cuotas-input"  class="docs-input" placeholder="Número de cuotas" min="1" value="1">
+                <input  type="number" id="p-cuota-input"   class="docs-input" placeholder="Monto por cuota (opcional, se calcula solo)">
+                <textarea id="p-motivo-input" class="docs-input prestamo-textarea" placeholder="Condiciones / nota (opcional)..." rows="2"></textarea>
+                <button id="p-solicitar-btn" class="primary-btn">Crear Préstamo</button>
                 <p id="p-solicitar-msg" class="docs-msg hidden"></p>
             </div>
 
