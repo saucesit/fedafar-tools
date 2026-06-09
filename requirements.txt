@@ -1,6 +1,7 @@
 flask
 flask-cors
 flask-login
+flask-limiter
 pandas
 openpyxl
 gunicorn

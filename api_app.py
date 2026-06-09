@@ -5,6 +5,8 @@ import pandas as pd
 from flask import Flask, jsonify, render_template, send_from_directory, request, session
 from flask_cors import CORS
 from flask_login import LoginManager, UserMixin, login_user, logout_user, login_required, current_user
+from flask_limiter import Limiter
+from flask_limiter.util import get_remote_address
 from werkzeug.security import check_password_hash, generate_password_hash
 from werkzeug.utils import secure_filename
 from functools import wraps
@@ -14,7 +16,13 @@ load_dotenv()
 
 app = Flask(__name__)
 app.secret_key = os.getenv('FLASK_SECRET_KEY', os.urandom(24))
-CORS(app, supports_credentials=True)
+CORS(app, supports_credentials=True, origins=[
+    "https://fedafar-tools.onrender.com",
+    "http://localhost:5001",
+    "http://127.0.0.1:5001",
+])
+
+limiter = Limiter(get_remote_address, app=app, default_limits=[])
 
 BASE_DIR        = os.path.dirname(os.path.abspath(__file__))
 FEDAFAR_APP_DIR = os.path.join(BASE_DIR, 'fedafar-app')
@@ -66,6 +74,7 @@ def load_user(user_id):
 # ── Auth endpoints ─────────────────────────────────────────────────────────────
 
 @app.route('/api/login', methods=['POST'])
+@limiter.limit("10 per minute")
 def api_login():
     data     = request.get_json() or {}
     username = data.get('username', '').strip()
@@ -93,7 +102,8 @@ def api_login():
         return jsonify({'error': 'Usuario o contraseña incorrectos'}), 401
 
     user = ClientUser(user_data)
-    login_user(user, remember=True)
+    from datetime import timedelta
+    login_user(user, remember=True, duration=timedelta(days=30))
     return jsonify({
         'ok':          True,
         'nombre':      user.nombre,
@@ -133,7 +143,8 @@ def api_cta_cte():
                 .execute()
         return jsonify(res.data or [])
     except Exception as e:
-        return jsonify({'error': str(e)}), 500
+        print(f"[ERROR] {e}")
+        return jsonify({'error': 'Error interno del servidor'}), 500
 
 @app.route('/api/todas-cuentas', methods=['GET'])
 def api_todas_cuentas():
@@ -183,7 +194,8 @@ def api_todas_cuentas():
         resultado.sort(key=lambda x: x['saldo_total'], reverse=True)
         return jsonify(resultado)
     except Exception as e:
-        return jsonify({'error': str(e)}), 500
+        print(f"[ERROR] {e}")
+        return jsonify({'error': 'Error interno del servidor'}), 500
 
 # ── Admin Auth ────────────────────────────────────────────────────────────────
 
@@ -209,6 +221,7 @@ def admin_auto_auth():
     return jsonify({'ok': True})
 
 @app.route('/api/admin/login', methods=['POST'])
+@limiter.limit("5 per minute")
 def admin_login():
     data     = request.get_json() or {}
     password = data.get('password', '')
@@ -239,7 +252,8 @@ def admin_get_clientes():
                 .execute()
         return jsonify(res.data or [])
     except Exception as e:
-        return jsonify({'error': str(e)}), 500
+        print(f"[ERROR] {e}")
+        return jsonify({'error': 'Error interno del servidor'}), 500
 
 @app.route('/api/admin/clientes', methods=['POST'])
 @admin_required
@@ -295,7 +309,8 @@ def admin_update_cliente(cliente_id):
         res = sb.table('clientes').update(update).eq('id', cliente_id).execute()
         return jsonify({'ok': True})
     except Exception as e:
-        return jsonify({'error': str(e)}), 500
+        print(f"[ERROR] {e}")
+        return jsonify({'error': 'Error interno del servidor'}), 500
 
 # ── Stock ──────────────────────────────────────────────────────────────────────
 
@@ -497,7 +512,8 @@ def api_prestamos_list():
             prestamos = res.data or []
         return jsonify(prestamos)
     except Exception as e:
-        return jsonify({'error': str(e)}), 500
+        print(f"[ERROR] {e}")
+        return jsonify({'error': 'Error interno del servidor'}), 500
 
 @app.route('/api/prestamos/pendientes-count', methods=['GET'])
 @login_required
@@ -566,7 +582,8 @@ def api_prestamos_solicitar():
         }).execute()
         return jsonify({'ok': True, 'prestamo': res.data[0]}), 201
     except Exception as e:
-        return jsonify({'error': str(e)}), 500
+        print(f"[ERROR] {e}")
+        return jsonify({'error': 'Error interno del servidor'}), 500
 
 @app.route('/api/prestamos/<prestamo_id>/aprobar', methods=['POST'])
 @login_required
@@ -597,7 +614,8 @@ def api_prestamos_aprobar(prestamo_id):
         }).eq('id', prestamo_id).execute()
         return jsonify({'ok': True})
     except Exception as e:
-        return jsonify({'error': str(e)}), 500
+        print(f"[ERROR] {e}")
+        return jsonify({'error': 'Error interno del servidor'}), 500
 
 @app.route('/api/prestamos/<prestamo_id>/rechazar', methods=['POST'])
 @login_required
@@ -614,7 +632,8 @@ def api_prestamos_rechazar(prestamo_id):
         }).eq('id', prestamo_id).execute()
         return jsonify({'ok': True})
     except Exception as e:
-        return jsonify({'error': str(e)}), 500
+        print(f"[ERROR] {e}")
+        return jsonify({'error': 'Error interno del servidor'}), 500
 
 @app.route('/api/prestamos/<prestamo_id>/pago-directo', methods=['POST'])
 @login_required
@@ -660,7 +679,8 @@ def api_prestamos_pago_directo(prestamo_id):
 
         return jsonify({'ok': True})
     except Exception as e:
-        return jsonify({'error': str(e)}), 500
+        print(f"[ERROR] {e}")
+        return jsonify({'error': 'Error interno del servidor'}), 500
 
 @app.route('/api/prestamos/<prestamo_id>/pagos', methods=['GET'])
 @login_required
@@ -681,7 +701,8 @@ def api_prestamos_get_pagos(prestamo_id):
                 .execute()
         return jsonify(res.data or [])
     except Exception as e:
-        return jsonify({'error': str(e)}), 500
+        print(f"[ERROR] {e}")
+        return jsonify({'error': 'Error interno del servidor'}), 500
 
 @app.route('/api/prestamos/<prestamo_id>/pagos', methods=['POST'])
 @login_required
@@ -725,7 +746,8 @@ def api_prestamos_informar_pago(prestamo_id):
         }).execute()
         return jsonify({'ok': True, 'pago': res.data[0]}), 201
     except Exception as e:
-        return jsonify({'error': str(e)}), 500
+        print(f"[ERROR] {e}")
+        return jsonify({'error': 'Error interno del servidor'}), 500
 
 @app.route('/api/prestamos/pagos/<pago_id>/confirmar', methods=['POST'])
 @login_required
@@ -764,7 +786,8 @@ def api_prestamos_confirmar_pago(pago_id):
 
         return jsonify({'ok': True, 'nuevo_saldo': nuevo_saldo, 'estado_prestamo': nuevo_estado})
     except Exception as e:
-        return jsonify({'error': str(e)}), 500
+        print(f"[ERROR] {e}")
+        return jsonify({'error': 'Error interno del servidor'}), 500
 
 @app.route('/api/prestamos/pagos/<pago_id>/rechazar', methods=['POST'])
 @login_required
@@ -784,7 +807,8 @@ def api_prestamos_rechazar_pago(pago_id):
         }).eq('id', pago_id).execute()
         return jsonify({'ok': True})
     except Exception as e:
-        return jsonify({'error': str(e)}), 500
+        print(f"[ERROR] {e}")
+        return jsonify({'error': 'Error interno del servidor'}), 500
 
 # ── Documentos de empleados ────────────────────────────────────────────────────
 
@@ -836,7 +860,8 @@ def api_get_docs():
                   .order('created_at', desc=True)
         return jsonify(q.execute().data or [])
     except Exception as e:
-        return jsonify({'error': str(e)}), 500
+        print(f"[ERROR] {e}")
+        return jsonify({'error': 'Error interno del servidor'}), 500
 
 @app.route('/api/docs/empleados-lista', methods=['GET'])
 @login_required
@@ -853,7 +878,8 @@ def api_docs_empleados_lista():
                 .execute()
         return jsonify(res.data or [])
     except Exception as e:
-        return jsonify({'error': str(e)}), 500
+        print(f"[ERROR] {e}")
+        return jsonify({'error': 'Error interno del servidor'}), 500
 
 @app.route('/api/docs/subir', methods=['POST'])
 @login_required
@@ -911,7 +937,8 @@ def api_docs_subir():
         }).execute()
         return jsonify({'ok': True, 'doc': res.data[0]}), 201
     except Exception as e:
-        return jsonify({'error': str(e)}), 500
+        print(f"[ERROR] {e}")
+        return jsonify({'error': 'Error interno del servidor'}), 500
 
 @app.route('/api/docs/firmar/<doc_id>', methods=['POST'])
 @login_required
@@ -951,7 +978,8 @@ def api_docs_firmar(doc_id):
 
         return jsonify({'ok': True, 'timestamp': now})
     except Exception as e:
-        return jsonify({'error': str(e)}), 500
+        print(f"[ERROR] {e}")
+        return jsonify({'error': 'Error interno del servidor'}), 500
 
 @app.route('/api/docs/descargar/<doc_id>', methods=['GET'])
 @login_required
@@ -980,7 +1008,8 @@ def api_docs_descargar(doc_id):
             return jsonify({'error': 'No se pudo generar URL de descarga'}), 500
         return jsonify({'url': url})
     except Exception as e:
-        return jsonify({'error': str(e)}), 500
+        print(f"[ERROR] {e}")
+        return jsonify({'error': 'Error interno del servidor'}), 500
 
 # ── Rutas estáticas ────────────────────────────────────────────────────────────
 
