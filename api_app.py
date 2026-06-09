@@ -567,7 +567,7 @@ def admin_create_cliente():
 
     if not nombre or not username or not password:
         return jsonify({'error': 'Nombre, usuario y contraseña son obligatorios'}), 400
-    if tipo not in ('contado', 'cta-cte', 'empleado', 'jefe', 'admin'):
+    if tipo not in ('contado', 'cta-cte', 'empleado', 'jefe', 'admin', 'jefe_deposito', 'farmaceutico'):
         return jsonify({'error': 'tipo_precio inválido'}), 400
 
     try:
@@ -670,7 +670,7 @@ def parse_price_list(tipo='contado'):
     products   = []
     stock_dict = get_stock_data()
     principios = get_principios()
-    es_empleado = tipo in ('empleado', 'jefe', 'admin')
+    es_empleado = tipo in ('empleado', 'jefe', 'admin', 'farmaceutico', 'jefe_deposito')
 
     try:
         df = pd.read_excel(PRICE_LIST_PATH, skiprows=2, header=0)
@@ -1122,9 +1122,9 @@ DOCS_RECIBOS        = {'recibo_sueldo'}
 DOCS_DOCUMENTACION  = {'credencial_art', 'seguro_vehiculo', 'carnet_conducir'}
 
 def _es_empleado_interno():
-    """True si el usuario logueado tiene rol interno (empleado/jefe/admin)."""
+    """True si el usuario logueado tiene rol interno (empleado/jefe/admin/farmaceutico/jefe_deposito)."""
     return current_user.is_authenticated and \
-           current_user.tipo_precio in ('empleado', 'jefe', 'admin')
+           current_user.tipo_precio in ('empleado', 'jefe', 'admin', 'farmaceutico', 'jefe_deposito')
 
 @app.route('/api/docs', methods=['GET'])
 @login_required
@@ -1172,7 +1172,7 @@ def api_docs_empleados_lista():
         sb  = get_sb()
         res = sb.table('clientes') \
                 .select('id,nombre,tipo_precio') \
-                .in_('tipo_precio', ['empleado', 'jefe', 'admin']) \
+                .in_('tipo_precio', ['empleado', 'jefe', 'admin', 'farmaceutico', 'jefe_deposito']) \
                 .eq('activo', True) \
                 .order('nombre') \
                 .execute()
@@ -1307,6 +1307,82 @@ def api_docs_descargar(doc_id):
         if not url:
             return jsonify({'error': 'No se pudo generar URL de descarga'}), 500
         return jsonify({'url': url})
+    except Exception as e:
+        print(f"[ERROR] {e}")
+        return jsonify({'error': 'Error interno del servidor'}), 500
+
+# ── Faltantes ─────────────────────────────────────────────────────────────────
+
+ROLES_VER_FALTANTES       = ('jefe_deposito', 'farmaceutico', 'jefe', 'admin')
+ROLES_GESTIONAR_FALTANTES = ('farmaceutico', 'jefe', 'admin')
+
+@app.route('/api/faltantes', methods=['GET'])
+@login_required
+def api_faltantes_list():
+    if current_user.tipo_precio not in ROLES_VER_FALTANTES:
+        return jsonify({'error': 'No autorizado'}), 403
+    try:
+        sb  = get_sb()
+        res = sb.table('faltantes').select('*').order('creado_en', desc=True).execute()
+        return jsonify(res.data or [])
+    except Exception as e:
+        print(f"[ERROR] {e}")
+        return jsonify({'error': 'Error interno del servidor'}), 500
+
+@app.route('/api/faltantes', methods=['POST'])
+@login_required
+def api_faltantes_create():
+    if current_user.tipo_precio != 'jefe_deposito':
+        return jsonify({'error': 'Solo el Jefe de Depósito puede cargar faltantes'}), 403
+    data     = request.get_json() or {}
+    producto = data.get('producto', '').strip()
+    nota     = data.get('nota', '').strip()
+    if not producto:
+        return jsonify({'error': 'El producto es obligatorio'}), 400
+    try:
+        sb  = get_sb()
+        res = sb.table('faltantes').insert({
+            'producto':          producto,
+            'nota':              nota or None,
+            'estado':            'faltante',
+            'creado_por_nombre': current_user.nombre,
+        }).execute()
+        return jsonify(res.data[0] if res.data else {}), 201
+    except Exception as e:
+        print(f"[ERROR] {e}")
+        return jsonify({'error': 'Error interno del servidor'}), 500
+
+@app.route('/api/faltantes/<int:faltante_id>', methods=['PATCH'])
+@login_required
+def api_faltantes_update(faltante_id):
+    if current_user.tipo_precio not in ROLES_GESTIONAR_FALTANTES:
+        return jsonify({'error': 'No autorizado para gestionar faltantes'}), 403
+    data   = request.get_json() or {}
+    estado = data.get('estado', '').strip()
+    if estado not in ('faltante', 'en_gestion', 'resuelto'):
+        return jsonify({'error': 'Estado inválido'}), 400
+    from datetime import datetime, timezone
+    try:
+        sb  = get_sb()
+        res = sb.table('faltantes').update({
+            'estado':                 estado,
+            'actualizado_por_nombre': current_user.nombre,
+            'actualizado_en':         datetime.now(timezone.utc).isoformat(),
+        }).eq('id', faltante_id).execute()
+        return jsonify(res.data[0] if res.data else {})
+    except Exception as e:
+        print(f"[ERROR] {e}")
+        return jsonify({'error': 'Error interno del servidor'}), 500
+
+@app.route('/api/faltantes/<int:faltante_id>', methods=['DELETE'])
+@login_required
+def api_faltantes_delete(faltante_id):
+    if current_user.tipo_precio not in ('jefe_deposito', 'admin'):
+        return jsonify({'error': 'No autorizado'}), 403
+    try:
+        sb = get_sb()
+        sb.table('faltantes').delete().eq('id', faltante_id).execute()
+        return jsonify({'ok': True})
     except Exception as e:
         print(f"[ERROR] {e}")
         return jsonify({'error': 'Error interno del servidor'}), 500

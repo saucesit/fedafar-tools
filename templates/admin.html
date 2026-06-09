@@ -96,13 +96,15 @@
             display:inline-block; padding:3px 10px; border-radius:20px;
             font-size:.75rem; font-weight:600;
         }
-        .badge-contado  { background:#d1fae5; color:#065f46; }
-        .badge-ctacte   { background:#ede9fe; color:#5b21b6; }
-        .badge-empleado { background:#fff3e0; color:#e07b00; }
-        .badge-jefe     { background:#fce7f3; color:#9d174d; }
-        .badge-admin    { background:#fee2e2; color:#991b1b; }
-        .badge-activo   { background:#d1fae5; color:#065f46; }
-        .badge-inactivo { background:#fee2e2; color:#991b1b; }
+        .badge-contado      { background:#d1fae5; color:#065f46; }
+        .badge-ctacte       { background:#ede9fe; color:#5b21b6; }
+        .badge-empleado     { background:#fff3e0; color:#e07b00; }
+        .badge-jefe         { background:#fce7f3; color:#9d174d; }
+        .badge-admin        { background:#fee2e2; color:#991b1b; }
+        .badge-jefe-dep     { background:#dbeafe; color:#1e40af; }
+        .badge-farmaceutico { background:#d1fae5; color:#065f46; }
+        .badge-activo       { background:#d1fae5; color:#065f46; }
+        .badge-inactivo     { background:#fee2e2; color:#991b1b; }
 
         .btn-edit, .btn-toggle {
             border:none; padding:6px 12px; border-radius:7px; cursor:pointer;
@@ -223,6 +225,8 @@
                 <option value="cta-cte">Cliente — Cuenta Corriente</option>
                 <option value="empleado">Empleado FEDAFAR</option>
                 <option value="jefe">Jefe FEDAFAR</option>
+                <option value="jefe_deposito">Jefe de Depósito</option>
+                <option value="farmaceutico">Farmacéutico</option>
                 <option value="admin">Admin FEDAFAR</option>
             </select>
         </div>
@@ -309,14 +313,18 @@ function renderTabla() {
             <td><strong>${c.nombre}</strong></td>
             <td>${c.username}</td>
             <td><span class="badge ${
-                c.tipo_precio === 'cta-cte'  ? 'badge-ctacte'  :
-                c.tipo_precio === 'empleado' ? 'badge-empleado':
-                c.tipo_precio === 'jefe'     ? 'badge-jefe'    :
-                c.tipo_precio === 'admin'    ? 'badge-admin'   : 'badge-contado'}">
-                ${ c.tipo_precio === 'cta-cte'  ? 'Cta. Cte.' :
-                   c.tipo_precio === 'empleado' ? 'Empleado'   :
-                   c.tipo_precio === 'jefe'     ? 'Jefe'       :
-                   c.tipo_precio === 'admin'    ? 'Admin'      : 'Contado' }
+                c.tipo_precio === 'cta-cte'       ? 'badge-ctacte'      :
+                c.tipo_precio === 'empleado'      ? 'badge-empleado'    :
+                c.tipo_precio === 'jefe'          ? 'badge-jefe'        :
+                c.tipo_precio === 'jefe_deposito' ? 'badge-jefe-dep'    :
+                c.tipo_precio === 'farmaceutico'  ? 'badge-farmaceutico':
+                c.tipo_precio === 'admin'         ? 'badge-admin'       : 'badge-contado'}">
+                ${ c.tipo_precio === 'cta-cte'       ? 'Cta. Cte.'       :
+                   c.tipo_precio === 'empleado'      ? 'Empleado'         :
+                   c.tipo_precio === 'jefe'          ? 'Jefe'             :
+                   c.tipo_precio === 'jefe_deposito' ? 'Jefe Depósito'    :
+                   c.tipo_precio === 'farmaceutico'  ? 'Farmacéutico'     :
+                   c.tipo_precio === 'admin'         ? 'Admin'            : 'Contado' }
             </span></td>
             <td>${c.genexus_client_id || '—'}</td>
             <td><span class="badge ${c.activo ? 'badge-activo' : 'badge-inactivo'}">

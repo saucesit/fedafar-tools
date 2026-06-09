@@ -74,6 +74,10 @@
                 <button id="admin-panel-btn" class="icon-btn hidden" title="Panel Admin">
                     <i data-lucide="settings"></i>
                 </button>
+                <button id="faltantes-btn" class="icon-btn hidden" title="Faltantes">
+                    <i data-lucide="package-x"></i>
+                    <span id="faltantes-count" class="prestamos-badge hidden">0</span>
+                </button>
                 <button id="cart-btn" class="icon-btn">
                     <i data-lucide="shopping-cart"></i>
                     <span id="cart-count">0</span>
@@ -323,6 +327,33 @@
                     <button id="firma-confirmar-btn" class="primary-btn">Confirmar Firma</button>
                 </div>
                 <p id="firma-msg" class="docs-msg hidden"></p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal Faltantes ─────────────────────────────────────────── -->
+    <div id="faltantes-modal" class="cart-modal hidden">
+        <div class="cart-content">
+            <div class="cart-header">
+                <h2>📦 Faltantes</h2>
+                <button id="close-faltantes" class="icon-btn"><i data-lucide="x"></i></button>
+            </div>
+
+            <!-- Formulario: solo jefe_deposito -->
+            <div id="faltantes-form-section" class="hidden" style="padding:0 16px 12px;">
+                <p style="font-size:.8rem;color:var(--text-muted);margin-bottom:8px;">Reportar producto faltante:</p>
+                <input  type="text"     id="faltante-producto-input"  class="docs-input" placeholder="Nombre del producto *">
+                <textarea               id="faltante-nota-input"      class="docs-input prestamo-textarea" placeholder="Nota o descripción (opcional)..." rows="2" style="margin-top:6px;"></textarea>
+                <button id="faltante-submit-btn" class="primary-btn" style="margin-top:8px;">Reportar faltante</button>
+                <p id="faltante-submit-msg" class="docs-msg hidden"></p>
+            </div>
+
+            <div id="faltantes-body" class="cuenta-body" style="padding:12px 16px;"></div>
+
+            <div class="cart-footer">
+                <div class="cart-actions">
+                    <button id="back-from-faltantes" class="secondary-btn">← Volver</button>
+                </div>
             </div>
         </div>
     </div>

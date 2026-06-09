@@ -57,6 +57,19 @@ const docsFileInput     = document.getElementById('docs-file-input');
 const docsFileName      = document.getElementById('docs-file-name');
 const docsUploadBtn     = document.getElementById('docs-upload-btn');
 const docsUploadMsg     = document.getElementById('docs-upload-msg');
+// Faltantes
+const faltantesBtn          = document.getElementById('faltantes-btn');
+const faltantesModal        = document.getElementById('faltantes-modal');
+const closeFaltantesBtn     = document.getElementById('close-faltantes');
+const backFromFaltantesBtn  = document.getElementById('back-from-faltantes');
+const faltantesBody         = document.getElementById('faltantes-body');
+const faltantesFormSection  = document.getElementById('faltantes-form-section');
+const faltanteProductoInput = document.getElementById('faltante-producto-input');
+const faltanteNotaInput     = document.getElementById('faltante-nota-input');
+const faltanteSubmitBtn     = document.getElementById('faltante-submit-btn');
+const faltanteSubmitMsg     = document.getElementById('faltante-submit-msg');
+const faltantesCount        = document.getElementById('faltantes-count');
+
 // Firma
 const firmaModal        = document.getElementById('firma-modal');
 const closeFirmaBtn     = document.getElementById('close-firma');
@@ -94,8 +107,8 @@ function showApp() {
 
     const tipo = currentUser?.tipo_precio;
 
-    // Carrito: visible para cliente, jefe, admin — oculto para empleado
-    if (tipo === 'empleado') {
+    // Carrito: visible para cliente, jefe, admin — oculto para empleado/farmaceutico/jefe_deposito
+    if (tipo === 'empleado' || tipo === 'farmaceutico' || tipo === 'jefe_deposito') {
         cartBtn.classList.add('hidden');
     } else {
         cartBtn.classList.remove('hidden');
@@ -126,14 +139,22 @@ function showApp() {
         adminPanelBtn.classList.add('hidden');
     }
 
-    // Documentos y préstamos: empleado, jefe, admin
-    if (tipo === 'empleado' || tipo === 'jefe' || tipo === 'admin') {
+    // Documentos y préstamos: empleado, jefe, admin, farmaceutico, jefe_deposito
+    if (tipo === 'empleado' || tipo === 'jefe' || tipo === 'admin' || tipo === 'farmaceutico' || tipo === 'jefe_deposito') {
         docsBtn.classList.remove('hidden');
         prestamosBtn.classList.remove('hidden');
         actualizarBadgePrestamos();
     } else {
         docsBtn.classList.add('hidden');
         prestamosBtn.classList.add('hidden');
+    }
+
+    // Faltantes: jefe_deposito, farmaceutico, jefe, admin
+    if (tipo === 'jefe_deposito' || tipo === 'farmaceutico' || tipo === 'jefe' || tipo === 'admin') {
+        faltantesBtn.classList.remove('hidden');
+        actualizarBadgeFaltantes();
+    } else {
+        faltantesBtn.classList.add('hidden');
     }
 
     fetchProducts();
@@ -201,8 +222,8 @@ function showPriceBadge() {
     const tipo  = currentUser?.tipo_precio || 'contado';
     const badge = document.createElement('span');
     badge.id = 'price-badge';
-    const labels = { 'cta-cte': 'Cta. Cte.', 'empleado': 'Empleado', 'contado': 'Contado', 'jefe': 'Jefe', 'admin': 'Admin' };
-    const colors = { 'cta-cte': '#7c3aed', 'empleado': '#e07b00', 'contado': '#28a745', 'jefe': '#db2777', 'admin': '#dc2626' };
+    const labels = { 'cta-cte': 'Cta. Cte.', 'empleado': 'Empleado', 'contado': 'Contado', 'jefe': 'Jefe', 'admin': 'Admin', 'jefe_deposito': 'Jefe Depósito', 'farmaceutico': 'Farmacéutico' };
+    const colors = { 'cta-cte': '#7c3aed', 'empleado': '#e07b00', 'contado': '#28a745', 'jefe': '#db2777', 'admin': '#dc2626', 'jefe_deposito': '#0369a1', 'farmaceutico': '#065f46' };
     badge.innerText = labels[tipo] || tipo;
     badge.style.cssText = `
         background: ${colors[tipo] || '#28a745'};
@@ -236,8 +257,8 @@ function renderProducts(filter = '', category = 'all') {
         const principioHtml = product.principio ? `<p class="prod-principio">${product.principio}</p>` : '';
         const promoHtml     = product.promo ? `<p class="prod-promo">${product.promo}</p>` : '';
         const tipo       = currentUser?.tipo_precio;
-        const verDual    = tipo === 'empleado' || tipo === 'jefe' || tipo === 'admin';
-        const conCarrito = tipo !== 'empleado';
+        const verDual    = tipo === 'empleado' || tipo === 'jefe' || tipo === 'admin' || tipo === 'farmaceutico' || tipo === 'jefe_deposito';
+        const conCarrito = tipo !== 'empleado' && tipo !== 'farmaceutico' && tipo !== 'jefe_deposito';
 
         if (verDual && product.price_contado !== undefined) {
             const pc  = product.price_contado === 0 ? 'Sin cargo' : `$ ${product.price_contado.toLocaleString('es-AR')}`;
@@ -1520,6 +1541,168 @@ async function submitFirma() {
         firmaConfirmarBtn.textContent = 'Confirmar Firma';
     }
 }
+
+// ── Faltantes ──────────────────────────────────────────────────────────────────
+
+const ESTADO_LABEL = {
+    faltante:   '🔴 Faltante',
+    en_gestion: '🟡 En gestión',
+    resuelto:   '🟢 Resuelto',
+};
+const ESTADO_CLASS = {
+    faltante:   'faltante-estado--faltante',
+    en_gestion: 'faltante-estado--gestion',
+    resuelto:   'faltante-estado--resuelto',
+};
+
+faltantesBtn.addEventListener('click', () => {
+    faltantesModal.classList.remove('hidden');
+    loadFaltantes();
+});
+closeFaltantesBtn.addEventListener('click',    () => faltantesModal.classList.add('hidden'));
+backFromFaltantesBtn.addEventListener('click', () => faltantesModal.classList.add('hidden'));
+
+async function actualizarBadgeFaltantes() {
+    try {
+        const res  = await fetch(`${BASE_URL}/api/faltantes`, { credentials: 'include' });
+        if (!res.ok) return;
+        const data = await res.json();
+        const pendientes = data.filter(f => f.estado !== 'resuelto').length;
+        if (pendientes > 0) {
+            faltantesCount.textContent = pendientes;
+            faltantesCount.classList.remove('hidden');
+        } else {
+            faltantesCount.classList.add('hidden');
+        }
+    } catch (e) {}
+}
+
+async function loadFaltantes() {
+    const tipo = currentUser?.tipo_precio;
+    faltantesBody.innerHTML = '<p style="color:var(--text-muted);text-align:center;padding:24px 0;">Cargando...</p>';
+
+    // Mostrar formulario solo para jefe_deposito
+    if (tipo === 'jefe_deposito') {
+        faltantesFormSection.classList.remove('hidden');
+    } else {
+        faltantesFormSection.classList.add('hidden');
+    }
+
+    try {
+        const res  = await fetch(`${BASE_URL}/api/faltantes`, { credentials: 'include' });
+        const data = await res.json();
+        if (!res.ok) { faltantesBody.innerHTML = `<p class="docs-msg error-msg">${data.error}</p>`; return; }
+
+        if (!data.length) {
+            faltantesBody.innerHTML = '<p style="color:var(--text-muted);text-align:center;padding:24px 0;">No hay productos faltantes registrados.</p>';
+            return;
+        }
+
+        const esGestor = tipo === 'farmaceutico' || tipo === 'jefe' || tipo === 'admin';
+        const puedeEliminar = tipo === 'jefe_deposito' || tipo === 'admin';
+
+        faltantesBody.innerHTML = data.map(f => {
+            const fecha = f.creado_en ? new Date(f.creado_en).toLocaleDateString('es-AR', { day:'2-digit', month:'2-digit', year:'numeric' }) : '';
+            const actFecha = f.actualizado_en ? new Date(f.actualizado_en).toLocaleDateString('es-AR', { day:'2-digit', month:'2-digit', year:'numeric' }) : '';
+
+            let botones = '';
+            if (esGestor) {
+                if (f.estado === 'faltante') {
+                    botones += `<button class="faltante-btn-accion btn-gestion" data-id="${f.id}" data-estado="en_gestion">📋 En gestión</button>`;
+                } else if (f.estado === 'en_gestion') {
+                    botones += `<button class="faltante-btn-accion btn-gestion" data-id="${f.id}" data-estado="faltante">↩ Reabrir</button>`;
+                    botones += `<button class="faltante-btn-accion btn-resuelto" data-id="${f.id}" data-estado="resuelto">✅ Resuelto</button>`;
+                } else if (f.estado === 'resuelto') {
+                    botones += `<button class="faltante-btn-accion btn-gestion" data-id="${f.id}" data-estado="faltante">↩ Reabrir</button>`;
+                }
+            }
+            if (puedeEliminar) {
+                botones += `<button class="faltante-btn-accion btn-eliminar" data-id="${f.id}">🗑</button>`;
+            }
+
+            return `
+            <div class="faltante-card" id="faltante-card-${f.id}">
+                <div class="faltante-card-top">
+                    <span class="faltante-estado ${ESTADO_CLASS[f.estado] || ''}">${ESTADO_LABEL[f.estado] || f.estado}</span>
+                    <span class="faltante-meta">Por ${f.creado_por_nombre || '—'} · ${fecha}</span>
+                </div>
+                <p class="faltante-producto">${f.producto}</p>
+                ${f.nota ? `<p class="faltante-nota">"${f.nota}"</p>` : ''}
+                ${actFecha && f.actualizado_por_nombre ? `<p class="faltante-act-info">Actualizado por ${f.actualizado_por_nombre} el ${actFecha}</p>` : ''}
+                ${botones ? `<div class="faltante-acciones">${botones}</div>` : ''}
+            </div>`;
+        }).join('');
+
+        // Eventos botones estado
+        faltantesBody.querySelectorAll('.faltante-btn-accion[data-estado]').forEach(btn => {
+            btn.addEventListener('click', () => cambiarEstadoFaltante(btn.dataset.id, btn.dataset.estado));
+        });
+        // Eventos botones eliminar
+        faltantesBody.querySelectorAll('.btn-eliminar').forEach(btn => {
+            btn.addEventListener('click', () => eliminarFaltante(btn.dataset.id));
+        });
+
+        actualizarBadgeFaltantes();
+    } catch (e) {
+        faltantesBody.innerHTML = '<p class="docs-msg error-msg">Error al conectar con el servidor.</p>';
+    }
+}
+
+async function cambiarEstadoFaltante(id, estado) {
+    try {
+        const res = await fetch(`${BASE_URL}/api/faltantes/${id}`, {
+            method:      'PATCH',
+            credentials: 'include',
+            headers:     { 'Content-Type': 'application/json' },
+            body:        JSON.stringify({ estado }),
+        });
+        if (res.ok) loadFaltantes();
+    } catch (e) {}
+}
+
+async function eliminarFaltante(id) {
+    if (!confirm('¿Eliminar este faltante?')) return;
+    try {
+        const res = await fetch(`${BASE_URL}/api/faltantes/${id}`, {
+            method: 'DELETE', credentials: 'include',
+        });
+        if (res.ok) loadFaltantes();
+    } catch (e) {}
+}
+
+faltanteSubmitBtn.addEventListener('click', async () => {
+    const producto = faltanteProductoInput.value.trim();
+    const nota     = faltanteNotaInput.value.trim();
+    if (!producto) {
+        mostrarDocMsg(faltanteSubmitMsg, 'Ingresá el nombre del producto.', 'error');
+        return;
+    }
+    faltanteSubmitBtn.disabled = true;
+    faltanteSubmitBtn.textContent = 'Guardando...';
+    faltanteSubmitMsg.classList.add('hidden');
+    try {
+        const res  = await fetch(`${BASE_URL}/api/faltantes`, {
+            method:      'POST',
+            credentials: 'include',
+            headers:     { 'Content-Type': 'application/json' },
+            body:        JSON.stringify({ producto, nota }),
+        });
+        const data = await res.json();
+        if (res.ok) {
+            mostrarDocMsg(faltanteSubmitMsg, '✅ Faltante reportado.', 'ok');
+            faltanteProductoInput.value = '';
+            faltanteNotaInput.value     = '';
+            loadFaltantes();
+        } else {
+            mostrarDocMsg(faltanteSubmitMsg, data.error || 'Error al guardar.', 'error');
+        }
+    } catch (e) {
+        mostrarDocMsg(faltanteSubmitMsg, 'Error al conectar con el servidor.', 'error');
+    } finally {
+        faltanteSubmitBtn.disabled  = false;
+        faltanteSubmitBtn.textContent = 'Reportar faltante';
+    }
+});
 
 // ── Init ───────────────────────────────────────────────────────────────────────
 checkSession();

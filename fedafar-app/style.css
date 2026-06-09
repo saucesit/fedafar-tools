@@ -1065,5 +1065,74 @@ body {
 
 .firma-acciones { display: flex; gap: 10px; }
 
+/* ── Faltantes ───────────────────────────────────────────────── */
+.faltante-card {
+    background: var(--card-bg, #fff);
+    border: 1px solid #e5e7eb;
+    border-radius: 12px;
+    padding: 14px 16px;
+    margin-bottom: 12px;
+}
+.faltante-card-top {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-bottom: 8px;
+}
+.faltante-estado {
+    display: inline-block;
+    padding: 3px 10px;
+    border-radius: 20px;
+    font-size: 0.75rem;
+    font-weight: 700;
+    letter-spacing: .3px;
+}
+.faltante-estado--faltante  { background: #fee2e2; color: #991b1b; }
+.faltante-estado--gestion   { background: #fef3c7; color: #92400e; }
+.faltante-estado--resuelto  { background: #d1fae5; color: #065f46; }
+
+.faltante-meta {
+    font-size: 0.72rem;
+    color: var(--text-muted, #888);
+}
+.faltante-producto {
+    font-weight: 700;
+    font-size: 1rem;
+    margin-bottom: 4px;
+}
+.faltante-nota {
+    font-size: 0.85rem;
+    color: var(--text-muted, #555);
+    font-style: italic;
+    margin-bottom: 4px;
+}
+.faltante-act-info {
+    font-size: 0.72rem;
+    color: var(--text-muted, #888);
+    margin-bottom: 6px;
+}
+.faltante-acciones {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    margin-top: 10px;
+}
+.faltante-btn-accion {
+    border: none;
+    border-radius: 8px;
+    padding: 6px 12px;
+    font-size: 0.8rem;
+    font-weight: 600;
+    cursor: pointer;
+    font-family: inherit;
+    transition: opacity .15s;
+}
+.faltante-btn-accion:hover { opacity: .8; }
+.btn-gestion  { background: #dbeafe; color: #1d4ed8; }
+.btn-resuelto { background: #d1fae5; color: #065f46; }
+.btn-eliminar { background: #fee2e2; color: #991b1b; }
+
 /* ── Utility ─────────────────────────────────────────────────── */
 .hidden { display: none !important; }
