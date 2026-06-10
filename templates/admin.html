@@ -63,7 +63,36 @@
         }
         .btn-logout:hover { background:rgba(255,255,255,.25); }
 
+        /* ── Tabs ── */
+        .admin-tabs {
+            background: var(--primary);
+            display: flex;
+            gap: 4px;
+            padding: 0 24px;
+            border-bottom: 1px solid rgba(255,255,255,.15);
+        }
+        .admin-tab {
+            padding: 12px 28px;
+            color: rgba(255,255,255,.65);
+            font-family: inherit;
+            font-size: .95rem;
+            font-weight: 600;
+            background: none;
+            border: none;
+            cursor: pointer;
+            border-bottom: 3px solid transparent;
+            transition: color .2s, border-color .2s;
+            letter-spacing: .5px;
+        }
+        .admin-tab:hover { color: rgba(255,255,255,.9); }
+        .admin-tab.active {
+            color: white;
+            border-bottom-color: white;
+        }
+
         .container { max-width:900px; margin:0 auto; padding:24px 16px; }
+        .admin-section { display: none; }
+        .admin-section.active { display: block; }
 
         .card {
             background:var(--card); border-radius:16px; padding:24px;
@@ -167,62 +196,74 @@
     <div class="topbar">
         <div>
             <h1>FEDAFAR · Admin</h1>
-            <span>Gestión de clientes</span>
+            <span>Panel de administración</span>
         </div>
         <button class="btn-logout" id="admin-logout-btn">Cerrar sesión</button>
     </div>
 
+    <div class="admin-tabs">
+        <button class="admin-tab active" id="tab-usuarios" onclick="switchTab('usuarios')">👥 Usuarios</button>
+        <button class="admin-tab" id="tab-faltantes" onclick="switchTab('faltantes')">📦 Faltantes</button>
+    </div>
+
     <div class="container">
-        <!-- ── Panel Faltantes ── -->
-        <div class="card" style="margin-top:0;">
-            <div class="card-header">
-                <h2>📦 Faltantes de depósito</h2>
-                <button class="btn-add" style="background:#6b7280;font-size:.8rem;" onclick="loadFaltantesAdmin()">↺ Actualizar</button>
-            </div>
-            <div id="faltantes-resumen-admin" style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:16px;"></div>
-            <div class="tabla-wrapper">
-                <table id="faltantes-tabla">
-                    <thead>
-                        <tr>
-                            <th>Producto</th>
-                            <th>Estado</th>
-                            <th>Cargado por</th>
-                            <th>Fecha</th>
-                            <th>Gestión por</th>
-                            <th>Días en estado</th>
-                            <th>Entrega est.</th>
-                        </tr>
-                    </thead>
-                    <tbody id="faltantes-tbody">
-                        <tr><td colspan="7" class="empty-msg">Cargando...</td></tr>
-                    </tbody>
-                </table>
+
+        <!-- ── Sección Usuarios ── -->
+        <div class="admin-section active" id="section-usuarios">
+            <div class="card" style="margin-top:0;">
+                <div class="card-header">
+                    <h2>Farmacias registradas</h2>
+                    <button class="btn-add" id="btn-nuevo">+ Nuevo cliente</button>
+                </div>
+                <div class="tabla-wrapper">
+                    <table id="clientes-tabla">
+                        <thead>
+                            <tr>
+                                <th>Farmacia</th>
+                                <th>Usuario</th>
+                                <th>Tipo de usuario</th>
+                                <th>Cód. Genexus</th>
+                                <th>Estado</th>
+                                <th>Acciones</th>
+                            </tr>
+                        </thead>
+                        <tbody id="clientes-tbody">
+                            <tr><td colspan="6" class="empty-msg">Cargando...</td></tr>
+                        </tbody>
+                    </table>
+                </div>
             </div>
         </div>
 
-        <div class="card">
-            <div class="card-header">
-                <h2>Farmacias registradas</h2>
-                <button class="btn-add" id="btn-nuevo">+ Nuevo cliente</button>
-            </div>
-            <div class="tabla-wrapper">
-                <table id="clientes-tabla">
-                    <thead>
-                        <tr>
-                            <th>Farmacia</th>
-                            <th>Usuario</th>
-                            <th>Tipo de usuario</th>
-                            <th>Cód. Genexus</th>
-                            <th>Estado</th>
-                            <th>Acciones</th>
-                        </tr>
-                    </thead>
-                    <tbody id="clientes-tbody">
-                        <tr><td colspan="6" class="empty-msg">Cargando...</td></tr>
-                    </tbody>
-                </table>
+        <!-- ── Sección Faltantes ── -->
+        <div class="admin-section" id="section-faltantes">
+            <div class="card" style="margin-top:0;">
+                <div class="card-header">
+                    <h2>📦 Faltantes de depósito</h2>
+                    <button class="btn-add" style="background:#6b7280;font-size:.8rem;" onclick="loadFaltantesAdmin()">↺ Actualizar</button>
+                </div>
+                <div id="faltantes-resumen-admin" style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:16px;"></div>
+                <div class="tabla-wrapper">
+                    <table id="faltantes-tabla">
+                        <thead>
+                            <tr>
+                                <th>Producto</th>
+                                <th>Estado</th>
+                                <th>Cargado por</th>
+                                <th>Fecha</th>
+                                <th>Gestión por</th>
+                                <th>Días en estado</th>
+                                <th>Entrega est.</th>
+                            </tr>
+                        </thead>
+                        <tbody id="faltantes-tbody">
+                            <tr><td colspan="7" class="empty-msg">Cargando...</td></tr>
+                        </tbody>
+                    </table>
+                </div>
             </div>
         </div>
+
     </div>
 </div>
 
@@ -318,7 +359,14 @@ function showApp() {
     document.getElementById('login-screen').style.display = 'none';
     document.getElementById('admin-app').style.display    = 'block';
     loadClientes();
-    loadFaltantesAdmin();
+}
+
+function switchTab(tab) {
+    document.querySelectorAll('.admin-section').forEach(s => s.classList.remove('active'));
+    document.querySelectorAll('.admin-tab').forEach(t => t.classList.remove('active'));
+    document.getElementById(`section-${tab}`).classList.add('active');
+    document.getElementById(`tab-${tab}`).classList.add('active');
+    if (tab === 'faltantes') loadFaltantesAdmin();
 }
 
 // ── Clientes ──────────────────────────────────────────────────────────────────
