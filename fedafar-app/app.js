@@ -1555,6 +1555,29 @@ const ESTADO_CLASS = {
     resuelto:   'faltante-estado--resuelto',
 };
 
+// Días de tolerancia antes de mostrar alerta
+const ALERTA_DIAS_FALTANTE  = 2;
+const ALERTA_DIAS_GESTION   = 5;
+
+function diasDesde(isoStr) {
+    if (!isoStr) return null;
+    const diff = Date.now() - new Date(isoStr).getTime();
+    return Math.floor(diff / (1000 * 60 * 60 * 24));
+}
+
+function alertaFaltante(f) {
+    if (f.estado === 'resuelto') return null;
+    if (f.estado === 'faltante') {
+        const d = diasDesde(f.creado_en);
+        return d >= ALERTA_DIAS_FALTANTE ? `⚠️ Sin gestión hace ${d} día${d !== 1 ? 's' : ''}` : null;
+    }
+    if (f.estado === 'en_gestion') {
+        const d = diasDesde(f.gestion_en || f.actualizado_en || f.creado_en);
+        return d >= ALERTA_DIAS_GESTION ? `🚨 En gestión hace ${d} día${d !== 1 ? 's' : ''}` : null;
+    }
+    return null;
+}
+
 faltantesBtn.addEventListener('click', () => {
     faltantesModal.classList.remove('hidden');
     loadFaltantes();
@@ -1567,21 +1590,71 @@ async function actualizarBadgeFaltantes() {
         const res  = await fetch(`${BASE_URL}/api/faltantes`, { credentials: 'include' });
         if (!res.ok) return;
         const data = await res.json();
+        // Badge muestra pendientes + alertas
+        const conAlerta  = data.filter(f => alertaFaltante(f)).length;
         const pendientes = data.filter(f => f.estado !== 'resuelto').length;
-        if (pendientes > 0) {
-            faltantesCount.textContent = pendientes;
+        const num = conAlerta > 0 ? conAlerta : pendientes;
+        if (num > 0) {
+            faltantesCount.textContent = num;
             faltantesCount.classList.remove('hidden');
+            faltantesCount.style.background = conAlerta > 0 ? '#dc2626' : '';
         } else {
             faltantesCount.classList.add('hidden');
         }
     } catch (e) {}
 }
 
+function buildFaltanteCard(f, tipo) {
+    const esGestor      = tipo === 'farmaceutico' || tipo === 'jefe' || tipo === 'admin';
+    const puedeEliminar = tipo === 'jefe_deposito' || tipo === 'admin';
+    const alerta        = alertaFaltante(f);
+
+    const fecha    = f.creado_en    ? new Date(f.creado_en).toLocaleDateString('es-AR',    { day:'2-digit', month:'2-digit', year:'numeric' }) : '';
+    const actFecha = f.actualizado_en ? new Date(f.actualizado_en).toLocaleDateString('es-AR', { day:'2-digit', month:'2-digit', year:'numeric' }) : '';
+    const gestFecha = f.gestion_en  ? new Date(f.gestion_en).toLocaleDateString('es-AR',   { day:'2-digit', month:'2-digit', year:'numeric' }) : '';
+
+    let botones = '';
+    if (esGestor) {
+        if (f.estado === 'faltante') {
+            botones += `<button class="faltante-btn-accion btn-gestion" data-id="${f.id}" data-estado="en_gestion">📋 En gestión</button>`;
+        } else if (f.estado === 'en_gestion') {
+            botones += `<button class="faltante-btn-accion btn-gestion" data-id="${f.id}" data-estado="faltante">↩ Reabrir</button>`;
+            botones += `<button class="faltante-btn-accion btn-resuelto" data-id="${f.id}" data-estado="resuelto">✅ Resuelto</button>`;
+        } else if (f.estado === 'resuelto') {
+            botones += `<button class="faltante-btn-accion btn-gestion" data-id="${f.id}" data-estado="faltante">↩ Reabrir</button>`;
+        }
+    }
+    if (puedeEliminar) {
+        botones += `<button class="faltante-btn-accion btn-eliminar" data-id="${f.id}">🗑</button>`;
+    }
+
+    return `
+    <div class="faltante-card${alerta ? ' faltante-card--alerta' : ''}" id="faltante-card-${f.id}">
+        <div class="faltante-card-top">
+            <span class="faltante-estado ${ESTADO_CLASS[f.estado] || ''}">${ESTADO_LABEL[f.estado] || f.estado}</span>
+            <span class="faltante-meta">Por ${f.creado_por_nombre || '—'} · ${fecha}</span>
+        </div>
+        ${alerta ? `<div class="faltante-alerta">${alerta}</div>` : ''}
+        <p class="faltante-producto">${f.producto}</p>
+        ${f.nota ? `<p class="faltante-nota">"${f.nota}"</p>` : ''}
+        ${f.gestion_por_nombre ? `<p class="faltante-act-info">📋 Gestión: ${f.gestion_por_nombre}${gestFecha ? ' · ' + gestFecha : ''}</p>` : ''}
+        ${f.estado === 'resuelto' && f.dias_entrega ? `<p class="faltante-act-info">🚚 Entrega estimada: ${f.dias_entrega} día${f.dias_entrega !== 1 ? 's' : ''}</p>` : ''}
+        ${f.estado === 'resuelto' && f.actualizado_por_nombre ? `<p class="faltante-act-info">✅ Resuelto por ${f.actualizado_por_nombre}${actFecha ? ' · ' + actFecha : ''}</p>` : ''}
+        ${botones ? `<div class="faltante-acciones">${botones}</div>` : ''}
+        <div class="faltante-resolucion-form hidden" id="resolve-form-${f.id}">
+            <input type="number" min="1" max="365" placeholder="Días estimados de entrega" class="docs-input faltante-dias-input" style="margin-top:6px;">
+            <div style="display:flex;gap:8px;margin-top:6px;">
+                <button class="faltante-btn-accion btn-resuelto confirm-resolve" data-id="${f.id}">Confirmar</button>
+                <button class="faltante-btn-accion btn-gestion cancel-resolve" data-id="${f.id}">Cancelar</button>
+            </div>
+        </div>
+    </div>`;
+}
+
 async function loadFaltantes() {
     const tipo = currentUser?.tipo_precio;
     faltantesBody.innerHTML = '<p style="color:var(--text-muted);text-align:center;padding:24px 0;">Cargando...</p>';
 
-    // Mostrar formulario solo para jefe_deposito
     if (tipo === 'jefe_deposito') {
         faltantesFormSection.classList.remove('hidden');
     } else {
@@ -1595,49 +1668,76 @@ async function loadFaltantes() {
 
         if (!data.length) {
             faltantesBody.innerHTML = '<p style="color:var(--text-muted);text-align:center;padding:24px 0;">No hay productos faltantes registrados.</p>';
+            actualizarBadgeFaltantes();
             return;
         }
 
-        const esGestor = tipo === 'farmaceutico' || tipo === 'jefe' || tipo === 'admin';
-        const puedeEliminar = tipo === 'jefe_deposito' || tipo === 'admin';
-
-        faltantesBody.innerHTML = data.map(f => {
-            const fecha = f.creado_en ? new Date(f.creado_en).toLocaleDateString('es-AR', { day:'2-digit', month:'2-digit', year:'numeric' }) : '';
-            const actFecha = f.actualizado_en ? new Date(f.actualizado_en).toLocaleDateString('es-AR', { day:'2-digit', month:'2-digit', year:'numeric' }) : '';
-
-            let botones = '';
-            if (esGestor) {
-                if (f.estado === 'faltante') {
-                    botones += `<button class="faltante-btn-accion btn-gestion" data-id="${f.id}" data-estado="en_gestion">📋 En gestión</button>`;
-                } else if (f.estado === 'en_gestion') {
-                    botones += `<button class="faltante-btn-accion btn-gestion" data-id="${f.id}" data-estado="faltante">↩ Reabrir</button>`;
-                    botones += `<button class="faltante-btn-accion btn-resuelto" data-id="${f.id}" data-estado="resuelto">✅ Resuelto</button>`;
-                } else if (f.estado === 'resuelto') {
-                    botones += `<button class="faltante-btn-accion btn-gestion" data-id="${f.id}" data-estado="faltante">↩ Reabrir</button>`;
-                }
-            }
-            if (puedeEliminar) {
-                botones += `<button class="faltante-btn-accion btn-eliminar" data-id="${f.id}">🗑</button>`;
-            }
-
-            return `
-            <div class="faltante-card" id="faltante-card-${f.id}">
-                <div class="faltante-card-top">
-                    <span class="faltante-estado ${ESTADO_CLASS[f.estado] || ''}">${ESTADO_LABEL[f.estado] || f.estado}</span>
-                    <span class="faltante-meta">Por ${f.creado_por_nombre || '—'} · ${fecha}</span>
-                </div>
-                <p class="faltante-producto">${f.producto}</p>
-                ${f.nota ? `<p class="faltante-nota">"${f.nota}"</p>` : ''}
-                ${actFecha && f.actualizado_por_nombre ? `<p class="faltante-act-info">Actualizado por ${f.actualizado_por_nombre} el ${actFecha}</p>` : ''}
-                ${botones ? `<div class="faltante-acciones">${botones}</div>` : ''}
+        // Resumen para admin/jefe
+        const esAdmin = tipo === 'admin' || tipo === 'jefe';
+        if (esAdmin) {
+            const total      = data.length;
+            const pendientes = data.filter(f => f.estado === 'faltante').length;
+            const enGestion  = data.filter(f => f.estado === 'en_gestion').length;
+            const resueltos  = data.filter(f => f.estado === 'resuelto').length;
+            const conAlerta  = data.filter(f => alertaFaltante(f)).length;
+            faltantesBody.innerHTML = `
+            <div class="faltante-resumen">
+                <div class="faltante-resumen-stat"><span class="faltante-resumen-num">${pendientes}</span><span>Pendientes</span></div>
+                <div class="faltante-resumen-stat"><span class="faltante-resumen-num" style="color:#92400e">${enGestion}</span><span>En gestión</span></div>
+                <div class="faltante-resumen-stat"><span class="faltante-resumen-num" style="color:#065f46">${resueltos}</span><span>Resueltos</span></div>
+                ${conAlerta > 0 ? `<div class="faltante-resumen-stat"><span class="faltante-resumen-num" style="color:#dc2626">${conAlerta}</span><span>⚠️ Alertas</span></div>` : ''}
             </div>`;
-        }).join('');
+        } else {
+            faltantesBody.innerHTML = '';
+        }
 
-        // Eventos botones estado
-        faltantesBody.querySelectorAll('.faltante-btn-accion[data-estado]').forEach(btn => {
-            btn.addEventListener('click', () => cambiarEstadoFaltante(btn.dataset.id, btn.dataset.estado));
+        // Ordenar: alertas primero, luego faltante, en_gestion, resuelto
+        const ordenEstado = { faltante: 0, en_gestion: 1, resuelto: 2 };
+        const sorted = [...data].sort((a, b) => {
+            const aAlert = alertaFaltante(a) ? -1 : 0;
+            const bAlert = alertaFaltante(b) ? -1 : 0;
+            if (aAlert !== bAlert) return aAlert - bAlert;
+            return (ordenEstado[a.estado] ?? 9) - (ordenEstado[b.estado] ?? 9);
         });
-        // Eventos botones eliminar
+
+        faltantesBody.innerHTML += sorted.map(f => buildFaltanteCard(f, tipo)).join('');
+
+        // Eventos: cambio de estado
+        faltantesBody.querySelectorAll('.faltante-btn-accion[data-estado]').forEach(btn => {
+            btn.addEventListener('click', () => {
+                const estado = btn.dataset.estado;
+                if (estado === 'resuelto') {
+                    // Mostrar formulario de días de entrega
+                    const card = document.getElementById(`faltante-card-${btn.dataset.id}`);
+                    card.querySelector('.faltante-resolucion-form').classList.remove('hidden');
+                    btn.closest('.faltante-acciones').classList.add('hidden');
+                } else {
+                    cambiarEstadoFaltante(btn.dataset.id, estado);
+                }
+            });
+        });
+
+        // Confirmar resolución con días
+        faltantesBody.querySelectorAll('.confirm-resolve').forEach(btn => {
+            btn.addEventListener('click', () => {
+                const form       = document.getElementById(`resolve-form-${btn.dataset.id}`);
+                const diasInput  = form.querySelector('.faltante-dias-input');
+                const dias       = parseInt(diasInput.value) || null;
+                cambiarEstadoFaltante(btn.dataset.id, 'resuelto', dias);
+            });
+        });
+
+        // Cancelar resolución
+        faltantesBody.querySelectorAll('.cancel-resolve').forEach(btn => {
+            btn.addEventListener('click', () => {
+                const form = document.getElementById(`resolve-form-${btn.dataset.id}`);
+                form.classList.add('hidden');
+                const card = document.getElementById(`faltante-card-${btn.dataset.id}`);
+                card.querySelector('.faltante-acciones').classList.remove('hidden');
+            });
+        });
+
+        // Eventos eliminar
         faltantesBody.querySelectorAll('.btn-eliminar').forEach(btn => {
             btn.addEventListener('click', () => eliminarFaltante(btn.dataset.id));
         });
@@ -1648,13 +1748,15 @@ async function loadFaltantes() {
     }
 }
 
-async function cambiarEstadoFaltante(id, estado) {
+async function cambiarEstadoFaltante(id, estado, diasEntrega = null) {
     try {
+        const body = { estado };
+        if (diasEntrega !== null) body.dias_entrega = diasEntrega;
         const res = await fetch(`${BASE_URL}/api/faltantes/${id}`, {
             method:      'PATCH',
             credentials: 'include',
             headers:     { 'Content-Type': 'application/json' },
-            body:        JSON.stringify({ estado }),
+            body:        JSON.stringify(body),
         });
         if (res.ok) loadFaltantes();
     } catch (e) {}
@@ -1677,7 +1779,7 @@ faltanteSubmitBtn.addEventListener('click', async () => {
         mostrarDocMsg(faltanteSubmitMsg, 'Ingresá el nombre del producto.', 'error');
         return;
     }
-    faltanteSubmitBtn.disabled = true;
+    faltanteSubmitBtn.disabled    = true;
     faltanteSubmitBtn.textContent = 'Guardando...';
     faltanteSubmitMsg.classList.add('hidden');
     try {
@@ -1699,7 +1801,7 @@ faltanteSubmitBtn.addEventListener('click', async () => {
     } catch (e) {
         mostrarDocMsg(faltanteSubmitMsg, 'Error al conectar con el servidor.', 'error');
     } finally {
-        faltanteSubmitBtn.disabled  = false;
+        faltanteSubmitBtn.disabled    = false;
         faltanteSubmitBtn.textContent = 'Reportar faltante';
     }
 });

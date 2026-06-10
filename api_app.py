@@ -1362,13 +1362,25 @@ def api_faltantes_update(faltante_id):
     if estado not in ('faltante', 'en_gestion', 'resuelto'):
         return jsonify({'error': 'Estado inválido'}), 400
     from datetime import datetime, timezone
+    now = datetime.now(timezone.utc).isoformat()
+    update = {
+        'estado':                 estado,
+        'actualizado_por_nombre': current_user.nombre,
+        'actualizado_en':         now,
+    }
+    if estado == 'en_gestion':
+        update['gestion_por_nombre'] = current_user.nombre
+        update['gestion_en']         = now
+    if estado == 'resuelto':
+        dias = data.get('dias_entrega')
+        if dias is not None:
+            try:
+                update['dias_entrega'] = int(dias)
+            except (ValueError, TypeError):
+                pass
     try:
         sb  = get_sb()
-        res = sb.table('faltantes').update({
-            'estado':                 estado,
-            'actualizado_por_nombre': current_user.nombre,
-            'actualizado_en':         datetime.now(timezone.utc).isoformat(),
-        }).eq('id', faltante_id).execute()
+        res = sb.table('faltantes').update(update).eq('id', faltante_id).execute()
         return jsonify(res.data[0] if res.data else {})
     except Exception as e:
         print(f"[ERROR] {e}")

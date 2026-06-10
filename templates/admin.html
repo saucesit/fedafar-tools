@@ -196,6 +196,33 @@
                 </table>
             </div>
         </div>
+
+        <!-- ── Panel Faltantes ── -->
+        <div class="card" style="margin-top:0;">
+            <div class="card-header">
+                <h2>📦 Faltantes de depósito</h2>
+                <button class="btn-add" style="background:#6b7280;font-size:.8rem;" onclick="loadFaltantesAdmin()">↺ Actualizar</button>
+            </div>
+            <div id="faltantes-resumen-admin" style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:16px;"></div>
+            <div class="tabla-wrapper">
+                <table id="faltantes-tabla">
+                    <thead>
+                        <tr>
+                            <th>Producto</th>
+                            <th>Estado</th>
+                            <th>Cargado por</th>
+                            <th>Fecha</th>
+                            <th>Gestión por</th>
+                            <th>Días en estado</th>
+                            <th>Entrega est.</th>
+                        </tr>
+                    </thead>
+                    <tbody id="faltantes-tbody">
+                        <tr><td colspan="7" class="empty-msg">Cargando...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
     </div>
 </div>
 
@@ -291,6 +318,7 @@ function showApp() {
     document.getElementById('login-screen').style.display = 'none';
     document.getElementById('admin-app').style.display    = 'block';
     loadClientes();
+    loadFaltantesAdmin();
 }
 
 // ── Clientes ──────────────────────────────────────────────────────────────────
@@ -420,6 +448,94 @@ async function toggleActivo(id, nuevoEstado) {
         body: JSON.stringify({ activo: nuevoEstado })
     });
     loadClientes();
+}
+
+// ── Faltantes ─────────────────────────────────────────────────────────────────
+const ESTADO_LABEL_ADM = { faltante: '🔴 Faltante', en_gestion: '🟡 En gestión', resuelto: '🟢 Resuelto' };
+const ALERTA_DIAS_FALTANTE_ADM = 2;
+const ALERTA_DIAS_GESTION_ADM  = 5;
+
+function diasDesdeAdm(isoStr) {
+    if (!isoStr) return null;
+    return Math.floor((Date.now() - new Date(isoStr).getTime()) / 86400000);
+}
+
+function alertaAdm(f) {
+    if (f.estado === 'resuelto') return null;
+    if (f.estado === 'faltante') {
+        const d = diasDesdeAdm(f.creado_en);
+        return d >= ALERTA_DIAS_FALTANTE_ADM ? { msg: `⚠️ ${d}d sin gestión`, color: '#b91c1c' } : null;
+    }
+    if (f.estado === 'en_gestion') {
+        const d = diasDesdeAdm(f.gestion_en || f.actualizado_en || f.creado_en);
+        return d >= ALERTA_DIAS_GESTION_ADM  ? { msg: `🚨 ${d}d en gestión`, color: '#92400e' } : null;
+    }
+    return null;
+}
+
+async function loadFaltantesAdmin() {
+    const tbody = document.getElementById('faltantes-tbody');
+    const resumen = document.getElementById('faltantes-resumen-admin');
+    tbody.innerHTML = '<tr><td colspan="7" class="empty-msg">Cargando...</td></tr>';
+
+    const res  = await fetch(`${BASE}/api/faltantes`, { credentials: 'include' });
+    if (!res.ok) { tbody.innerHTML = '<tr><td colspan="7" class="empty-msg">Error al cargar.</td></tr>'; return; }
+    const data = await res.json();
+
+    // Resumen
+    const pendientes = data.filter(f => f.estado === 'faltante').length;
+    const enGestion  = data.filter(f => f.estado === 'en_gestion').length;
+    const resueltos  = data.filter(f => f.estado === 'resuelto').length;
+    const conAlerta  = data.filter(f => alertaAdm(f)).length;
+
+    resumen.innerHTML = [
+        { num: pendientes, label: 'Faltantes',  color: '#991b1b' },
+        { num: enGestion,  label: 'En gestión', color: '#92400e' },
+        { num: resueltos,  label: 'Resueltos',  color: '#065f46' },
+        conAlerta > 0 ? { num: conAlerta, label: '⚠️ Alertas', color: '#dc2626' } : null,
+    ].filter(Boolean).map(s => `
+        <div style="background:#f8fafc;border:1px solid #e5e7eb;border-radius:10px;padding:10px 18px;text-align:center;min-width:80px;">
+            <div style="font-size:1.6rem;font-weight:800;color:${s.color};line-height:1;">${s.num}</div>
+            <div style="font-size:.75rem;color:#666;">${s.label}</div>
+        </div>`).join('');
+
+    if (!data.length) {
+        tbody.innerHTML = '<tr><td colspan="7" class="empty-msg">Sin faltantes registrados.</td></tr>';
+        return;
+    }
+
+    // Ordenar: alertas primero, luego faltante → en_gestion → resuelto
+    const ordenEstado = { faltante: 0, en_gestion: 1, resuelto: 2 };
+    data.sort((a, b) => {
+        const aa = alertaAdm(a) ? -1 : 0, ba = alertaAdm(b) ? -1 : 0;
+        if (aa !== ba) return aa - ba;
+        return (ordenEstado[a.estado] ?? 9) - (ordenEstado[b.estado] ?? 9);
+    });
+
+    tbody.innerHTML = data.map(f => {
+        const alerta = alertaAdm(f);
+        const fechaStr = f.creado_en ? new Date(f.creado_en).toLocaleDateString('es-AR', { day:'2-digit', month:'2-digit', year:'2-digit' }) : '—';
+        const diasEn = f.estado !== 'resuelto'
+            ? (diasDesdeAdm(f.estado === 'en_gestion' ? (f.gestion_en || f.actualizado_en) : f.creado_en) ?? '—')
+            : '—';
+        const rowStyle = alerta ? 'background:#fff8f8;' : '';
+        return `<tr style="${rowStyle}">
+            <td><strong>${f.producto}</strong>${f.nota ? `<br><span style="font-size:.8rem;color:#888;font-style:italic;">"${f.nota}"</span>` : ''}</td>
+            <td>
+                <span style="display:inline-block;padding:2px 8px;border-radius:12px;font-size:.75rem;font-weight:700;
+                    background:${f.estado === 'faltante' ? '#fee2e2' : f.estado === 'en_gestion' ? '#fef3c7' : '#d1fae5'};
+                    color:${f.estado === 'faltante' ? '#991b1b' : f.estado === 'en_gestion' ? '#92400e' : '#065f46'};">
+                    ${ESTADO_LABEL_ADM[f.estado] || f.estado}
+                </span>
+                ${alerta ? `<br><span style="font-size:.75rem;font-weight:700;color:${alerta.color};">${alerta.msg}</span>` : ''}
+            </td>
+            <td>${f.creado_por_nombre || '—'}</td>
+            <td>${fechaStr}</td>
+            <td>${f.gestion_por_nombre || '—'}</td>
+            <td style="text-align:center;">${diasEn !== '—' ? `${diasEn}d` : '—'}</td>
+            <td style="text-align:center;">${f.dias_entrega ? `${f.dias_entrega}d` : '—'}</td>
+        </tr>`;
+    }).join('');
 }
 
 // ── Init ──────────────────────────────────────────────────────────────────────
