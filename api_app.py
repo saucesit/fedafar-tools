@@ -1386,6 +1386,17 @@ def api_faltantes_update(faltante_id):
         print(f"[ERROR] {e}")
         return jsonify({'error': 'Error interno del servidor'}), 500
 
+@app.route('/api/admin/faltantes', methods=['GET'])
+@admin_required
+def api_admin_faltantes_list():
+    try:
+        sb  = get_sb()
+        res = sb.table('faltantes').select('*').order('creado_en', desc=True).execute()
+        return jsonify(res.data or [])
+    except Exception as e:
+        print(f"[ERROR] {e}")
+        return jsonify({'error': 'Error interno del servidor'}), 500
+
 @app.route('/api/faltantes/<int:faltante_id>', methods=['DELETE'])
 @login_required
 def api_faltantes_delete(faltante_id):

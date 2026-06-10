@@ -478,7 +478,7 @@ async function loadFaltantesAdmin() {
     const resumen = document.getElementById('faltantes-resumen-admin');
     tbody.innerHTML = '<tr><td colspan="7" class="empty-msg">Cargando...</td></tr>';
 
-    const res  = await fetch(`${BASE}/api/faltantes`, { credentials: 'include' });
+    const res  = await fetch(`${BASE}/api/admin/faltantes`, { credentials: 'include' });
     if (!res.ok) { tbody.innerHTML = '<tr><td colspan="7" class="empty-msg">Error al cargar.</td></tr>'; return; }
     const data = await res.json();
 
