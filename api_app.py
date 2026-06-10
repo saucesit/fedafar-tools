@@ -1323,7 +1323,8 @@ def api_faltantes_list():
         return jsonify({'error': 'No autorizado'}), 403
     try:
         sb  = get_sb()
-        res = sb.table('faltantes').select('*').order('creado_en', desc=True).execute()
+        # Solo tickets activos (no confirmados por jefe_deposito)
+        res = sb.table('faltantes').select('*').is_('confirmado_en', 'null').order('creado_en', desc=True).execute()
         return jsonify(res.data or [])
     except Exception as e:
         print(f"[ERROR] {e}")
@@ -1371,6 +1372,9 @@ def api_faltantes_update(faltante_id):
     if estado == 'en_gestion':
         update['gestion_por_nombre'] = current_user.nombre
         update['gestion_en']         = now
+        nota_g = (data.get('nota_gestion') or '').strip()
+        if nota_g:
+            update['nota_gestion'] = nota_g
     if estado == 'resuelto':
         dias = data.get('dias_entrega')
         if dias is not None:
@@ -1381,6 +1385,21 @@ def api_faltantes_update(faltante_id):
     try:
         sb  = get_sb()
         res = sb.table('faltantes').update(update).eq('id', faltante_id).execute()
+        return jsonify(res.data[0] if res.data else {})
+    except Exception as e:
+        print(f"[ERROR] {e}")
+        return jsonify({'error': 'Error interno del servidor'}), 500
+
+@app.route('/api/faltantes/<int:faltante_id>/confirmar', methods=['PATCH'])
+@login_required
+def api_faltantes_confirmar(faltante_id):
+    if current_user.tipo_precio != 'jefe_deposito':
+        return jsonify({'error': 'Solo el Jefe de Depósito puede confirmar la recepción'}), 403
+    from datetime import datetime, timezone
+    now = datetime.now(timezone.utc).isoformat()
+    try:
+        sb  = get_sb()
+        res = sb.table('faltantes').update({'confirmado_en': now}).eq('id', faltante_id).execute()
         return jsonify(res.data[0] if res.data else {})
     except Exception as e:
         print(f"[ERROR] {e}")

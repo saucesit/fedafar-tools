@@ -1,60 +1,177 @@
 """
-sync_stock.py - Descarga el stock desde el servidor interno y guarda stock_data.json
+sync_stock.py — Descarga el reporte de stock desde Genexus y guarda stock_data.json
 
-El archivo generado es usado por la app en Render (que no tiene acceso
-a la red interna) para filtrar productos sin stock.
+Flujo:
+    1. Login con Playwright
+    2. Navegar a alm_articulospordeposito.aspx  (Almacén → Reportes → Artículos Por Depósito)
+    3. Depósito=DEPOSITO y Tipo Reporte=Resumen ya están por defecto
+    4. Clic en "Exportar" → descarga el Excel
+    5. Parsear y guardar stock_data.json
 
 Uso:
     python sync_stock.py
 
-Requisitos:
-    - Red interna de Fedafar (192.168.0.35 accesible)
+Requisitos en .env:
+    FEDAFAR_USER, FEDAFAR_PASS
 """
 
 import os
 import json
-import requests
+import shutil
 import pandas as pd
-from io import BytesIO
+from dotenv import load_dotenv
+from playwright.sync_api import sync_playwright, Page, TimeoutError as PWTimeout
 
-STOCK_URL   = 'http://192.168.0.35/fedafar/ALM_ArticulosPorDepositoExport-.xlsx'
-BASE_DIR    = os.path.dirname(os.path.abspath(__file__))
-OUTPUT_PATH = os.path.join(BASE_DIR, 'stock_data.json')
+load_dotenv()
+
+BASE_URL     = "http://192.168.0.35/fedafar"
+FEDAFAR_USER = os.getenv("FEDAFAR_USER")
+FEDAFAR_PASS = os.getenv("FEDAFAR_PASS")
+BASE_DIR     = os.path.dirname(os.path.abspath(__file__))
+XLSX_PATH    = os.path.join(BASE_DIR, "stock_temp.xlsx")
+OUTPUT_PATH  = os.path.join(BASE_DIR, "stock_data.json")
+REPORT_URL   = f"{BASE_URL}/alm_articulospordeposito.aspx"
 
 
-def sync_stock():
-    print("=== Sync Stock ===")
-    print("  Descargando stock desde red interna...")
+def do_login(page: Page) -> bool:
+    print("  Abriendo página de login...")
+    try:
+        page.goto(f"{BASE_URL}/wwpbaseobjects.seclogin.aspx", timeout=15000)
+        page.wait_for_load_state("networkidle", timeout=15000)
+    except PWTimeout:
+        print("  ERROR: No se pudo conectar al servidor interno.")
+        return False
+
+    page.fill("#vSECUSERNAME",     FEDAFAR_USER)
+    page.fill("#vSECUSERPASSWORD", FEDAFAR_PASS)
+    page.click("#BTNENTER")
 
     try:
-        r = requests.get(STOCK_URL, timeout=10)
-        r.raise_for_status()
-
-        df = pd.read_excel(
-            BytesIO(r.content), skiprows=5, header=None,
-            names=['Articulo', 'Descripcion', 'Tranzable', 'Existencia',
-                   'Lote', 'FechaVenc', 'Serie', 'Cantidad']
+        page.wait_for_function(
+            "() => !window.location.href.includes('seclogin')",
+            timeout=10000
         )
-        df['Existencia'] = pd.to_numeric(df['Existencia'], errors='coerce').fillna(0)
-        grouped = df.groupby('Descripcion')['Existencia'].sum()
+        print("  Login exitoso.")
+        return True
+    except PWTimeout:
+        print("  ERROR: Login fallido. Verificar credenciales en .env")
+        return False
+
+
+def download_reporte(page: Page) -> bool:
+    print(f"  Navegando a reporte de stock...")
+    try:
+        page.goto(REPORT_URL, timeout=15000)
+        page.wait_for_load_state("networkidle", timeout=20000)
+        page.wait_for_timeout(1500)
+        print("  [OK] Página cargada.")
+    except PWTimeout:
+        print("  ERROR: No se pudo cargar la página del reporte.")
+        return False
+
+    # Buscar botón Exportar (botón violeta junto a Imprimir)
+    btn = None
+    for selector in [
+        "input[value='Exportar']",
+        "button:has-text('Exportar')",
+        "[id*='EXPORT']",
+        "[id*='Export']",
+    ]:
+        try:
+            loc = page.locator(selector).first
+            if loc.is_visible(timeout=3000):
+                btn = loc
+                break
+        except Exception:
+            continue
+
+    if btn is None:
+        print("  ERROR: No se encontró el botón Exportar.")
+        # Debug: mostrar todos los botones visibles
+        btns = page.evaluate("""
+            () => Array.from(document.querySelectorAll('input[type=button],input[type=submit],button'))
+                .filter(b => b.offsetParent !== null)
+                .map(b => ({ id: b.id, val: b.value||b.textContent.trim(), cls: b.className }))
+        """)
+        print("  Botones visibles:", btns)
+        return False
+
+    print("  Descargando reporte Excel...")
+    try:
+        with page.expect_download(timeout=30000) as dl_info:
+            btn.click()
+        download = dl_info.value
+        download.save_as(XLSX_PATH)
+        kb = os.path.getsize(XLSX_PATH) / 1024
+        print(f"  [OK] Excel descargado ({kb:.1f} KB).")
+        return True
+    except Exception as e:
+        print(f"  ERROR al descargar: {e}")
+        return False
+
+
+def parse_reporte() -> bool:
+    try:
+        # El Excel tiene 4 filas de cabecera antes de los datos
+        # Fila 4 (índice 4): Articulo | Descripción | Tranzable | Existencia
+        df = pd.read_excel(XLSX_PATH, skiprows=4, header=0)
+        df.columns = [str(c).strip() for c in df.columns]
+
+        # Detectar columnas
+        col_desc  = next((c for c in df.columns if 'desc' in c.lower() or 'art' in c.lower()), None)
+        col_exist = next((c for c in df.columns if 'exist' in c.lower()), None)
+
+        if not col_desc or not col_exist:
+            print(f"  ERROR: Columnas no encontradas. Disponibles: {list(df.columns)}")
+            return False
+
+        df[col_exist] = pd.to_numeric(df[col_exist], errors='coerce').fillna(0)
+        df = df[df[col_exist] > 0].copy()
+        df[col_desc] = df[col_desc].astype(str).str.strip().str.upper()
+        df = df[df[col_desc].notna() & (df[col_desc] != '') & (df[col_desc] != 'NAN')]
 
         stock_dict = {
-            str(nombre).strip().upper(): float(stock)
-            for nombre, stock in grouped.items()
+            row[col_desc]: float(row[col_exist])
+            for _, row in df.iterrows()
         }
 
         with open(OUTPUT_PATH, 'w', encoding='utf-8') as f:
             json.dump(stock_dict, f, ensure_ascii=False)
 
-        print(f"  [OK] {len(stock_dict)} productos guardados en stock_data.json")
+        print(f"  [OK] {len(stock_dict)} artículos con stock guardados en stock_data.json")
         return True
 
     except Exception as e:
-        print(f"  ERROR: {e}")
-        print("  Verificar que estas en la red de Fedafar.")
+        print(f"  ERROR al parsear Excel: {e}")
         return False
+    finally:
+        try:
+            os.remove(XLSX_PATH)
+        except Exception:
+            pass
 
 
-if __name__ == '__main__':
-    ok = sync_stock()
-    exit(0 if ok else 1)
+if __name__ == "__main__":
+    if not FEDAFAR_USER or not FEDAFAR_PASS:
+        print("ERROR: FEDAFAR_USER o FEDAFAR_PASS no configurados en .env")
+        exit(1)
+
+    print("=== Sync Stock ===")
+    with sync_playwright() as p:
+        browser = p.chromium.launch(headless=True)
+        context = browser.new_context(accept_downloads=True)
+        page    = context.new_page()
+
+        ok = do_login(page) and download_reporte(page)
+        browser.close()
+
+    if not ok:
+        print("\n[ERROR] No se pudo descargar el reporte.")
+        exit(1)
+
+    ok = parse_reporte()
+    if ok:
+        print("\n[OK] Stock actualizado exitosamente.")
+    else:
+        print("\n[ERROR] No se pudo parsear el reporte.")
+        exit(1)

@@ -36,6 +36,7 @@ body {
     background: var(--primary);
     color: white;
     padding: 20px;
+    padding-top: calc(20px + env(safe-area-inset-top));
     display: flex;
     justify-content: space-between;
     align-items: center;
@@ -1130,9 +1131,10 @@ body {
     transition: opacity .15s;
 }
 .faltante-btn-accion:hover { opacity: .8; }
-.btn-gestion  { background: #dbeafe; color: #1d4ed8; }
-.btn-resuelto { background: #d1fae5; color: #065f46; }
-.btn-eliminar { background: #fee2e2; color: #991b1b; }
+.btn-gestion   { background: #dbeafe; color: #1d4ed8; }
+.btn-resuelto  { background: #d1fae5; color: #065f46; }
+.btn-eliminar  { background: #fee2e2; color: #991b1b; }
+.btn-confirmar { background: #fef3c7; color: #92400e; font-weight: 600; }
 
 .faltante-card--alerta {
     border-color: #fca5a5;

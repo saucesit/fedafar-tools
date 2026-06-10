@@ -1605,24 +1605,28 @@ async function actualizarBadgeFaltantes() {
 }
 
 function buildFaltanteCard(f, tipo) {
-    const esGestor      = tipo === 'farmaceutico' || tipo === 'jefe' || tipo === 'admin';
-    const puedeEliminar = tipo === 'jefe_deposito' || tipo === 'admin';
-    const alerta        = alertaFaltante(f);
+    const esGestor       = tipo === 'farmaceutico' || tipo === 'jefe' || tipo === 'admin';
+    const esJefeDeposito = tipo === 'jefe_deposito';
+    const puedeEliminar  = esJefeDeposito || tipo === 'admin';
+    const alerta         = alertaFaltante(f);
 
-    const fecha    = f.creado_en    ? new Date(f.creado_en).toLocaleDateString('es-AR',    { day:'2-digit', month:'2-digit', year:'numeric' }) : '';
-    const actFecha = f.actualizado_en ? new Date(f.actualizado_en).toLocaleDateString('es-AR', { day:'2-digit', month:'2-digit', year:'numeric' }) : '';
-    const gestFecha = f.gestion_en  ? new Date(f.gestion_en).toLocaleDateString('es-AR',   { day:'2-digit', month:'2-digit', year:'numeric' }) : '';
+    const fecha     = f.creado_en     ? new Date(f.creado_en).toLocaleDateString('es-AR',     { day:'2-digit', month:'2-digit', year:'numeric' }) : '';
+    const actFecha  = f.actualizado_en ? new Date(f.actualizado_en).toLocaleDateString('es-AR', { day:'2-digit', month:'2-digit', year:'numeric' }) : '';
+    const gestFecha = f.gestion_en    ? new Date(f.gestion_en).toLocaleDateString('es-AR',    { day:'2-digit', month:'2-digit', year:'numeric' }) : '';
 
     let botones = '';
     if (esGestor) {
         if (f.estado === 'faltante') {
-            botones += `<button class="faltante-btn-accion btn-gestion" data-id="${f.id}" data-estado="en_gestion">📋 En gestión</button>`;
+            botones += `<button class="faltante-btn-accion btn-gestion trigger-gestion" data-id="${f.id}">📋 En gestión</button>`;
         } else if (f.estado === 'en_gestion') {
             botones += `<button class="faltante-btn-accion btn-gestion" data-id="${f.id}" data-estado="faltante">↩ Reabrir</button>`;
             botones += `<button class="faltante-btn-accion btn-resuelto" data-id="${f.id}" data-estado="resuelto">✅ Resuelto</button>`;
         } else if (f.estado === 'resuelto') {
             botones += `<button class="faltante-btn-accion btn-gestion" data-id="${f.id}" data-estado="faltante">↩ Reabrir</button>`;
         }
+    }
+    if (esJefeDeposito && f.estado === 'resuelto') {
+        botones += `<button class="faltante-btn-accion btn-confirmar" data-id="${f.id}">📦 Confirmar recepción</button>`;
     }
     if (puedeEliminar) {
         botones += `<button class="faltante-btn-accion btn-eliminar" data-id="${f.id}">🗑</button>`;
@@ -1637,10 +1641,17 @@ function buildFaltanteCard(f, tipo) {
         ${alerta ? `<div class="faltante-alerta">${alerta}</div>` : ''}
         <p class="faltante-producto">${f.producto}</p>
         ${f.nota ? `<p class="faltante-nota">"${f.nota}"</p>` : ''}
-        ${f.gestion_por_nombre ? `<p class="faltante-act-info">📋 Gestión: ${f.gestion_por_nombre}${gestFecha ? ' · ' + gestFecha : ''}</p>` : ''}
+        ${f.gestion_por_nombre ? `<p class="faltante-act-info">📋 Gestión: ${f.gestion_por_nombre}${gestFecha ? ' · ' + gestFecha : ''}${f.nota_gestion ? ` — "${f.nota_gestion}"` : ''}</p>` : ''}
         ${f.estado === 'resuelto' && f.dias_entrega ? `<p class="faltante-act-info">🚚 Entrega estimada: ${f.dias_entrega} día${f.dias_entrega !== 1 ? 's' : ''}</p>` : ''}
         ${f.estado === 'resuelto' && f.actualizado_por_nombre ? `<p class="faltante-act-info">✅ Resuelto por ${f.actualizado_por_nombre}${actFecha ? ' · ' + actFecha : ''}</p>` : ''}
-        ${botones ? `<div class="faltante-acciones">${botones}</div>` : ''}
+        ${botones ? `<div class="faltante-acciones" id="acciones-${f.id}">${botones}</div>` : ''}
+        <div class="faltante-gestion-form hidden" id="gestion-form-${f.id}">
+            <textarea placeholder="Nota sobre la gestión (opcional)" class="docs-input faltante-nota-gestion-input" rows="2" style="margin-top:6px;width:100%;resize:vertical;"></textarea>
+            <div style="display:flex;gap:8px;margin-top:6px;">
+                <button class="faltante-btn-accion btn-gestion confirm-gestion" data-id="${f.id}">Confirmar</button>
+                <button class="faltante-btn-accion btn-gestion cancel-gestion" data-id="${f.id}">Cancelar</button>
+            </div>
+        </div>
         <div class="faltante-resolucion-form hidden" id="resolve-form-${f.id}">
             <input type="number" min="1" max="365" placeholder="Días estimados de entrega" class="docs-input faltante-dias-input" style="margin-top:6px;">
             <div style="display:flex;gap:8px;margin-top:6px;">
@@ -1702,27 +1713,49 @@ async function loadFaltantes() {
 
         faltantesBody.innerHTML += sorted.map(f => buildFaltanteCard(f, tipo)).join('');
 
-        // Eventos: cambio de estado
+        // Eventos: cambio de estado directo
         faltantesBody.querySelectorAll('.faltante-btn-accion[data-estado]').forEach(btn => {
             btn.addEventListener('click', () => {
                 const estado = btn.dataset.estado;
                 if (estado === 'resuelto') {
-                    // Mostrar formulario de días de entrega
-                    const card = document.getElementById(`faltante-card-${btn.dataset.id}`);
-                    card.querySelector('.faltante-resolucion-form').classList.remove('hidden');
-                    btn.closest('.faltante-acciones').classList.add('hidden');
+                    document.getElementById(`resolve-form-${btn.dataset.id}`).classList.remove('hidden');
+                    document.getElementById(`acciones-${btn.dataset.id}`).classList.add('hidden');
                 } else {
                     cambiarEstadoFaltante(btn.dataset.id, estado);
                 }
             });
         });
 
+        // Abrir formulario "En gestión" con nota opcional
+        faltantesBody.querySelectorAll('.trigger-gestion').forEach(btn => {
+            btn.addEventListener('click', () => {
+                document.getElementById(`gestion-form-${btn.dataset.id}`).classList.remove('hidden');
+                document.getElementById(`acciones-${btn.dataset.id}`).classList.add('hidden');
+            });
+        });
+
+        // Confirmar "En gestión" con nota
+        faltantesBody.querySelectorAll('.confirm-gestion').forEach(btn => {
+            btn.addEventListener('click', () => {
+                const form = document.getElementById(`gestion-form-${btn.dataset.id}`);
+                const nota = form.querySelector('.faltante-nota-gestion-input').value.trim() || null;
+                cambiarEstadoFaltante(btn.dataset.id, 'en_gestion', null, nota);
+            });
+        });
+
+        // Cancelar "En gestión"
+        faltantesBody.querySelectorAll('.cancel-gestion').forEach(btn => {
+            btn.addEventListener('click', () => {
+                document.getElementById(`gestion-form-${btn.dataset.id}`).classList.add('hidden');
+                document.getElementById(`acciones-${btn.dataset.id}`).classList.remove('hidden');
+            });
+        });
+
         // Confirmar resolución con días
         faltantesBody.querySelectorAll('.confirm-resolve').forEach(btn => {
             btn.addEventListener('click', () => {
-                const form       = document.getElementById(`resolve-form-${btn.dataset.id}`);
-                const diasInput  = form.querySelector('.faltante-dias-input');
-                const dias       = parseInt(diasInput.value) || null;
+                const form = document.getElementById(`resolve-form-${btn.dataset.id}`);
+                const dias = parseInt(form.querySelector('.faltante-dias-input').value) || null;
                 cambiarEstadoFaltante(btn.dataset.id, 'resuelto', dias);
             });
         });
@@ -1730,14 +1763,17 @@ async function loadFaltantes() {
         // Cancelar resolución
         faltantesBody.querySelectorAll('.cancel-resolve').forEach(btn => {
             btn.addEventListener('click', () => {
-                const form = document.getElementById(`resolve-form-${btn.dataset.id}`);
-                form.classList.add('hidden');
-                const card = document.getElementById(`faltante-card-${btn.dataset.id}`);
-                card.querySelector('.faltante-acciones').classList.remove('hidden');
+                document.getElementById(`resolve-form-${btn.dataset.id}`).classList.add('hidden');
+                document.getElementById(`acciones-${btn.dataset.id}`).classList.remove('hidden');
             });
         });
 
-        // Eventos eliminar
+        // Confirmar recepción — jefe_deposito cierra el ticket
+        faltantesBody.querySelectorAll('.btn-confirmar').forEach(btn => {
+            btn.addEventListener('click', () => confirmarFaltante(btn.dataset.id));
+        });
+
+        // Eliminar
         faltantesBody.querySelectorAll('.btn-eliminar').forEach(btn => {
             btn.addEventListener('click', () => eliminarFaltante(btn.dataset.id));
         });
@@ -1748,15 +1784,26 @@ async function loadFaltantes() {
     }
 }
 
-async function cambiarEstadoFaltante(id, estado, diasEntrega = null) {
+async function cambiarEstadoFaltante(id, estado, diasEntrega = null, notaGestion = null) {
     try {
         const body = { estado };
         if (diasEntrega !== null) body.dias_entrega = diasEntrega;
+        if (notaGestion !== null) body.nota_gestion = notaGestion;
         const res = await fetch(`${BASE_URL}/api/faltantes/${id}`, {
             method:      'PATCH',
             credentials: 'include',
             headers:     { 'Content-Type': 'application/json' },
             body:        JSON.stringify(body),
+        });
+        if (res.ok) loadFaltantes();
+    } catch (e) {}
+}
+
+async function confirmarFaltante(id) {
+    if (!confirm('¿Confirmás que el producto llegó al depósito? El ticket se cerrará.')) return;
+    try {
+        const res = await fetch(`${BASE_URL}/api/faltantes/${id}/confirmar`, {
+            method: 'PATCH', credentials: 'include',
         });
         if (res.ok) loadFaltantes();
     } catch (e) {}
