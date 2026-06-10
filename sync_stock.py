@@ -117,8 +117,8 @@ def parse_reporte() -> bool:
         df = pd.read_excel(XLSX_PATH, skiprows=4, header=0)
         df.columns = [str(c).strip() for c in df.columns]
 
-        # Detectar columnas
-        col_desc  = next((c for c in df.columns if 'desc' in c.lower() or 'art' in c.lower()), None)
+        # Detectar columnas — Descripción es el nombre, Articulo es el código numérico
+        col_desc  = next((c for c in df.columns if 'desc' in c.lower() or 'nombre' in c.lower()), None)
         col_exist = next((c for c in df.columns if 'exist' in c.lower()), None)
 
         if not col_desc or not col_exist:
