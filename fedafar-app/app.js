@@ -1949,7 +1949,8 @@ balanceSubmitBtn.addEventListener('click', async () => {
         resetBalanceForm();
         loadBalanceTickets();
     } else {
-        balanceSubmitMsg.textContent = 'Error al crear el ticket.';
+        const err = await res.json().catch(() => ({}));
+        balanceSubmitMsg.textContent = err.error || 'Error al crear el ticket.';
         balanceSubmitMsg.className   = 'docs-msg error';
         balanceSubmitMsg.classList.remove('hidden');
     }

@@ -1462,19 +1462,22 @@ def api_balance_stock_crear():
     try:
         s_sistema = float(data.get('stock_sistema') or 0)
         s_real    = float(stock_real)
+        from datetime import datetime, timezone
         sb = get_sb()
         sb.table('balance_stock').insert({
-            'producto':          producto,
-            'stock_sistema':     s_sistema,
-            'stock_real':        s_real,
-            'diferencia':        s_real - s_sistema,
-            'reportado_por':     current_user.nombre,
+            'producto':           producto,
+            'stock_sistema':      s_sistema,
+            'stock_real':         s_real,
+            'diferencia':         s_real - s_sistema,
+            'reportado_por':      current_user.nombre,
             'reportado_por_tipo': current_user.tipo_precio,
+            'estado':             'pendiente',
+            'creado_en':          datetime.now(timezone.utc).isoformat(),
         }).execute()
         return jsonify({'ok': True})
     except Exception as e:
-        print(f"[ERROR] {e}")
-        return jsonify({'error': 'Error interno del servidor'}), 500
+        print(f"[ERROR balance-stock POST] {e}")
+        return jsonify({'error': str(e)}), 500
 
 @app.route('/api/balance-stock', methods=['GET'])
 @login_required
