@@ -1531,12 +1531,14 @@ def api_crear_pedido():
     try:
         data = request.get_json()
         sb = get_sb()
+        from datetime import datetime, timezone
         sb.table('pedidos').insert({
-            'cliente_nombre': current_user.nombre,
+            'cliente_nombre':    current_user.nombre,
             'genexus_client_id': str(current_user.genexus_client_id) if current_user.genexus_client_id else None,
-            'tipo_precio': data.get('tipo_precio'),
-            'items': data.get('items'),
-            'total_estimado': data.get('total_estimado'),
+            'tipo_precio':       data.get('tipo_precio'),
+            'items':             data.get('items'),
+            'total_estimado':    data.get('total_estimado'),
+            'creado_en':         datetime.now(timezone.utc).isoformat(),
         }).execute()
         return jsonify({'ok': True})
     except Exception as e:
