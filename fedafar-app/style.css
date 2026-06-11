@@ -1218,5 +1218,28 @@ body.desktop-mode textarea {
     padding: 10px 12px;
 }
 
+/* Faltantes modal: centrado y grilla 3 columnas en escritorio */
+body.desktop-mode #faltantes-modal {
+    align-items: center;
+}
+body.desktop-mode #faltantes-modal .cart-content {
+    max-width: 96%;
+    width: 96%;
+    max-height: 92vh;
+    border-radius: 20px;
+}
+body.desktop-mode #faltantes-body {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 14px;
+    align-content: start;
+}
+body.desktop-mode #faltantes-body .faltante-card {
+    margin-bottom: 0;
+}
+body.desktop-mode #faltantes-body .faltante-resumen {
+    grid-column: 1 / -1;
+}
+
 /* ── Utility ─────────────────────────────────────────────────── */
 .hidden { display: none !important; }
