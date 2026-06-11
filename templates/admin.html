@@ -281,6 +281,7 @@
         <button class="admin-tab active" id="tab-usuarios" onclick="switchTab('usuarios')">👥 Usuarios</button>
         <button class="admin-tab" id="tab-faltantes" onclick="switchTab('faltantes')">📦 Faltantes</button>
         <button class="admin-tab" id="tab-estadisticas" onclick="switchTab('estadisticas')">📊 Estadísticas</button>
+        <button class="admin-tab" id="tab-balance" onclick="switchTab('balance')">⚖️ Balance Stock</button>
     </div>
 
     <div class="container">
@@ -306,6 +307,35 @@
                         </thead>
                         <tbody id="clientes-tbody">
                             <tr><td colspan="6" class="empty-msg">Cargando...</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <!-- ── Sección Balance Stock ── -->
+        <div class="admin-section" id="section-balance">
+            <div class="card" style="margin-top:0;">
+                <div class="card-header">
+                    <h2>⚖️ Balance de Stock — Tickets</h2>
+                    <button class="btn-add" style="background:#6b7280;font-size:.8rem;" onclick="loadBalanceAdmin()">↺ Actualizar</button>
+                </div>
+                <div class="tabla-wrapper">
+                    <table id="balance-tabla">
+                        <thead>
+                            <tr>
+                                <th>Producto</th>
+                                <th>Stock sistema</th>
+                                <th>Stock real</th>
+                                <th>Diferencia</th>
+                                <th>Reportado por</th>
+                                <th>Fecha</th>
+                                <th>Estado</th>
+                                <th>Acciones</th>
+                            </tr>
+                        </thead>
+                        <tbody id="balance-tbody">
+                            <tr><td colspan="8" class="empty-msg">Cargando...</td></tr>
                         </tbody>
                     </table>
                 </div>
@@ -526,6 +556,58 @@ function switchTab(tab) {
     document.getElementById(`tab-${tab}`).classList.add('active');
     if (tab === 'faltantes')     loadFaltantesAdmin();
     if (tab === 'estadisticas')  loadEstadisticas();
+    if (tab === 'balance')       loadBalanceAdmin();
+}
+
+// ── Balance Stock ─────────────────────────────────────────────────────────────
+
+async function loadBalanceAdmin() {
+    const res = await fetch(`${BASE}/api/admin/balance-stock`, { credentials: 'include' });
+    if (!res.ok) return;
+    const tickets = await res.json();
+    const tbody   = document.getElementById('balance-tbody');
+    if (!tickets.length) {
+        tbody.innerHTML = '<tr><td colspan="8" class="empty-msg">Sin tickets registrados.</td></tr>';
+        return;
+    }
+    tbody.innerHTML = tickets.map(t => {
+        const dif      = t.diferencia ?? (t.stock_real - t.stock_sistema);
+        const difColor = dif < 0 ? 'color:#991b1b;font-weight:700' : 'color:#065f46;font-weight:700';
+        const difTxt   = (dif >= 0 ? '+' : '') + dif;
+        const fecha    = new Date(t.creado_en).toLocaleString('es-AR', {day:'2-digit',month:'2-digit',year:'2-digit',hour:'2-digit',minute:'2-digit'});
+        const estadoBadge = t.estado === 'cerrado'
+            ? `<span class="badge badge-activo">Cerrado</span>`
+            : `<span class="badge badge-inactivo">Pendiente</span>`;
+        const acciones = t.estado === 'pendiente'
+            ? `<button class="btn-edit" onclick="abrirCierreBalance(${t.id}, '${t.producto.replace(/'/g,"\\'")}')">Cerrar ticket</button>`
+            : `<span style="font-size:.78rem;color:var(--muted)">${t.nota_cierre || '—'}</span>`;
+        return `<tr>
+            <td><strong>${t.producto}</strong></td>
+            <td style="text-align:center">${t.stock_sistema ?? '—'}</td>
+            <td style="text-align:center">${t.stock_real}</td>
+            <td style="text-align:center;${difColor}">${difTxt}</td>
+            <td>${t.reportado_por}<br><span style="font-size:.75rem;color:var(--muted)">${t.reportado_por_tipo}</span></td>
+            <td style="font-size:.82rem;color:var(--muted)">${fecha}</td>
+            <td>${estadoBadge}</td>
+            <td>${acciones}</td>
+        </tr>`;
+    }).join('');
+}
+
+function abrirCierreBalance(id, producto) {
+    const nota = prompt(`Cerrar ticket: "${producto}"\n\nNota de cierre (opcional):`);
+    if (nota === null) return;
+    cerrarBalanceTicket(id, nota);
+}
+
+async function cerrarBalanceTicket(id, nota) {
+    const res = await fetch(`${BASE}/api/admin/balance-stock/${id}/cerrar`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ nota }),
+    });
+    if (res.ok) loadBalanceAdmin();
 }
 
 // ── Estadísticas ──────────────────────────────────────────────────────────────

@@ -72,6 +72,20 @@ const faltantesCount        = document.getElementById('faltantes-count');
 
 const modoBtn = document.getElementById('modo-btn');
 
+// Balance de Stock
+const balanceBtn          = document.getElementById('balance-btn');
+const balanceModal        = document.getElementById('balance-modal');
+const closeBalanceBtn     = document.getElementById('close-balance');
+const backFromBalanceBtn  = document.getElementById('back-from-balance');
+const balanceProductoInput = document.getElementById('balance-producto-input');
+const balanceSugerencias  = document.getElementById('balance-sugerencias');
+const balanceStockSistema = document.getElementById('balance-stock-sistema');
+const balanceStockReal    = document.getElementById('balance-stock-real');
+const balanceDiferencia   = document.getElementById('balance-diferencia');
+const balanceSubmitBtn    = document.getElementById('balance-submit-btn');
+const balanceSubmitMsg    = document.getElementById('balance-submit-msg');
+const balanceBody         = document.getElementById('balance-body');
+
 // Firma
 const firmaModal        = document.getElementById('firma-modal');
 const closeFirmaBtn     = document.getElementById('close-firma');
@@ -149,6 +163,13 @@ function showApp() {
     } else {
         docsBtn.classList.add('hidden');
         prestamosBtn.classList.add('hidden');
+    }
+
+    // Balance de Stock: empleado, jefe_deposito, jefe, admin
+    if (tipo === 'empleado' || tipo === 'jefe_deposito' || tipo === 'jefe' || tipo === 'admin') {
+        balanceBtn.classList.remove('hidden');
+    } else {
+        balanceBtn.classList.add('hidden');
     }
 
     // Faltantes: jefe_deposito, farmaceutico, jefe, admin
@@ -1864,6 +1885,135 @@ faltanteSubmitBtn.addEventListener('click', async () => {
         faltanteSubmitBtn.textContent = 'Reportar faltante';
     }
 });
+
+// ── Balance de Stock ───────────────────────────────────────────────────────────
+
+balanceBtn.addEventListener('click', () => {
+    balanceModal.classList.remove('hidden');
+    resetBalanceForm();
+    loadBalanceTickets();
+});
+closeBalanceBtn.addEventListener('click',    () => balanceModal.classList.add('hidden'));
+backFromBalanceBtn.addEventListener('click', () => balanceModal.classList.add('hidden'));
+
+function resetBalanceForm() {
+    balanceProductoInput.value = '';
+    balanceStockSistema.value  = '';
+    balanceStockReal.value     = '';
+    balanceDiferencia.textContent = '—';
+    balanceDiferencia.className   = 'balance-dif-display';
+    balanceSugerencias.classList.add('hidden');
+    balanceSubmitMsg.classList.add('hidden');
+}
+
+let balanceDebounce = null;
+balanceProductoInput.addEventListener('input', () => {
+    clearTimeout(balanceDebounce);
+    const q = balanceProductoInput.value.trim();
+    balanceStockSistema.value = '';
+    balanceStockReal.value    = '';
+    balanceDiferencia.textContent = '—';
+    balanceDiferencia.className   = 'balance-dif-display';
+    if (q.length < 2) { balanceSugerencias.classList.add('hidden'); return; }
+    balanceDebounce = setTimeout(async () => {
+        const res = await fetch(`${BASE_URL}/api/balance-stock/buscar?q=${encodeURIComponent(q)}`, { credentials: 'include' });
+        if (!res.ok) return;
+        const items = await res.json();
+        if (!items.length) { balanceSugerencias.classList.add('hidden'); return; }
+        balanceSugerencias.innerHTML = items.map(it =>
+            `<div class="balance-sug-item" data-name="${it.name}" data-stock="${it.stock}">
+                <span>${it.name}</span>
+                <span class="balance-sug-stock">Stock: ${it.stock}</span>
+            </div>`
+        ).join('');
+        balanceSugerencias.classList.remove('hidden');
+    }, 300);
+});
+
+balanceSugerencias.addEventListener('click', e => {
+    const item = e.target.closest('.balance-sug-item');
+    if (!item) return;
+    balanceProductoInput.value  = item.dataset.name;
+    balanceStockSistema.value   = item.dataset.stock;
+    balanceSugerencias.classList.add('hidden');
+    balanceStockReal.focus();
+});
+
+document.addEventListener('click', e => {
+    if (!balanceSugerencias.contains(e.target) && e.target !== balanceProductoInput)
+        balanceSugerencias.classList.add('hidden');
+});
+
+balanceStockReal.addEventListener('input', () => {
+    const sistema = parseFloat(balanceStockSistema.value);
+    const real    = parseFloat(balanceStockReal.value);
+    if (isNaN(sistema) || isNaN(real)) {
+        balanceDiferencia.textContent = '—';
+        balanceDiferencia.className   = 'balance-dif-display';
+        return;
+    }
+    const dif = real - sistema;
+    balanceDiferencia.textContent = (dif >= 0 ? '+' : '') + dif;
+    balanceDiferencia.className   = 'balance-dif-display ' + (dif < 0 ? 'negativo' : 'positivo');
+});
+
+balanceSubmitBtn.addEventListener('click', async () => {
+    const producto    = balanceProductoInput.value.trim();
+    const stockReal   = balanceStockReal.value.trim();
+    const stockSistema = balanceStockSistema.value.trim();
+    if (!producto || stockReal === '') {
+        balanceSubmitMsg.textContent = 'Completá el producto y el stock real.';
+        balanceSubmitMsg.className   = 'docs-msg error';
+        balanceSubmitMsg.classList.remove('hidden');
+        return;
+    }
+    balanceSubmitBtn.disabled = true;
+    const res = await fetch(`${BASE_URL}/api/balance-stock`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ producto, stock_sistema: parseFloat(stockSistema) || 0, stock_real: parseFloat(stockReal) }),
+    });
+    balanceSubmitBtn.disabled = false;
+    if (res.ok) {
+        balanceSubmitMsg.textContent = 'Ticket creado correctamente.';
+        balanceSubmitMsg.className   = 'docs-msg';
+        balanceSubmitMsg.classList.remove('hidden');
+        resetBalanceForm();
+        loadBalanceTickets();
+    } else {
+        balanceSubmitMsg.textContent = 'Error al crear el ticket.';
+        balanceSubmitMsg.className   = 'docs-msg error';
+        balanceSubmitMsg.classList.remove('hidden');
+    }
+});
+
+async function loadBalanceTickets() {
+    const res = await fetch(`${BASE_URL}/api/balance-stock`, { credentials: 'include' });
+    if (!res.ok) { balanceBody.innerHTML = ''; return; }
+    const tickets = await res.json();
+    if (!tickets.length) {
+        balanceBody.innerHTML = '<p style="text-align:center;color:#888;padding:16px 0;font-size:.85rem;">No hay tickets pendientes.</p>';
+        return;
+    }
+    balanceBody.innerHTML = tickets.map(t => {
+        const dif    = t.diferencia ?? (t.stock_real - t.stock_sistema);
+        const difCls = dif < 0 ? 'neg' : 'pos';
+        const difTxt = (dif >= 0 ? '+' : '') + dif;
+        const fecha  = new Date(t.creado_en).toLocaleString('es-AR', {day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'});
+        return `<div class="balance-ticket">
+            <div class="balance-ticket-top">
+                <span class="balance-ticket-producto">${t.producto}</span>
+                <span class="balance-dif-badge ${difCls}">${difTxt}</span>
+            </div>
+            <div class="balance-ticket-meta">
+                Sistema: <strong>${t.stock_sistema}</strong> &nbsp;·&nbsp;
+                Real: <strong>${t.stock_real}</strong> &nbsp;·&nbsp;
+                Por ${t.reportado_por} · ${fecha}
+            </div>
+        </div>`;
+    }).join('');
+}
 
 // ── Modo escritorio ────────────────────────────────────────────────────────────
 

@@ -74,6 +74,9 @@
                 <button id="admin-panel-btn" class="icon-btn hidden" title="Panel Admin">
                     <i data-lucide="settings"></i>
                 </button>
+                <button id="balance-btn" class="icon-btn hidden" title="Balance de Stock">
+                    <i data-lucide="scale"></i>
+                </button>
                 <button id="faltantes-btn" class="icon-btn hidden" title="Faltantes">
                     <i data-lucide="package-x"></i>
                     <span id="faltantes-count" class="prestamos-badge hidden">0</span>
@@ -330,6 +333,50 @@
                     <button id="firma-confirmar-btn" class="primary-btn">Confirmar Firma</button>
                 </div>
                 <p id="firma-msg" class="docs-msg hidden"></p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal Balance de Stock ──────────────────────────────────── -->
+    <div id="balance-modal" class="cart-modal hidden">
+        <div class="cart-content">
+            <div class="cart-header">
+                <h2>⚖️ Balance de Stock</h2>
+                <button id="close-balance" class="icon-btn"><i data-lucide="x"></i></button>
+            </div>
+
+            <!-- Formulario nuevo ticket -->
+            <div id="balance-form-section" style="padding:0 16px 12px;">
+                <p style="font-size:.82rem;color:var(--text-muted);margin-bottom:12px;">Reportar discrepancia de stock:</p>
+                <div style="position:relative;">
+                    <input type="text" id="balance-producto-input" class="docs-input" placeholder="Buscar producto *" autocomplete="off">
+                    <div id="balance-sugerencias" class="balance-sugerencias hidden"></div>
+                </div>
+                <div class="balance-stock-row" style="margin-top:10px;">
+                    <div class="balance-stock-col">
+                        <label class="balance-label">Stock sistema</label>
+                        <input type="number" id="balance-stock-sistema" class="docs-input" readonly placeholder="—" style="background:#f3f4f6;">
+                    </div>
+                    <div class="balance-stock-col">
+                        <label class="balance-label">Stock real *</label>
+                        <input type="number" id="balance-stock-real" class="docs-input" placeholder="Cantidad contada" min="0">
+                    </div>
+                    <div class="balance-stock-col">
+                        <label class="balance-label">Diferencia</label>
+                        <div id="balance-diferencia" class="balance-dif-display">—</div>
+                    </div>
+                </div>
+                <button id="balance-submit-btn" class="primary-btn" style="margin-top:12px;">Reportar discrepancia</button>
+                <p id="balance-submit-msg" class="docs-msg hidden"></p>
+            </div>
+
+            <!-- Lista de tickets pendientes -->
+            <div id="balance-body" style="padding:0 16px 12px;"></div>
+
+            <div class="cart-footer">
+                <div class="cart-actions">
+                    <button id="back-from-balance" class="secondary-btn">← Volver</button>
+                </div>
             </div>
         </div>
     </div>

@@ -1433,6 +1433,91 @@ def api_faltantes_delete(faltante_id):
         print(f"[ERROR] {e}")
         return jsonify({'error': 'Error interno del servidor'}), 500
 
+# ── Balance de Stock ───────────────────────────────────────────────────────────
+
+BALANCE_ROLES = ('empleado', 'jefe', 'jefe_deposito', 'admin')
+
+@app.route('/api/balance-stock/buscar', methods=['GET'])
+@login_required
+def balance_stock_buscar():
+    if current_user.tipo_precio not in BALANCE_ROLES:
+        return jsonify({'error': 'No autorizado'}), 403
+    q = request.args.get('q', '').strip().upper()
+    if len(q) < 2:
+        return jsonify([])
+    stock_dict = get_stock_data()
+    results = [{'name': k, 'stock': int(v)} for k, v in stock_dict.items() if q in k][:12]
+    return jsonify(results)
+
+@app.route('/api/balance-stock', methods=['POST'])
+@login_required
+def api_balance_stock_crear():
+    if current_user.tipo_precio not in BALANCE_ROLES:
+        return jsonify({'error': 'No autorizado'}), 403
+    data       = request.get_json() or {}
+    producto   = (data.get('producto') or '').strip()
+    stock_real = data.get('stock_real')
+    if not producto or stock_real is None:
+        return jsonify({'error': 'Datos incompletos'}), 400
+    try:
+        s_sistema = float(data.get('stock_sistema') or 0)
+        s_real    = float(stock_real)
+        sb = get_sb()
+        sb.table('balance_stock').insert({
+            'producto':          producto,
+            'stock_sistema':     s_sistema,
+            'stock_real':        s_real,
+            'diferencia':        s_real - s_sistema,
+            'reportado_por':     current_user.nombre,
+            'reportado_por_tipo': current_user.tipo_precio,
+        }).execute()
+        return jsonify({'ok': True})
+    except Exception as e:
+        print(f"[ERROR] {e}")
+        return jsonify({'error': 'Error interno del servidor'}), 500
+
+@app.route('/api/balance-stock', methods=['GET'])
+@login_required
+def api_balance_stock_list():
+    if current_user.tipo_precio not in BALANCE_ROLES:
+        return jsonify({'error': 'No autorizado'}), 403
+    try:
+        sb  = get_sb()
+        res = sb.table('balance_stock').select('*').eq('estado', 'pendiente').order('creado_en', desc=True).execute()
+        return jsonify(res.data or [])
+    except Exception as e:
+        print(f"[ERROR] {e}")
+        return jsonify({'error': 'Error interno del servidor'}), 500
+
+@app.route('/api/admin/balance-stock', methods=['GET'])
+@admin_required
+def api_admin_balance_stock_list():
+    try:
+        sb  = get_sb()
+        res = sb.table('balance_stock').select('*').order('creado_en', desc=True).execute()
+        return jsonify(res.data or [])
+    except Exception as e:
+        print(f"[ERROR] {e}")
+        return jsonify({'error': 'Error interno del servidor'}), 500
+
+@app.route('/api/admin/balance-stock/<int:ticket_id>/cerrar', methods=['PATCH'])
+@admin_required
+def api_admin_balance_stock_cerrar(ticket_id):
+    from datetime import datetime, timezone
+    data = request.get_json() or {}
+    nota = (data.get('nota') or '').strip()
+    now  = datetime.now(timezone.utc).isoformat()
+    try:
+        sb     = get_sb()
+        update = {'estado': 'cerrado', 'cerrado_en': now}
+        if nota:
+            update['nota_cierre'] = nota
+        sb.table('balance_stock').update(update).eq('id', ticket_id).execute()
+        return jsonify({'ok': True})
+    except Exception as e:
+        print(f"[ERROR] {e}")
+        return jsonify({'error': 'Error interno del servidor'}), 500
+
 # ── Pedidos ────────────────────────────────────────────────────────────────────
 
 @app.route('/api/pedidos', methods=['POST'])

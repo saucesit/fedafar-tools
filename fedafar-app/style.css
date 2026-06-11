@@ -1173,6 +1173,85 @@ body {
     max-width: 220px;
 }
 
+/* ── Balance de Stock ────────────────────────────────────────── */
+.balance-label {
+    display: block;
+    font-size: .75rem;
+    font-weight: 600;
+    color: var(--text-muted, #666);
+    margin-bottom: 4px;
+}
+.balance-stock-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 10px;
+    align-items: start;
+}
+.balance-stock-col { display: flex; flex-direction: column; }
+.balance-dif-display {
+    padding: 10px 12px;
+    border-radius: 10px;
+    font-size: 1rem;
+    font-weight: 700;
+    text-align: center;
+    background: #f3f4f6;
+    color: #6b7280;
+    border: 1.5px solid #e5e7eb;
+    min-height: 42px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+.balance-dif-display.negativo { background: #fee2e2; color: #991b1b; border-color: #fca5a5; }
+.balance-dif-display.positivo { background: #d1fae5; color: #065f46; border-color: #6ee7b7; }
+.balance-sugerencias {
+    position: absolute;
+    top: 100%;
+    left: 0; right: 0;
+    background: white;
+    border: 1.5px solid #e5e7eb;
+    border-radius: 10px;
+    box-shadow: 0 8px 20px rgba(0,0,0,.12);
+    z-index: 200;
+    max-height: 220px;
+    overflow-y: auto;
+}
+.balance-sug-item {
+    padding: 10px 14px;
+    cursor: pointer;
+    font-size: .88rem;
+    border-bottom: 1px solid #f0f0f0;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+.balance-sug-item:last-child { border-bottom: none; }
+.balance-sug-item:hover { background: #f0f4ff; }
+.balance-sug-stock { font-size: .78rem; color: var(--text-muted); }
+.balance-ticket {
+    background: #fff;
+    border: 1px solid #e5e7eb;
+    border-radius: 12px;
+    padding: 14px 16px;
+    margin-bottom: 10px;
+}
+.balance-ticket-top {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 6px;
+}
+.balance-ticket-producto { font-weight: 700; font-size: .95rem; }
+.balance-ticket-meta { font-size: .72rem; color: var(--text-muted); }
+.balance-dif-badge {
+    font-size: .82rem;
+    font-weight: 700;
+    padding: 3px 10px;
+    border-radius: 20px;
+}
+.balance-dif-badge.neg { background: #fee2e2; color: #991b1b; }
+.balance-dif-badge.pos { background: #d1fae5; color: #065f46; }
+
 /* ── Modo Escritorio ─────────────────────────────────────────── */
 #modo-btn i { transition: none; }
 
