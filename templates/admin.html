@@ -176,6 +176,48 @@
 
         .hidden { display:none!important; }
         .empty-msg { text-align:center; color:var(--muted); padding:40px 0; }
+
+        /* ── Estadísticas ── */
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 16px;
+            margin-bottom: 20px;
+        }
+        .stat-card {
+            background: var(--card);
+            border-radius: 14px;
+            padding: 22px 20px;
+            box-shadow: var(--shadow);
+            text-align: center;
+        }
+        .stat-num {
+            font-size: 2.4rem;
+            font-weight: 800;
+            color: var(--primary);
+            line-height: 1;
+        }
+        .stat-label { font-size: .85rem; color: var(--muted); margin-top: 8px; }
+        .two-col {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 16px;
+            margin-bottom: 20px;
+        }
+        .rank-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 10px 0;
+            border-bottom: 1px solid #f0f0f0;
+            font-size: .88rem;
+        }
+        .rank-item:last-child { border-bottom: none; }
+        .rank-num { font-weight: 800; color: var(--primary); min-width: 26px; display: inline-block; }
+        @media (max-width: 600px) {
+            .stats-grid { grid-template-columns: 1fr 1fr; }
+            .two-col { grid-template-columns: 1fr; }
+        }
     </style>
 </head>
 <body>
@@ -204,6 +246,7 @@
     <div class="admin-tabs">
         <button class="admin-tab active" id="tab-usuarios" onclick="switchTab('usuarios')">👥 Usuarios</button>
         <button class="admin-tab" id="tab-faltantes" onclick="switchTab('faltantes')">📦 Faltantes</button>
+        <button class="admin-tab" id="tab-estadisticas" onclick="switchTab('estadisticas')">📊 Estadísticas</button>
     </div>
 
     <div class="container">
@@ -229,6 +272,58 @@
                         </thead>
                         <tbody id="clientes-tbody">
                             <tr><td colspan="6" class="empty-msg">Cargando...</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <!-- ── Sección Estadísticas ── -->
+        <div class="admin-section" id="section-estadisticas">
+            <div class="stats-grid">
+                <div class="stat-card">
+                    <div class="stat-num" id="stat-total">—</div>
+                    <div class="stat-label">Total pedidos</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-num" id="stat-mes">—</div>
+                    <div class="stat-label">Este mes</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-num" id="stat-semana">—</div>
+                    <div class="stat-label">Esta semana</div>
+                </div>
+            </div>
+
+            <div class="two-col">
+                <div class="card" style="margin-bottom:0;">
+                    <div class="card-header"><h2>🏆 Top Farmacias</h2></div>
+                    <div id="top-farmacias"><p class="empty-msg">Cargando...</p></div>
+                </div>
+                <div class="card" style="margin-bottom:0;">
+                    <div class="card-header"><h2>💊 Más pedidos</h2></div>
+                    <div id="top-productos"><p class="empty-msg">Cargando...</p></div>
+                </div>
+            </div>
+
+            <div class="card">
+                <div class="card-header">
+                    <h2>📋 Últimos pedidos</h2>
+                    <button class="btn-add" style="background:#6b7280;font-size:.8rem;" onclick="loadEstadisticas()">↺ Actualizar</button>
+                </div>
+                <div class="tabla-wrapper">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Farmacia</th>
+                                <th>Precio</th>
+                                <th>Productos</th>
+                                <th>Total est.</th>
+                                <th>Fecha</th>
+                            </tr>
+                        </thead>
+                        <tbody id="pedidos-tbody">
+                            <tr><td colspan="5" class="empty-msg">Cargando...</td></tr>
                         </tbody>
                     </table>
                 </div>
@@ -366,7 +461,70 @@ function switchTab(tab) {
     document.querySelectorAll('.admin-tab').forEach(t => t.classList.remove('active'));
     document.getElementById(`section-${tab}`).classList.add('active');
     document.getElementById(`tab-${tab}`).classList.add('active');
-    if (tab === 'faltantes') loadFaltantesAdmin();
+    if (tab === 'faltantes')     loadFaltantesAdmin();
+    if (tab === 'estadisticas')  loadEstadisticas();
+}
+
+// ── Estadísticas ──────────────────────────────────────────────────────────────
+
+async function loadEstadisticas() {
+    const res = await fetch(`${BASE}/api/admin/pedidos`, { credentials: 'include' });
+    if (!res.ok) return;
+    const pedidos = await res.json();
+
+    const now        = new Date();
+    const startMes   = new Date(now.getFullYear(), now.getMonth(), 1);
+    const startSem   = new Date(now);
+    startSem.setDate(now.getDate() - now.getDay());
+    startSem.setHours(0, 0, 0, 0);
+
+    document.getElementById('stat-total').textContent  = pedidos.length;
+    document.getElementById('stat-mes').textContent    = pedidos.filter(p => new Date(p.creado_en) >= startMes).length;
+    document.getElementById('stat-semana').textContent = pedidos.filter(p => new Date(p.creado_en) >= startSem).length;
+
+    // Top farmacias
+    const cntFarm = {};
+    pedidos.forEach(p => { cntFarm[p.cliente_nombre] = (cntFarm[p.cliente_nombre] || 0) + 1; });
+    const topFarm = Object.entries(cntFarm).sort((a,b) => b[1]-a[1]).slice(0, 8);
+    document.getElementById('top-farmacias').innerHTML = topFarm.length
+        ? topFarm.map(([nom, n], i) =>
+            `<div class="rank-item"><span><span class="rank-num">#${i+1}</span> ${nom}</span><strong>${n} pedido${n>1?'s':''}</strong></div>`
+          ).join('')
+        : '<p class="empty-msg">Sin datos aún</p>';
+
+    // Top productos
+    const cntProd = {};
+    pedidos.forEach(p => (p.items||[]).forEach(it => {
+        cntProd[it.name] = (cntProd[it.name] || 0) + (it.qty || 1);
+    }));
+    const topProd = Object.entries(cntProd).sort((a,b) => b[1]-a[1]).slice(0, 8);
+    document.getElementById('top-productos').innerHTML = topProd.length
+        ? topProd.map(([nom, qty], i) =>
+            `<div class="rank-item"><span><span class="rank-num">#${i+1}</span> ${nom}</span><strong>${qty} u.</strong></div>`
+          ).join('')
+        : '<p class="empty-msg">Sin datos aún</p>';
+
+    // Tabla últimos pedidos
+    const tbody = document.getElementById('pedidos-tbody');
+    if (!pedidos.length) {
+        tbody.innerHTML = '<tr><td colspan="5" class="empty-msg">Sin pedidos registrados aún.</td></tr>';
+        return;
+    }
+    tbody.innerHTML = pedidos.slice(0, 50).map(p => {
+        const items    = p.items || [];
+        const resumen  = items.map(i => `${i.name} ×${i.qty}`).join(', ');
+        const recorte  = resumen.length > 80 ? resumen.slice(0, 80) + '…' : resumen;
+        const fecha    = new Date(p.creado_en).toLocaleString('es-AR', {day:'2-digit',month:'2-digit',year:'2-digit',hour:'2-digit',minute:'2-digit'});
+        const badge    = p.tipo_precio === 'cta-cte' ? 'badge-ctacte' : 'badge-contado';
+        const label    = p.tipo_precio === 'cta-cte' ? 'Cta. Cte.' : 'Contado';
+        return `<tr>
+            <td><strong>${p.cliente_nombre || '—'}</strong></td>
+            <td><span class="badge ${badge}">${label}</span></td>
+            <td style="font-size:.82rem;color:#444">${recorte || '—'}</td>
+            <td>${p.total_estimado || '—'}</td>
+            <td style="color:var(--muted);font-size:.82rem;">${fecha}</td>
+        </tr>`;
+    }).join('');
 }
 
 // ── Clientes ──────────────────────────────────────────────────────────────────

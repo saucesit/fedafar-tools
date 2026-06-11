@@ -1429,6 +1429,37 @@ def api_faltantes_delete(faltante_id):
         print(f"[ERROR] {e}")
         return jsonify({'error': 'Error interno del servidor'}), 500
 
+# ── Pedidos ────────────────────────────────────────────────────────────────────
+
+@app.route('/api/pedidos', methods=['POST'])
+@login_required
+def api_crear_pedido():
+    try:
+        data = request.get_json()
+        sb = get_sb()
+        sb.table('pedidos').insert({
+            'cliente_nombre': current_user.nombre,
+            'genexus_client_id': str(current_user.genexus_client_id) if current_user.genexus_client_id else None,
+            'tipo_precio': data.get('tipo_precio'),
+            'items': data.get('items'),
+            'total_estimado': data.get('total_estimado'),
+        }).execute()
+        return jsonify({'ok': True})
+    except Exception as e:
+        print(f"[ERROR] {e}")
+        return jsonify({'error': 'Error interno del servidor'}), 500
+
+@app.route('/api/admin/pedidos', methods=['GET'])
+@admin_required
+def api_admin_pedidos():
+    try:
+        sb = get_sb()
+        res = sb.table('pedidos').select('*').order('creado_en', desc=True).limit(500).execute()
+        return jsonify(res.data or [])
+    except Exception as e:
+        print(f"[ERROR] {e}")
+        return jsonify({'error': 'Error interno del servidor'}), 500
+
 # ── Rutas estáticas ────────────────────────────────────────────────────────────
 
 @app.route('/', methods=['GET'])

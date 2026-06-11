@@ -629,6 +629,16 @@ sendOrderBtn.addEventListener('click', () => {
     msg += `\n*TOTAL ESTIMADO:* ${totalPriceEl.innerText}`;
     msg += `\n\n_Por favor confirmar stock y precios vigentes._`;
     window.open(`https://wa.me/5493876835525?text=${encodeURIComponent(msg)}`);
+    fetch(`${BASE_URL}/api/pedidos`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+            tipo_precio: tipo,
+            items: cart.map(i => ({ name: i.name, lab: i.lab, qty: i.qty })),
+            total_estimado: totalPriceEl.innerText,
+        })
+    }).catch(() => {});
 });
 
 // ── Préstamos ──────────────────────────────────────────────────────────────────
