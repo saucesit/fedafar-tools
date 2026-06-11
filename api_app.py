@@ -742,7 +742,9 @@ def parse_price_list(tipo='contado'):
 
         # IVA 21% para descartables
         if category == "Descartables":
-            price_val = round(price_val * 1.21, 2)
+            price_val     = round(price_val     * 1.21, 2)
+            price_contado = round(price_contado * 1.21, 2)
+            price_ctacte  = round(price_ctacte  * 1.21, 2)
 
         # Filtrar por stock (solo si hay datos disponibles)
         stock_val = None
