@@ -1837,8 +1837,15 @@ async function confirmarFaltante(id) {
         const res = await fetch(`${BASE_URL}/api/faltantes/${id}/confirmar`, {
             method: 'PATCH', credentials: 'include',
         });
-        if (res.ok) loadFaltantes();
-    } catch (e) {}
+        if (res.ok) {
+            loadFaltantes();
+        } else {
+            const data = await res.json().catch(() => ({}));
+            alert(data.error || 'Error al confirmar la recepción. Intentá de nuevo.');
+        }
+    } catch (e) {
+        alert('Error de conexión. Intentá de nuevo.');
+    }
 }
 
 async function eliminarFaltante(id) {
