@@ -70,6 +70,8 @@ const faltanteSubmitBtn     = document.getElementById('faltante-submit-btn');
 const faltanteSubmitMsg     = document.getElementById('faltante-submit-msg');
 const faltantesCount        = document.getElementById('faltantes-count');
 
+const modoBtn = document.getElementById('modo-btn');
+
 // Firma
 const firmaModal        = document.getElementById('firma-modal');
 const closeFirmaBtn     = document.getElementById('close-firma');
@@ -1853,5 +1855,27 @@ faltanteSubmitBtn.addEventListener('click', async () => {
     }
 });
 
+// ── Modo escritorio ────────────────────────────────────────────────────────────
+
+function setDesktopMode(on) {
+    document.body.classList.toggle('desktop-mode', on);
+    localStorage.setItem('fedafar_desktop_mode', on ? '1' : '0');
+    const icon = modoBtn.querySelector('i');
+    icon.setAttribute('data-lucide', on ? 'smartphone' : 'monitor');
+    modoBtn.title = on ? 'Modo App (móvil)' : 'Modo Escritorio';
+    lucide.createIcons();
+}
+
+function initDesktopMode() {
+    const saved = localStorage.getItem('fedafar_desktop_mode');
+    const on = saved !== null ? saved === '1' : window.innerWidth > 900;
+    setDesktopMode(on);
+}
+
+modoBtn.addEventListener('click', () => {
+    setDesktopMode(!document.body.classList.contains('desktop-mode'));
+});
+
 // ── Init ───────────────────────────────────────────────────────────────────────
+initDesktopMode();
 checkSession();

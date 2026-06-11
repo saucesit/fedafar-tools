@@ -1173,5 +1173,50 @@ body {
     max-width: 220px;
 }
 
+/* ── Modo Escritorio ─────────────────────────────────────────── */
+#modo-btn i { transition: none; }
+
+body.desktop-mode #app {
+    max-width: 860px;
+}
+body.desktop-mode .faltante-card {
+    padding: 18px 22px;
+    margin-bottom: 16px;
+}
+body.desktop-mode .faltante-producto {
+    font-size: 1.15rem;
+}
+body.desktop-mode .faltante-nota {
+    font-size: 0.95rem;
+}
+body.desktop-mode .faltante-meta,
+body.desktop-mode .faltante-act-info,
+body.desktop-mode .faltante-alerta {
+    font-size: 0.82rem;
+}
+body.desktop-mode .faltante-btn-accion {
+    padding: 10px 18px;
+    font-size: 0.9rem;
+}
+body.desktop-mode .faltante-estado {
+    font-size: 0.8rem;
+    padding: 4px 14px;
+}
+body.desktop-mode .faltante-acciones {
+    gap: 12px;
+    margin-top: 14px;
+}
+body.desktop-mode .faltante-resumen {
+    padding: 14px 18px;
+}
+body.desktop-mode .faltante-resumen-num {
+    font-size: 1.7rem;
+}
+body.desktop-mode .faltante-dias-input,
+body.desktop-mode textarea {
+    font-size: 1rem;
+    padding: 10px 12px;
+}
+
 /* ── Utility ─────────────────────────────────────────────────── */
 .hidden { display: none !important; }
