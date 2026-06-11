@@ -269,7 +269,13 @@ function renderProducts(filter = '', category = 'all') {
     });
 
     if (filtered.length === 0) {
-        productGrid.innerHTML = '<p style="text-align:center;color:var(--text-muted);padding:40px 0;">Sin resultados.</p>';
+        const termino = filter.trim();
+        productGrid.innerHTML = termino
+            ? `<div style="text-align:center;padding:40px 16px;">
+                <p style="color:var(--text-muted);font-size:1rem;margin-bottom:8px;">No encontramos resultados para <strong>"${termino}"</strong>.</p>
+                <p style="color:var(--text-muted);font-size:.88rem;">Es posible que el producto no tenga stock disponible en este momento.<br>Podés consultarnos directamente para verificarlo.</p>
+               </div>`
+            : '<p style="text-align:center;color:var(--text-muted);padding:40px 0;">Sin productos en esta categoría.</p>';
         return;
     }
 
@@ -332,6 +338,11 @@ function renderProducts(filter = '', category = 'all') {
         }
         productGrid.appendChild(card);
     });
+
+    const notaPie = document.createElement('p');
+    notaPie.style.cssText = 'width:100%;text-align:center;color:var(--text-muted);font-size:.82rem;padding:18px 16px 8px;';
+    notaPie.textContent = '¿No encontrás lo que buscás? Es posible que no tenga stock disponible. Consultanos.';
+    productGrid.appendChild(notaPie);
 
     lucide.createIcons();
 
