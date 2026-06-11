@@ -177,46 +177,80 @@
         .hidden { display:none!important; }
         .empty-msg { text-align:center; color:var(--muted); padding:40px 0; }
 
-        /* ── Estadísticas ── */
-        .stats-grid {
-            display: grid;
-            grid-template-columns: repeat(3, 1fr);
-            gap: 16px;
-            margin-bottom: 20px;
-        }
-        .stat-card {
-            background: var(--card);
-            border-radius: 14px;
-            padding: 22px 20px;
-            box-shadow: var(--shadow);
-            text-align: center;
-        }
-        .stat-num {
-            font-size: 2.4rem;
-            font-weight: 800;
-            color: var(--primary);
-            line-height: 1;
-        }
-        .stat-label { font-size: .85rem; color: var(--muted); margin-top: 8px; }
-        .two-col {
+        /* ── Estadísticas / Dashboard ── */
+        .dash-grid {
             display: grid;
             grid-template-columns: 1fr 1fr;
             gap: 16px;
             margin-bottom: 20px;
         }
+        .dash-panel {
+            background: var(--card);
+            border-radius: 16px;
+            padding: 22px;
+            box-shadow: var(--shadow);
+            max-height: 620px;
+            overflow-y: auto;
+        }
+        .dash-panel-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 16px;
+        }
+        .dash-panel-header h2 { font-size: 1.05rem; color: var(--primary); }
+        .dash-refresh {
+            background: #e5e7eb; border: none; border-radius: 7px;
+            padding: 5px 10px; cursor: pointer; font-size: .85rem; font-family: inherit;
+        }
+        .mini-stats {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 8px;
+            margin-bottom: 18px;
+        }
+        .mini-stat {
+            background: #f0f2f5;
+            border-radius: 10px;
+            padding: 12px 8px;
+            text-align: center;
+        }
+        .mini-stat .num { font-size: 1.9rem; font-weight: 800; color: var(--primary); display: block; line-height: 1; }
+        .mini-stat .lbl { font-size: .72rem; color: var(--muted); margin-top: 5px; display: block; }
+        .mini-stat.verde  .num { color: #065f46; }
+        .mini-stat.ambar  .num { color: #92400e; }
+        .mini-stat.rojo   .num { color: #991b1b; }
+        .dash-subtitle {
+            font-size: .78rem; font-weight: 700; color: var(--muted);
+            text-transform: uppercase; letter-spacing: .5px; margin: 14px 0 8px;
+        }
         .rank-item {
             display: flex;
             justify-content: space-between;
             align-items: center;
-            padding: 10px 0;
+            padding: 8px 0;
             border-bottom: 1px solid #f0f0f0;
             font-size: .88rem;
         }
         .rank-item:last-child { border-bottom: none; }
-        .rank-num { font-weight: 800; color: var(--primary); min-width: 26px; display: inline-block; }
-        @media (max-width: 600px) {
-            .stats-grid { grid-template-columns: 1fr 1fr; }
-            .two-col { grid-template-columns: 1fr; }
+        .rank-num { font-weight: 800; color: var(--primary); min-width: 24px; display: inline-block; }
+        .user-row {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 8px 0;
+            border-bottom: 1px solid #f0f0f0;
+            font-size: .87rem;
+        }
+        .user-row:last-child { border-bottom: none; }
+        .dot { width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0; }
+        .dot-verde   { background: #22c55e; }
+        .dot-ambar   { background: #eab308; }
+        .dot-naranja { background: #f97316; }
+        .dot-rojo    { background: #ef4444; }
+        .user-time   { margin-left: auto; font-size: .78rem; color: var(--muted); }
+        @media (max-width: 700px) {
+            .dash-grid { grid-template-columns: 1fr; }
         }
     </style>
 </head>
@@ -280,36 +314,64 @@
 
         <!-- ── Sección Estadísticas ── -->
         <div class="admin-section" id="section-estadisticas">
-            <div class="stats-grid">
-                <div class="stat-card">
-                    <div class="stat-num" id="stat-total">—</div>
-                    <div class="stat-label">Total pedidos</div>
-                </div>
-                <div class="stat-card">
-                    <div class="stat-num" id="stat-mes">—</div>
-                    <div class="stat-label">Este mes</div>
-                </div>
-                <div class="stat-card">
-                    <div class="stat-num" id="stat-semana">—</div>
-                    <div class="stat-label">Esta semana</div>
-                </div>
-            </div>
 
-            <div class="two-col">
-                <div class="card" style="margin-bottom:0;">
-                    <div class="card-header"><h2>🏆 Top Farmacias</h2></div>
+            <div class="dash-grid">
+
+                <!-- Panel izquierdo: Pedidos -->
+                <div class="dash-panel">
+                    <div class="dash-panel-header">
+                        <h2>📦 Pedidos de Farmacias</h2>
+                        <button class="dash-refresh" onclick="loadEstadisticas()">↺ Actualizar</button>
+                    </div>
+                    <div class="mini-stats">
+                        <div class="mini-stat">
+                            <span class="num" id="stat-total">—</span>
+                            <span class="lbl">Total</span>
+                        </div>
+                        <div class="mini-stat">
+                            <span class="num" id="stat-mes">—</span>
+                            <span class="lbl">Este mes</span>
+                        </div>
+                        <div class="mini-stat">
+                            <span class="num" id="stat-semana">—</span>
+                            <span class="lbl">Esta semana</span>
+                        </div>
+                    </div>
+                    <div class="dash-subtitle">🏆 Top Farmacias</div>
                     <div id="top-farmacias"><p class="empty-msg">Cargando...</p></div>
-                </div>
-                <div class="card" style="margin-bottom:0;">
-                    <div class="card-header"><h2>💊 Más pedidos</h2></div>
+                    <div class="dash-subtitle">💊 Productos más pedidos</div>
                     <div id="top-productos"><p class="empty-msg">Cargando...</p></div>
                 </div>
+
+                <!-- Panel derecho: Utilización de usuarios -->
+                <div class="dash-panel">
+                    <div class="dash-panel-header">
+                        <h2>👥 Utilización de Usuarios</h2>
+                    </div>
+                    <div class="mini-stats">
+                        <div class="mini-stat verde">
+                            <span class="num" id="stat-activos-semana">—</span>
+                            <span class="lbl">Esta semana</span>
+                        </div>
+                        <div class="mini-stat ambar">
+                            <span class="num" id="stat-activos-mes">—</span>
+                            <span class="lbl">Este mes</span>
+                        </div>
+                        <div class="mini-stat rojo">
+                            <span class="num" id="stat-sin-acceso">—</span>
+                            <span class="lbl">Sin acceso</span>
+                        </div>
+                    </div>
+                    <div class="dash-subtitle">Último acceso por usuario</div>
+                    <div id="actividad-lista"><p class="empty-msg">Cargando...</p></div>
+                </div>
+
             </div>
 
+            <!-- Tabla completa últimos pedidos -->
             <div class="card">
                 <div class="card-header">
                     <h2>📋 Últimos pedidos</h2>
-                    <button class="btn-add" style="background:#6b7280;font-size:.8rem;" onclick="loadEstadisticas()">↺ Actualizar</button>
                 </div>
                 <div class="tabla-wrapper">
                     <table>
@@ -328,6 +390,7 @@
                     </table>
                 </div>
             </div>
+
         </div>
 
         <!-- ── Sección Faltantes ── -->
@@ -467,22 +530,44 @@ function switchTab(tab) {
 
 // ── Estadísticas ──────────────────────────────────────────────────────────────
 
+function diasDesde(fechaStr) {
+    if (!fechaStr) return null;
+    return Math.floor((Date.now() - new Date(fechaStr)) / 86400000);
+}
+
+function dotClass(dias) {
+    if (dias === null)  return 'dot-rojo';
+    if (dias <= 7)      return 'dot-verde';
+    if (dias <= 30)     return 'dot-ambar';
+    return 'dot-naranja';
+}
+
+function tiempoLabel(dias) {
+    if (dias === null) return 'Nunca';
+    if (dias === 0)    return 'Hoy';
+    if (dias === 1)    return 'Ayer';
+    if (dias < 7)      return `Hace ${dias} días`;
+    if (dias < 30)     return `Hace ${Math.floor(dias/7)} sem.`;
+    return `Hace ${Math.floor(dias/30)} mes${Math.floor(dias/30)>1?'es':''}`;
+}
+
 async function loadEstadisticas() {
-    const res = await fetch(`${BASE}/api/admin/pedidos`, { credentials: 'include' });
-    if (!res.ok) return;
-    const pedidos = await res.json();
+    const [resPedidos, resActividad] = await Promise.all([
+        fetch(`${BASE}/api/admin/pedidos`,           { credentials: 'include' }),
+        fetch(`${BASE}/api/admin/clientes/actividad`, { credentials: 'include' }),
+    ]);
+    const pedidos   = resPedidos.ok   ? await resPedidos.json()   : [];
+    const usuarios  = resActividad.ok ? await resActividad.json() : [];
 
-    const now        = new Date();
-    const startMes   = new Date(now.getFullYear(), now.getMonth(), 1);
-    const startSem   = new Date(now);
-    startSem.setDate(now.getDate() - now.getDay());
-    startSem.setHours(0, 0, 0, 0);
+    const now      = new Date();
+    const startMes = new Date(now.getFullYear(), now.getMonth(), 1);
+    const startSem = new Date(now); startSem.setDate(now.getDate() - 7); startSem.setHours(0,0,0,0);
 
+    // ── Panel pedidos ──
     document.getElementById('stat-total').textContent  = pedidos.length;
     document.getElementById('stat-mes').textContent    = pedidos.filter(p => new Date(p.creado_en) >= startMes).length;
     document.getElementById('stat-semana').textContent = pedidos.filter(p => new Date(p.creado_en) >= startSem).length;
 
-    // Top farmacias
     const cntFarm = {};
     pedidos.forEach(p => { cntFarm[p.cliente_nombre] = (cntFarm[p.cliente_nombre] || 0) + 1; });
     const topFarm = Object.entries(cntFarm).sort((a,b) => b[1]-a[1]).slice(0, 8);
@@ -490,9 +575,8 @@ async function loadEstadisticas() {
         ? topFarm.map(([nom, n], i) =>
             `<div class="rank-item"><span><span class="rank-num">#${i+1}</span> ${nom}</span><strong>${n} pedido${n>1?'s':''}</strong></div>`
           ).join('')
-        : '<p class="empty-msg">Sin datos aún</p>';
+        : '<p style="color:var(--muted);padding:12px 0;font-size:.85rem;">Sin pedidos aún</p>';
 
-    // Top productos
     const cntProd = {};
     pedidos.forEach(p => (p.items||[]).forEach(it => {
         cntProd[it.name] = (cntProd[it.name] || 0) + (it.qty || 1);
@@ -502,21 +586,47 @@ async function loadEstadisticas() {
         ? topProd.map(([nom, qty], i) =>
             `<div class="rank-item"><span><span class="rank-num">#${i+1}</span> ${nom}</span><strong>${qty} u.</strong></div>`
           ).join('')
-        : '<p class="empty-msg">Sin datos aún</p>';
+        : '<p style="color:var(--muted);padding:12px 0;font-size:.85rem;">Sin datos aún</p>';
 
-    // Tabla últimos pedidos
+    // ── Panel usuarios ──
+    const activos = usuarios.map(u => ({ ...u, dias: diasDesde(u.ultimo_acceso) }));
+    const activosSem = activos.filter(u => u.dias !== null && u.dias <= 7).length;
+    const activosMes = activos.filter(u => u.dias !== null && u.dias <= 30).length;
+    const sinAcceso  = activos.filter(u => u.dias === null).length;
+
+    document.getElementById('stat-activos-semana').textContent = activosSem;
+    document.getElementById('stat-activos-mes').textContent    = activosMes;
+    document.getElementById('stat-sin-acceso').textContent     = sinAcceso;
+
+    activos.sort((a, b) => {
+        if (a.dias === null && b.dias === null) return 0;
+        if (a.dias === null) return 1;
+        if (b.dias === null) return -1;
+        return a.dias - b.dias;
+    });
+    document.getElementById('actividad-lista').innerHTML = activos.length
+        ? activos.map(u =>
+            `<div class="user-row">
+                <span class="dot ${dotClass(u.dias)}"></span>
+                <span style="flex:1">${u.nombre}</span>
+                <span class="user-time">${tiempoLabel(u.dias)}</span>
+            </div>`
+          ).join('')
+        : '<p style="color:var(--muted);padding:12px 0;font-size:.85rem;">Sin usuarios</p>';
+
+    // ── Tabla últimos pedidos ──
     const tbody = document.getElementById('pedidos-tbody');
     if (!pedidos.length) {
         tbody.innerHTML = '<tr><td colspan="5" class="empty-msg">Sin pedidos registrados aún.</td></tr>';
         return;
     }
     tbody.innerHTML = pedidos.slice(0, 50).map(p => {
-        const items    = p.items || [];
-        const resumen  = items.map(i => `${i.name} ×${i.qty}`).join(', ');
-        const recorte  = resumen.length > 80 ? resumen.slice(0, 80) + '…' : resumen;
-        const fecha    = new Date(p.creado_en).toLocaleString('es-AR', {day:'2-digit',month:'2-digit',year:'2-digit',hour:'2-digit',minute:'2-digit'});
-        const badge    = p.tipo_precio === 'cta-cte' ? 'badge-ctacte' : 'badge-contado';
-        const label    = p.tipo_precio === 'cta-cte' ? 'Cta. Cte.' : 'Contado';
+        const items   = p.items || [];
+        const resumen = items.map(i => `${i.name} ×${i.qty}`).join(', ');
+        const recorte = resumen.length > 80 ? resumen.slice(0, 80) + '…' : resumen;
+        const fecha   = new Date(p.creado_en).toLocaleString('es-AR', {day:'2-digit',month:'2-digit',year:'2-digit',hour:'2-digit',minute:'2-digit'});
+        const badge   = p.tipo_precio === 'cta-cte' ? 'badge-ctacte' : 'badge-contado';
+        const label   = p.tipo_precio === 'cta-cte' ? 'Cta. Cte.' : 'Contado';
         return `<tr>
             <td><strong>${p.cliente_nombre || '—'}</strong></td>
             <td><span class="badge ${badge}">${label}</span></td>

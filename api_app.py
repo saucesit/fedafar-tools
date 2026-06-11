@@ -102,8 +102,12 @@ def api_login():
         return jsonify({'error': 'Usuario o contraseña incorrectos'}), 401
 
     user = ClientUser(user_data)
-    from datetime import timedelta
+    from datetime import datetime, timedelta, timezone
     login_user(user, remember=True, duration=timedelta(days=30))
+    try:
+        sb.table('clientes').update({'ultimo_acceso': datetime.now(timezone.utc).isoformat()}).eq('id', user_data['id']).execute()
+    except Exception:
+        pass
     return jsonify({
         'ok':          True,
         'nombre':      user.nombre,
@@ -1445,6 +1449,17 @@ def api_crear_pedido():
             'total_estimado': data.get('total_estimado'),
         }).execute()
         return jsonify({'ok': True})
+    except Exception as e:
+        print(f"[ERROR] {e}")
+        return jsonify({'error': 'Error interno del servidor'}), 500
+
+@app.route('/api/admin/clientes/actividad', methods=['GET'])
+@admin_required
+def api_admin_clientes_actividad():
+    try:
+        sb = get_sb()
+        res = sb.table('clientes').select('id,nombre,username,tipo_precio,activo,ultimo_acceso').execute()
+        return jsonify(res.data or [])
     except Exception as e:
         print(f"[ERROR] {e}")
         return jsonify({'error': 'Error interno del servidor'}), 500
