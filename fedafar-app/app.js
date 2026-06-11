@@ -1650,6 +1650,7 @@ function buildFaltanteCard(f, tipo) {
     if (esGestor) {
         if (f.estado === 'faltante') {
             botones += `<button class="faltante-btn-accion btn-gestion trigger-gestion" data-id="${f.id}">📋 En gestión</button>`;
+            botones += `<button class="faltante-btn-accion btn-resuelto" data-id="${f.id}" data-estado="resuelto">✅ Resuelto</button>`;
         } else if (f.estado === 'en_gestion') {
             botones += `<button class="faltante-btn-accion btn-gestion" data-id="${f.id}" data-estado="faltante">↩ Reabrir</button>`;
             botones += `<button class="faltante-btn-accion btn-resuelto" data-id="${f.id}" data-estado="resuelto">✅ Resuelto</button>`;
