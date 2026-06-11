@@ -348,14 +348,11 @@
             <!-- Formulario nuevo ticket -->
             <div id="balance-form-section" style="padding:0 16px 12px;">
                 <p style="font-size:.82rem;color:var(--text-muted);margin-bottom:12px;">Reportar discrepancia de stock:</p>
-                <div style="position:relative;">
-                    <input type="text" id="balance-producto-input" class="docs-input" placeholder="Buscar producto *" autocomplete="off">
-                    <div id="balance-sugerencias" class="balance-sugerencias hidden"></div>
-                </div>
+                <input type="text" id="balance-producto-input" class="docs-input" placeholder="Nombre del producto *" autocomplete="off">
                 <div class="balance-stock-row" style="margin-top:10px;">
                     <div class="balance-stock-col">
                         <label class="balance-label">Stock sistema</label>
-                        <input type="number" id="balance-stock-sistema" class="docs-input" readonly placeholder="—" style="background:#f3f4f6;">
+                        <input type="number" id="balance-stock-sistema" class="docs-input" placeholder="Cantidad en sistema" min="0">
                     </div>
                     <div class="balance-stock-col">
                         <label class="balance-label">Stock real *</label>

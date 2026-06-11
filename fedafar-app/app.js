@@ -78,7 +78,6 @@ const balanceModal        = document.getElementById('balance-modal');
 const closeBalanceBtn     = document.getElementById('close-balance');
 const backFromBalanceBtn  = document.getElementById('back-from-balance');
 const balanceProductoInput = document.getElementById('balance-producto-input');
-const balanceSugerencias  = document.getElementById('balance-sugerencias');
 const balanceStockSistema = document.getElementById('balance-stock-sistema');
 const balanceStockReal    = document.getElementById('balance-stock-real');
 const balanceDiferencia   = document.getElementById('balance-diferencia');
@@ -1897,52 +1896,13 @@ closeBalanceBtn.addEventListener('click',    () => balanceModal.classList.add('h
 backFromBalanceBtn.addEventListener('click', () => balanceModal.classList.add('hidden'));
 
 function resetBalanceForm() {
-    balanceProductoInput.value = '';
-    balanceStockSistema.value  = '';
-    balanceStockReal.value     = '';
-    balanceDiferencia.textContent = '—';
-    balanceDiferencia.className   = 'balance-dif-display';
-    balanceSugerencias.classList.add('hidden');
+    balanceProductoInput.value        = '';
+    balanceStockSistema.value         = '';
+    balanceStockReal.value            = '';
+    balanceDiferencia.textContent     = '—';
+    balanceDiferencia.className       = 'balance-dif-display';
     balanceSubmitMsg.classList.add('hidden');
 }
-
-let balanceDebounce = null;
-balanceProductoInput.addEventListener('input', () => {
-    clearTimeout(balanceDebounce);
-    const q = balanceProductoInput.value.trim();
-    balanceStockSistema.value = '';
-    balanceStockReal.value    = '';
-    balanceDiferencia.textContent = '—';
-    balanceDiferencia.className   = 'balance-dif-display';
-    if (q.length < 2) { balanceSugerencias.classList.add('hidden'); return; }
-    balanceDebounce = setTimeout(async () => {
-        const res = await fetch(`${BASE_URL}/api/balance-stock/buscar?q=${encodeURIComponent(q)}`, { credentials: 'include' });
-        if (!res.ok) return;
-        const items = await res.json();
-        if (!items.length) { balanceSugerencias.classList.add('hidden'); return; }
-        balanceSugerencias.innerHTML = items.map(it =>
-            `<div class="balance-sug-item" data-name="${it.name}" data-stock="${it.stock}">
-                <span>${it.name}</span>
-                <span class="balance-sug-stock">Stock: ${it.stock}</span>
-            </div>`
-        ).join('');
-        balanceSugerencias.classList.remove('hidden');
-    }, 300);
-});
-
-balanceSugerencias.addEventListener('click', e => {
-    const item = e.target.closest('.balance-sug-item');
-    if (!item) return;
-    balanceProductoInput.value  = item.dataset.name;
-    balanceStockSistema.value   = item.dataset.stock;
-    balanceSugerencias.classList.add('hidden');
-    balanceStockReal.focus();
-});
-
-document.addEventListener('click', e => {
-    if (!balanceSugerencias.contains(e.target) && e.target !== balanceProductoInput)
-        balanceSugerencias.classList.add('hidden');
-});
 
 balanceStockReal.addEventListener('input', () => {
     const sistema = parseFloat(balanceStockSistema.value);
