@@ -1177,7 +1177,7 @@ body {
 #modo-btn i { transition: none; }
 
 body.desktop-mode #app {
-    max-width: 860px;
+    max-width: 100%;
 }
 body.desktop-mode .faltante-card {
     padding: 18px 22px;
