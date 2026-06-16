@@ -2164,27 +2164,29 @@ function renderIntercambioCard(item, archivado = false) {
     const estadoCfg   = ESTADO_CONFIG[estado] || ESTADO_CONFIG.pendiente;
     const opacity     = archivado ? 'opacity:.65;' : '';
 
+    const total      = parseFloat(item.cantidad) || 0;
+    const yaDevuelto = (item.devoluciones || []).reduce((s, d) => s + (parseFloat(d.cantidad) || 0), 0);
+    const pendiente  = Math.max(0, total - yaDevuelto);
+    const pct        = total > 0 ? Math.min(100, Math.round(yaDevuelto / total * 100)) : 0;
+
+    const barColor   = pct >= 100 ? '#059669' : pct > 0 ? '#f59e0b' : '#e5e7eb';
+
     const devolucionesHtml = (item.devoluciones || []).map(d => {
         const fDev = new Date(d.creado_en).toLocaleDateString('es-AR', { day:'2-digit', month:'2-digit', year:'2-digit' });
-        return `<div style="background:#f9fafb;border-radius:8px;padding:6px 10px;margin-top:6px;font-size:.78rem;color:#374151;">
-            ↩ <strong>${d.cantidad}</strong> — ${fDev}${d.nota ? ` · ${d.nota}` : ''}${d.registrado_por ? ` <span style="color:#9ca3af;">(${d.registrado_por})</span>` : ''}
+        return `<div style="background:#f9fafb;border-radius:8px;padding:6px 10px;margin-top:4px;font-size:.78rem;color:#374151;">
+            ↩ <strong>${+parseFloat(d.cantidad)} unid.</strong> — ${fDev}${d.nota ? ` · ${d.nota}` : ''}${d.registrado_por ? ` <span style="color:#9ca3af;">(${d.registrado_por})</span>` : ''}
         </div>`;
     }).join('');
 
     const formDevolucion = !archivado ? `
         <div id="form-dev-${item.id}" style="display:none;margin-top:10px;border-top:1px solid #f3f4f6;padding-top:10px;">
-            <input type="text" id="dev-cant-${item.id}" class="docs-input" placeholder="Cantidad devuelta *" style="margin-bottom:6px;">
+            <p style="font-size:.8rem;color:#6b7280;margin:0 0 6px;">Pendiente: <strong style="color:#111;">${+pendiente} unidades</strong></p>
+            <input type="number" id="dev-cant-${item.id}" class="docs-input" placeholder="Cantidad a devolver *" min="1" max="${+pendiente}" step="1" style="margin-bottom:6px;">
             <input type="text" id="dev-nota-${item.id}" class="docs-input" placeholder="Nota (opcional)" style="margin-bottom:10px;">
-            <div style="display:flex;gap:8px;margin-bottom:6px;">
-                <button onclick="registrarDevolucion('${item.id}', false)"
-                    style="flex:1;background:#fef3c7;color:#92400e;border:2px solid #f59e0b;border-radius:8px;padding:9px 6px;font-size:.82rem;font-weight:700;cursor:pointer;">
-                    ⚠️ Parcial
-                </button>
-                <button onclick="registrarDevolucion('${item.id}', true)"
-                    style="flex:1;background:#d1fae5;color:#065f46;border:2px solid #059669;border-radius:8px;padding:9px 6px;font-size:.82rem;font-weight:700;cursor:pointer;">
-                    ✅ Cerrar ticket
-                </button>
-            </div>
+            <button onclick="registrarDevolucion('${item.id}')"
+                style="width:100%;background:#059669;color:#fff;border:none;border-radius:8px;padding:10px;font-size:.85rem;font-weight:700;cursor:pointer;margin-bottom:6px;">
+                Confirmar devolución
+            </button>
             <button onclick="document.getElementById('form-dev-${item.id}').style.display='none';document.getElementById('btn-dev-${item.id}').style.display='block';"
                 style="width:100%;background:#f3f4f6;color:#6b7280;border:none;border-radius:8px;padding:7px;font-size:.82rem;cursor:pointer;">
                 Cancelar
@@ -2203,15 +2205,22 @@ function renderIntercambioCard(item, archivado = false) {
             <span style="background:${estadoCfg.bg};color:${estadoCfg.color};font-size:.72rem;font-weight:700;padding:2px 7px;border-radius:8px;">${estadoCfg.label}</span>
             <span style="font-size:.75rem;color:#9ca3af;margin-left:auto;">${fecha}</span>
         </div>
-        <p style="font-size:.9rem;font-weight:600;color:#111;margin:0 0 2px;">${item.producto}</p>
-        <p style="font-size:.82rem;color:#6b7280;margin:0 0 4px;">Total: ${item.cantidad}</p>
+        <p style="font-size:.9rem;font-weight:600;color:#111;margin:0 0 6px;">${item.producto}</p>
+        <div style="display:flex;justify-content:space-between;font-size:.78rem;color:#6b7280;margin-bottom:4px;">
+            <span>Total: <strong style="color:#111;">${+total}</strong></span>
+            <span>Devuelto: <strong style="color:#111;">${+yaDevuelto}</strong></span>
+            <span>Pendiente: <strong style="color:${pendiente > 0 ? '#b45309' : '#059669'};">${+pendiente}</strong></span>
+        </div>
+        <div style="background:#e5e7eb;border-radius:4px;height:6px;margin-bottom:8px;">
+            <div style="background:${barColor};height:6px;border-radius:4px;width:${pct}%;transition:width .3s;"></div>
+        </div>
         ${item.notas ? `<p style="font-size:.8rem;color:#374151;font-style:italic;margin:0 0 4px;">📝 ${item.notas}</p>` : ''}
         ${devolucionesHtml}
         ${formDevolucion}
     </div>`;
 }
 
-async function registrarDevolucion(id, completo) {
+async function registrarDevolucion(id) {
     const cantidad = document.getElementById(`dev-cant-${id}`).value.trim();
     const nota     = document.getElementById(`dev-nota-${id}`).value.trim();
 

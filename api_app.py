@@ -1702,6 +1702,12 @@ def api_intercambios_crear():
         return jsonify({'error': 'Faltan campos obligatorios'}), 400
     if tipo not in ('prestamos_a', 'nos_prestaron'):
         return jsonify({'error': 'Tipo inválido'}), 400
+    try:
+        cantidad_num = float(cantidad)
+        if cantidad_num <= 0:
+            raise ValueError()
+    except (ValueError, TypeError):
+        return jsonify({'error': 'La cantidad debe ser un número mayor a 0'}), 400
 
     try:
         from datetime import datetime, timezone, date
@@ -1710,7 +1716,7 @@ def api_intercambios_crear():
             'tipo':       tipo,
             'entidad':    entidad,
             'producto':   producto,
-            'cantidad':   cantidad,
+            'cantidad':   cantidad_num,
             'notas':      notas or None,
             'creado_por': current_user.nombre,
             'fecha':      date.today().isoformat(),
@@ -1727,16 +1733,31 @@ def api_intercambios_crear():
 @_jefe_o_admin_required
 def api_intercambios_devolucion(id):
     data     = request.get_json() or {}
-    cantidad = data.get('cantidad', '').strip()
     nota     = data.get('nota', '').strip()
-    completo = data.get('completo', False)
-
-    if not cantidad:
-        return jsonify({'error': 'Ingresá la cantidad devuelta'}), 400
+    try:
+        cantidad = float(data.get('cantidad', 0))
+        if cantidad <= 0:
+            raise ValueError()
+    except (ValueError, TypeError):
+        return jsonify({'error': 'La cantidad debe ser un número mayor a 0'}), 400
 
     try:
         from datetime import datetime, timezone
         sb = get_sb()
+
+        # Obtener intercambio y calcular pendiente
+        item = sb.table('prestamos_externos').select('cantidad, estado').eq('id', id).single().execute()
+        if not item.data:
+            return jsonify({'error': 'Intercambio no encontrado'}), 404
+
+        total = float(item.data['cantidad'] or 0)
+        devs  = sb.table('intercambios_devoluciones').select('cantidad').eq('intercambio_id', id).execute()
+        ya_devuelto = sum(float(d['cantidad'] or 0) for d in (devs.data or []))
+        pendiente   = total - ya_devuelto
+
+        if cantidad > pendiente + 0.001:
+            return jsonify({'error': f'Solo quedan {pendiente:g} unidades pendientes'}), 400
+
         sb.table('intercambios_devoluciones').insert({
             'intercambio_id': id,
             'cantidad':       cantidad,
@@ -1744,12 +1765,21 @@ def api_intercambios_devolucion(id):
             'registrado_por': current_user.nombre,
             'creado_en':      datetime.now(timezone.utc).isoformat(),
         }).execute()
-        nuevo_estado = 'completo' if completo else 'parcial'
+
+        nuevo_devuelto = ya_devuelto + cantidad
+        if nuevo_devuelto >= total - 0.001:
+            nuevo_estado = 'completo'
+            completo     = True
+        else:
+            nuevo_estado = 'parcial'
+            completo     = False
+
         sb.table('prestamos_externos').update({
             'estado':   nuevo_estado,
             'devuelto': completo,
         }).eq('id', id).execute()
-        return jsonify({'ok': True, 'estado': nuevo_estado})
+
+        return jsonify({'ok': True, 'estado': nuevo_estado, 'pendiente': total - nuevo_devuelto})
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
