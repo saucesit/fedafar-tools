@@ -1145,12 +1145,26 @@ const _STOPWORDS = new Set([
     'mililitros','litros','cada','todo','todos','este','esta','estos','estas'
 ]);
 
-function _matchearProductos(objeto) {
+function _matchearProductos(objeto, productosDetectados) {
     const prods = window._productosNombres;
-    if (!prods || !objeto) return [];
-    const tokens = _normTexto(objeto).split(' ')
-        .filter(t => t.length > 3 && !_STOPWORDS.has(t));
+    if (!prods) return [];
+
+    // Si Claude ya extrajo nombres genéricos, usarlos como tokens más precisos
+    let tokens = [];
+    if (productosDetectados && productosDetectados.length) {
+        tokens = productosDetectados.flatMap(p =>
+            _normTexto(p).split(' ').filter(t => t.length > 3 && !_STOPWORDS.has(t))
+        );
+    }
+    // Siempre complementar con tokens del objeto
+    if (objeto) {
+        tokens = tokens.concat(
+            _normTexto(objeto).split(' ').filter(t => t.length > 3 && !_STOPWORDS.has(t))
+        );
+    }
+    tokens = [...new Set(tokens)];
     if (!tokens.length) return [];
+
     const resultados = [];
     for (const nombre of prods) {
         const n = _normTexto(nombre);
@@ -1318,8 +1332,15 @@ async function verLicitacion(idx) {
                 <tr><td style="color:#6b7280;padding:5px 0;">Estado</td><td style="font-weight:600;">${l.estado || '—'}</td></tr>
             </table>
             ${l.analisis ? `<div style="background:#f8fafc;border-radius:10px;padding:12px;margin-bottom:16px;font-size:.85rem;color:#374151;font-style:italic;">🤖 ${l.analisis}</div>` : ''}
+            <div id="modal-lic-productos" style="margin-bottom:12px;"></div>
             <div id="modal-lic-matches" style="margin-bottom:16px;">
                 <div style="font-size:.78rem;color:#9ca3af;font-style:italic;">Buscando en catálogo...</div>
+            </div>
+            <div style="margin-bottom:16px;">
+                <button id="btn-reanalizar-lic" onclick="reanalizarLicitacion('${l.id}', ${idx})"
+                    style="border:1px solid #d1d5db;background:#f9fafb;color:#374151;border-radius:8px;padding:6px 14px;font-size:.8rem;cursor:pointer;font-weight:600;">
+                    🔬 Re-analizar con IA
+                </button>
             </div>
             ${l.url ? `<a href="${l.url}" target="_blank"
                 style="display:block;text-align:center;background:#2563eb;color:#fff;border-radius:10px;padding:12px;font-size:.9rem;font-weight:700;text-decoration:none;">
@@ -1329,13 +1350,17 @@ async function verLicitacion(idx) {
     modal.addEventListener('click', e => { if (e.target === modal) modal.remove(); });
     document.body.appendChild(modal);
 
-    // Matching asíncrono: espera que el catálogo esté listo
+    // Productos detectados por IA (si ya existen)
+    _renderProductosDetectados(l);
+
+    // Matching asíncrono contra catálogo
     await _cargarProductosNombres();
-    const matches = _matchearProductos(l.objeto);
+    const prodDet = l.productos_detectados ? JSON.parse(l.productos_detectados) : [];
+    const matches = _matchearProductos(l.objeto, prodDet);
     const matchDiv = document.getElementById('modal-lic-matches');
     if (!matchDiv) return;
     if (!matches.length) {
-        matchDiv.innerHTML = `<div style="font-size:.78rem;color:#9ca3af;font-style:italic;">Sin coincidencias en catálogo.</div>`;
+        matchDiv.innerHTML = `<div style="font-size:.78rem;color:#9ca3af;font-style:italic;">Sin coincidencias en catálogo. Usá "Re-analizar con IA" para mejorar la búsqueda.</div>`;
     } else {
         matchDiv.innerHTML = `
             <div style="font-size:.8rem;font-weight:700;color:#374151;margin-bottom:8px;">
@@ -1346,6 +1371,58 @@ async function verLicitacion(idx) {
                     `<span style="background:#dbeafe;color:#1e40af;border-radius:8px;padding:4px 10px;font-size:.78rem;font-weight:600;">${m.nombre}</span>`
                 ).join('')}
             </div>`;
+    }
+}
+
+function _renderProductosDetectados(l) {
+    const div = document.getElementById('modal-lic-productos');
+    if (!div) return;
+    let prods = [];
+    try { prods = l.productos_detectados ? JSON.parse(l.productos_detectados) : []; } catch(e) {}
+    if (!prods.length) {
+        div.innerHTML = `<div style="font-size:.78rem;color:#9ca3af;font-style:italic;">Sin medicamentos identificados por IA aún. Usá "Re-analizar".</div>`;
+        return;
+    }
+    div.innerHTML = `
+        <div style="font-size:.8rem;font-weight:700;color:#374151;margin-bottom:8px;">🤖 Medicamentos identificados por IA (${prods.length})</div>
+        <div style="display:flex;flex-wrap:wrap;gap:6px;">
+            ${prods.map(p => `<span style="background:#f0fdf4;color:#166534;border:1px solid #bbf7d0;border-radius:8px;padding:4px 10px;font-size:.78rem;font-weight:600;">${p}</span>`).join('')}
+        </div>`;
+}
+
+async function reanalizarLicitacion(id, idx) {
+    const btn = document.getElementById('btn-reanalizar-lic');
+    if (btn) { btn.disabled = true; btn.textContent = '⏳ Analizando...'; }
+    try {
+        const res  = await fetch(`${BASE}/api/admin/licitaciones/${id}/reanalizar`, {
+            method: 'POST', credentials: 'include'
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Error');
+
+        // Actualizar datos locales
+        if (window._licitacionesData && window._licitacionesData[idx]) {
+            const a = data.analisis;
+            window._licitacionesData[idx].clasificacion        = a.clasificacion;
+            window._licitacionesData[idx].analisis             = `${a.rubro||''} — ${a.analisis||''}`;
+            window._licitacionesData[idx].productos_detectados = JSON.stringify(a.productos || []);
+        }
+
+        // Refrescar secciones del modal
+        _renderProductosDetectados(window._licitacionesData[idx]);
+        const prodDet = data.analisis.productos || [];
+        const matches = _matchearProductos(window._licitacionesData[idx].objeto, prodDet);
+        const matchDiv = document.getElementById('modal-lic-matches');
+        if (matchDiv) {
+            matchDiv.innerHTML = matches.length
+                ? `<div style="font-size:.8rem;font-weight:700;color:#374151;margin-bottom:8px;">📦 Productos del catálogo (${matches.length})</div>
+                   <div style="display:flex;flex-wrap:wrap;gap:6px;">${matches.map(m=>`<span style="background:#dbeafe;color:#1e40af;border-radius:8px;padding:4px 10px;font-size:.78rem;font-weight:600;">${m.nombre}</span>`).join('')}</div>`
+                : `<div style="font-size:.78rem;color:#9ca3af;font-style:italic;">Sin coincidencias en catálogo.</div>`;
+        }
+        if (btn) { btn.disabled = false; btn.textContent = '✅ Re-analizado'; }
+    } catch(e) {
+        if (btn) { btn.disabled = false; btn.textContent = '❌ Error'; }
+        alert('Error: ' + e.message);
     }
 }
 

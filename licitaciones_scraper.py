@@ -187,16 +187,19 @@ def clasificar(fila):
         f"- Estado: {fila['estado']}\n"
         f"- Fecha apertura: {fila['fecha_apertura']}\n\n"
         'Respondé SOLO con este JSON (sin markdown):\n'
-        '{"clasificacion":"APLICA","rubro":"...","analisis":"..."}\n\n'
+        '{"clasificacion":"APLICA","rubro":"...","analisis":"...","productos":["nombre genérico 1","nombre genérico 2"]}\n\n'
         'APLICA = claramente medicamentos, insumos, reactivos, descartables\n'
         'REVISAR = posiblemente relevante (equipamiento sanitario, servicios hospitalarios)\n'
         'NO_APLICA = sin relación con droguería\n'
-        'rubro: máx 40 chars | analisis: máx 120 chars'
+        'rubro: máx 40 chars | analisis: máx 120 chars\n'
+        'productos: lista de nombres genéricos (DCI) de medicamentos/insumos mencionados. '
+        'Si el objeto es genérico sin nombres específicos, inferí los productos más probables '
+        'según el tipo de organismo y contexto. Máx 10 items, array vacío si no aplica.'
     )
     try:
         resp = client.messages.create(
             model='claude-haiku-4-5-20251001',
-            max_tokens=200,
+            max_tokens=400,
             messages=[{'role': 'user', 'content': prompt}]
         )
         text = resp.content[0].text.strip()
@@ -226,8 +229,9 @@ def guardar(sb, fila, analisis):
         'organismo':      fila['organismo'][:200],
         'fecha_apertura': fila['fecha_apertura'][:50],
         'estado':         fila['estado'][:50],
-        'clasificacion':  analisis.get('clasificacion', 'REVISAR'),
-        'analisis':       f"{analisis.get('rubro','')} — {analisis.get('analisis','')}",
+        'clasificacion':        analisis.get('clasificacion', 'REVISAR'),
+        'analisis':             f"{analisis.get('rubro','')} — {analisis.get('analisis','')}",
+        'productos_detectados': json.dumps(analisis.get('productos', []), ensure_ascii=False),
         'url':            fila['url'][:500],
         'fecha_scraping': datetime.now(timezone.utc).isoformat(),
         'notificado':     False,

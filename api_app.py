@@ -1697,6 +1697,35 @@ def api_admin_licitaciones_clasificar(id):
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
+@app.route('/api/admin/licitaciones/<id>/reanalizar', methods=['POST'])
+@admin_required
+def api_admin_licitaciones_reanalizar(id):
+    try:
+        import sys, json as _json
+        for mod in ('licitaciones_scraper',):
+            if mod in sys.modules:
+                del sys.modules[mod]
+        from licitaciones_scraper import clasificar as _clasificar
+        sb  = get_sb()
+        row = sb.table('licitaciones').select('*').eq('id', id).single().execute()
+        if not row.data:
+            return jsonify({'error': 'No encontrada'}), 404
+        fila = {
+            'objeto':         row.data.get('objeto', ''),
+            'organismo':      row.data.get('organismo', ''),
+            'estado':         row.data.get('estado', ''),
+            'fecha_apertura': row.data.get('fecha_apertura', ''),
+        }
+        analisis = _clasificar(fila)
+        sb.table('licitaciones').update({
+            'clasificacion':        analisis.get('clasificacion', 'REVISAR'),
+            'analisis':             f"{analisis.get('rubro','')} — {analisis.get('analisis','')}",
+            'productos_detectados': _json.dumps(analisis.get('productos', []), ensure_ascii=False),
+        }).eq('id', id).execute()
+        return jsonify({'ok': True, 'analisis': analisis})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
 @app.route('/api/admin/productos-nombres', methods=['GET'])
 @admin_required
 def api_admin_productos_nombres():
