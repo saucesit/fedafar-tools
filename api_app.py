@@ -640,7 +640,19 @@ def get_stock_data():
     except Exception:
         pass
 
-    # 2. Fallback: usar stock_data.json generado por el sync diario
+    # 2. Supabase (actualizado por sync_stock.py — funciona en Render)
+    try:
+        sb = get_sb()
+        res = sb.table('stock_productos').select('nombre,existencia').execute()
+        if res.data:
+            for row in res.data:
+                stock_dict[row['nombre']] = float(row['existencia'])
+            print(f"Stock cargado: {len(stock_dict)} productos desde Supabase.")
+            return stock_dict
+    except Exception as e:
+        print(f"Stock desde Supabase no disponible: {e}")
+
+    # 3. Fallback: stock_data.json (último recurso)
     try:
         with open(STOCK_JSON_PATH, 'r', encoding='utf-8') as f:
             stock_dict = json.load(f)

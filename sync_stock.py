@@ -21,8 +21,12 @@ import shutil
 import pandas as pd
 from dotenv import load_dotenv
 from playwright.sync_api import sync_playwright, Page, TimeoutError as PWTimeout
+from datetime import datetime, timezone
 
 load_dotenv()
+
+SUPABASE_URL = os.getenv('SUPABASE_URL', '')
+SUPABASE_KEY = os.getenv('SUPABASE_KEY', '')
 
 BASE_URL     = "http://192.168.0.35/fedafar"
 FEDAFAR_USER = os.getenv("FEDAFAR_USER")
@@ -137,8 +141,9 @@ def parse_reporte() -> bool:
 
         with open(OUTPUT_PATH, 'w', encoding='utf-8') as f:
             json.dump(stock_dict, f, ensure_ascii=False)
+        print(f"  [OK] {len(stock_dict)} artículos guardados en stock_data.json")
 
-        print(f"  [OK] {len(stock_dict)} artículos con stock guardados en stock_data.json")
+        _subir_a_supabase(stock_dict)
         return True
 
     except Exception as e:
@@ -149,6 +154,26 @@ def parse_reporte() -> bool:
             os.remove(XLSX_PATH)
         except Exception:
             pass
+
+
+def _subir_a_supabase(stock_dict: dict):
+    if not SUPABASE_URL or not SUPABASE_KEY:
+        print("  [SKIP] Supabase no configurado, solo JSON local.")
+        return
+    try:
+        from supabase import create_client
+        sb = create_client(SUPABASE_URL, SUPABASE_KEY)
+        ts = datetime.now(timezone.utc).isoformat()
+        registros = [{'nombre': k, 'existencia': v, 'actualizado_en': ts}
+                     for k, v in stock_dict.items()]
+        batch = 500
+        for i in range(0, len(registros), batch):
+            sb.table('stock_productos').upsert(registros[i:i+batch]).execute()
+        # Borrar productos que ya no tienen stock (no aparecieron en este sync)
+        sb.table('stock_productos').delete().lt('actualizado_en', ts).execute()
+        print(f"  [OK] {len(registros)} productos actualizados en Supabase.")
+    except Exception as e:
+        print(f"  [WARN] No se pudo subir a Supabase: {e}")
 
 
 if __name__ == "__main__":

@@ -22,5 +22,10 @@ echo [5/6] Scrapeando licitaciones SaltaCompra... >> sync_log.txt
 echo [6/6] Scrapeando solicitudes IPS... >> sync_log.txt
 "C:\Users\FEDAFAR\AppData\Local\Programs\Python\Python312\python.exe" ips_scraper.py >> sync_log.txt 2>&1
 
+echo [7/7] Pusheando stock y precios actualizados a Render... >> sync_log.txt
+git -C "C:\Users\FEDAFAR\fedafar-tools" add stock_data.json price_list.xlsx >> sync_log.txt 2>&1
+git -C "C:\Users\FEDAFAR\fedafar-tools" diff --cached --quiet || git -C "C:\Users\FEDAFAR\fedafar-tools" commit -m "sync: stock y precios actualizados %date%" >> sync_log.txt 2>&1
+git -C "C:\Users\FEDAFAR\fedafar-tools" push >> sync_log.txt 2>&1
+
 echo === Fin sync === >> sync_log.txt
 echo. >> sync_log.txt
