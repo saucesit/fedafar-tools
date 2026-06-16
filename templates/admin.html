@@ -1017,6 +1017,11 @@ const CLAS_CONFIG = {
     NO_APLICA: { bg: '#fee2e2', color: '#991b1b', label: '❌ No aplica' },
 };
 
+const FUENTE_CONFIG = {
+    saltacompra: { label: 'SaltaCompra', bg: '#ede9fe', color: '#5b21b6' },
+    ips:         { label: 'IPS',         bg: '#fff7ed', color: '#c2410c' },
+};
+
 async function actualizarBadgeLicitaciones() {
     try {
         const res  = await fetch(`${BASE}/api/admin/licitaciones`, { credentials: 'include' });
@@ -1070,32 +1075,106 @@ async function loadLicitaciones() {
         return;
     }
 
-    // Ordenar: APLICA → REVISAR → NO_APLICA, luego por fecha
     const orden = { APLICA: 0, REVISAR: 1, NO_APLICA: 2 };
     data.sort((a, b) => (orden[a.clasificacion] ?? 9) - (orden[b.clasificacion] ?? 9));
 
-    body.innerHTML = data.map(l => {
+    // Guardar datos para el modal
+    window._licitacionesData = data;
+
+    body.innerHTML = data.map((l, i) => {
         const cfg    = CLAS_CONFIG[l.clasificacion] || CLAS_CONFIG.REVISAR;
+        const fuente = FUENTE_CONFIG[l.fuente] || FUENTE_CONFIG.saltacompra;
         const fecha  = l.fecha_scraping
             ? new Date(l.fecha_scraping).toLocaleDateString('es-AR', { day:'2-digit', month:'2-digit', year:'2-digit' })
             : '—';
         const nueva  = !l.notificado
-            ? '<span style="background:#dc2626;color:#fff;font-size:.7rem;font-weight:700;padding:2px 7px;border-radius:10px;margin-left:8px;">NUEVA</span>'
+            ? '<span style="background:#dc2626;color:#fff;font-size:.7rem;font-weight:700;padding:2px 7px;border-radius:10px;">NUEVA</span>'
             : '';
+
+        const btnClas = (clas, emoji, label) => {
+            const activo = l.clasificacion === clas;
+            const cfg2   = CLAS_CONFIG[clas];
+            return `<button onclick="clasificarLicitacion('${l.id}',${i},'${clas}')"
+                style="border:2px solid ${activo ? cfg2.color : '#d1d5db'};background:${activo ? cfg2.bg : '#f9fafb'};
+                color:${activo ? cfg2.color : '#6b7280'};border-radius:8px;padding:4px 10px;font-size:.75rem;
+                font-weight:${activo ? '700' : '500'};cursor:pointer;">${emoji} ${label}</button>`;
+        };
+
         return `
-        <div style="border:1px solid #e5e7eb;border-radius:12px;padding:14px 18px;background:#fff;border-left:4px solid ${cfg.color};">
-            <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:6px;">
+        <div id="lic-card-${i}" style="border:1px solid #e5e7eb;border-radius:12px;padding:14px 18px;background:#fff;border-left:4px solid ${cfg.color};">
+            <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:8px;">
+                <span style="background:${fuente.bg};color:${fuente.color};font-size:.72rem;font-weight:700;padding:2px 8px;border-radius:10px;">${fuente.label}</span>
                 <span style="background:${cfg.bg};color:${cfg.color};font-size:.78rem;font-weight:700;padding:3px 10px;border-radius:12px;">${cfg.label}</span>
                 <span style="font-size:.8rem;color:#6b7280;font-weight:600;">${l.numero_proceso || '—'}</span>
                 ${nueva}
                 <span style="font-size:.75rem;color:#9ca3af;margin-left:auto;">Scraped: ${fecha}</span>
             </div>
             <p style="font-size:.95rem;font-weight:600;color:#111;margin:0 0 4px;">${l.objeto || '—'}</p>
-            <p style="font-size:.82rem;color:#6b7280;margin:0 0 4px;">🏛 ${l.organismo || '—'} &nbsp;·&nbsp; 📅 Apertura: ${l.fecha_apertura || '—'} &nbsp;·&nbsp; ${l.estado || ''}</p>
-            ${l.analisis ? `<p style="font-size:.82rem;color:#374151;margin:6px 0 0;font-style:italic;">🤖 ${l.analisis}</p>` : ''}
-            ${l.url ? `<a href="${l.url}" target="_blank" style="font-size:.8rem;color:#2563eb;text-decoration:none;display:inline-block;margin-top:6px;">🔗 Ver licitación</a>` : ''}
+            <p style="font-size:.82rem;color:#6b7280;margin:0 0 8px;">🏛 ${l.organismo || '—'} &nbsp;·&nbsp; 📅 Apertura: ${l.fecha_apertura || '—'} &nbsp;·&nbsp; ${l.estado || ''}</p>
+            ${l.analisis ? `<p style="font-size:.82rem;color:#374151;margin:0 0 10px;font-style:italic;">🤖 ${l.analisis}</p>` : ''}
+            <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+                ${btnClas('APLICA',    '✅', 'Aplica')}
+                ${btnClas('REVISAR',   '⚠️', 'Revisar')}
+                ${btnClas('NO_APLICA', '❌', 'No aplica')}
+                <button onclick="verLicitacion(${i})"
+                    style="margin-left:auto;border:none;background:#2563eb;color:#fff;border-radius:8px;padding:5px 14px;font-size:.8rem;font-weight:600;cursor:pointer;">
+                    🔍 Ver detalle
+                </button>
+            </div>
         </div>`;
     }).join('');
+}
+
+async function clasificarLicitacion(id, idx, nuevaClas) {
+    const res = await fetch(`${BASE}/api/admin/licitaciones/${id}/clasificar`, {
+        method: 'PATCH', credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ clasificacion: nuevaClas }),
+    });
+    if (res.ok) {
+        // Actualizar datos locales y re-renderizar solo esa card
+        window._licitacionesData[idx].clasificacion = nuevaClas;
+        loadLicitaciones();
+    } else {
+        alert('Error al guardar clasificación');
+    }
+}
+
+function verLicitacion(idx) {
+    const l   = window._licitacionesData[idx];
+    const cfg = CLAS_CONFIG[l.clasificacion] || CLAS_CONFIG.REVISAR;
+    const fuente = FUENTE_CONFIG[l.fuente] || FUENTE_CONFIG.saltacompra;
+
+    const existing = document.getElementById('modal-licitacion');
+    if (existing) existing.remove();
+
+    const modal = document.createElement('div');
+    modal.id = 'modal-licitacion';
+    modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:9999;display:flex;align-items:center;justify-content:center;padding:16px;';
+    modal.innerHTML = `
+        <div style="background:#fff;border-radius:16px;max-width:560px;width:100%;padding:28px;position:relative;max-height:90vh;overflow-y:auto;">
+            <button onclick="document.getElementById('modal-licitacion').remove()"
+                style="position:absolute;top:14px;right:16px;border:none;background:none;font-size:1.4rem;cursor:pointer;color:#6b7280;">✕</button>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px;">
+                <span style="background:${fuente.bg};color:${fuente.color};font-size:.75rem;font-weight:700;padding:3px 10px;border-radius:10px;">${fuente.label}</span>
+                <span style="background:${cfg.bg};color:${cfg.color};font-size:.78rem;font-weight:700;padding:3px 12px;border-radius:12px;">${cfg.label}</span>
+                ${!l.notificado ? '<span style="background:#dc2626;color:#fff;font-size:.7rem;font-weight:700;padding:3px 8px;border-radius:10px;">NUEVA</span>' : ''}
+            </div>
+            <h3 style="font-size:1.05rem;font-weight:700;color:#111;margin:0 0 16px;line-height:1.4;">${l.objeto || '—'}</h3>
+            <table style="width:100%;border-collapse:collapse;font-size:.85rem;margin-bottom:16px;">
+                <tr><td style="color:#6b7280;padding:5px 0;width:130px;">N° Proceso</td><td style="font-weight:600;">${l.numero_proceso || '—'}</td></tr>
+                <tr><td style="color:#6b7280;padding:5px 0;">Organismo</td><td style="font-weight:600;">${l.organismo || '—'}</td></tr>
+                <tr><td style="color:#6b7280;padding:5px 0;">Apertura</td><td style="font-weight:600;">${l.fecha_apertura || '—'}</td></tr>
+                <tr><td style="color:#6b7280;padding:5px 0;">Estado</td><td style="font-weight:600;">${l.estado || '—'}</td></tr>
+            </table>
+            ${l.analisis ? `<div style="background:#f8fafc;border-radius:10px;padding:12px;margin-bottom:16px;font-size:.85rem;color:#374151;font-style:italic;">🤖 ${l.analisis}</div>` : ''}
+            ${l.url ? `<a href="${l.url}" target="_blank"
+                style="display:block;text-align:center;background:#2563eb;color:#fff;border-radius:10px;padding:12px;font-size:.9rem;font-weight:700;text-decoration:none;">
+                🔗 Abrir en sitio oficial (pliego y detalles)
+            </a>` : ''}
+        </div>`;
+    modal.addEventListener('click', e => { if (e.target === modal) modal.remove(); });
+    document.body.appendChild(modal);
 }
 
 async function syncLicitaciones(btn) {

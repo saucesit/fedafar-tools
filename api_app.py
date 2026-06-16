@@ -1626,6 +1626,20 @@ def api_admin_licitaciones_sync():
         print(f"[ERROR sync licitaciones] {e}")
         return jsonify({'error': str(e)}), 500
 
+@app.route('/api/admin/licitaciones/<id>/clasificar', methods=['PATCH'])
+@admin_required
+def api_admin_licitaciones_clasificar(id):
+    data = request.get_json() or {}
+    clasificacion = data.get('clasificacion')
+    if clasificacion not in ('APLICA', 'REVISAR', 'NO_APLICA'):
+        return jsonify({'error': 'Clasificación inválida'}), 400
+    try:
+        sb = get_sb()
+        sb.table('licitaciones').update({'clasificacion': clasificacion}).eq('id', id).execute()
+        return jsonify({'ok': True})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5001))
     print(f"Iniciando API FEDAFAR en puerto {port}...")
