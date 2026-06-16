@@ -2221,18 +2221,20 @@ function renderIntercambioCard(item, archivado = false) {
 }
 
 async function registrarDevolucion(id) {
-    const cantidad = document.getElementById(`dev-cant-${id}`).value.trim();
-    const nota     = document.getElementById(`dev-nota-${id}`).value.trim();
+    const cantEl = document.getElementById(`dev-cant-${id}`);
+    const notaEl = document.getElementById(`dev-nota-${id}`);
+    const cantidad = Number(cantEl?.value || 0);
+    const nota     = notaEl?.value.trim() || '';
 
-    if (!cantidad) {
-        alert('Ingresá la cantidad devuelta');
+    if (!cantidad || cantidad <= 0) {
+        alert('Ingresá una cantidad válida mayor a 0');
         return;
     }
 
     const res = await fetch(`${BASE_URL}/api/intercambios/${id}/devolucion`, {
         method: 'POST', credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ cantidad, nota, completo }),
+        body: JSON.stringify({ cantidad, nota }),
     });
 
     if (res.ok) {
