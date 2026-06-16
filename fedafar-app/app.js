@@ -680,7 +680,24 @@ sendOrderBtn.addEventListener('click', () => {
     cart.forEach(item => { msg += `• ${item.name} (${item.lab}) x${item.qty}\n`; });
     msg += `\n*TOTAL ESTIMADO:* ${totalPriceEl.innerText}`;
     msg += `\n\n_Por favor confirmar stock y precios vigentes._`;
-    window.open(`https://wa.me/5493876835525?text=${encodeURIComponent(msg)}`);
+
+    const waUrl  = `https://wa.me/5493876835525?text=${encodeURIComponent(msg)}`;
+    const popup  = window.open(waUrl);
+
+    if (!popup) {
+        // Popup bloqueado — mostrar link de respaldo en el carrito
+        const existing = document.getElementById('wa-fallback');
+        if (existing) existing.remove();
+        const fallback = document.createElement('a');
+        fallback.id        = 'wa-fallback';
+        fallback.href      = waUrl;
+        fallback.target    = '_blank';
+        fallback.rel       = 'noopener';
+        fallback.innerText = '📲 Tocá acá para enviar el pedido por WhatsApp';
+        fallback.style.cssText = 'display:block;margin-top:12px;padding:12px;background:#25d366;color:#fff;border-radius:10px;text-align:center;font-weight:700;font-size:.95rem;text-decoration:none;';
+        sendOrderBtn.insertAdjacentElement('afterend', fallback);
+    }
+
     fetch(`${BASE_URL}/api/pedidos`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
