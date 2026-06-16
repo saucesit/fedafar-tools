@@ -1622,7 +1622,7 @@ async function loadCRM() {
     board.innerHTML = CRM_COLS.map(col => {
         const cards = byEstado[col.id] || [];
         return `
-        <div style="flex:0 0 270px;display:flex;flex-direction:column;">
+        <div style="flex:1 1 200px;min-width:180px;display:flex;flex-direction:column;">
             <div style="background:${col.bg};border:1px solid ${col.border};border-radius:12px 12px 0 0;padding:10px 14px;display:flex;align-items:center;gap:8px;">
                 <span style="font-size:.85rem;font-weight:800;color:${col.color};">${col.emoji} ${col.label}</span>
                 <span style="background:${col.color};color:#fff;border-radius:20px;padding:1px 8px;font-size:.72rem;font-weight:700;margin-left:auto;">${cards.length}</span>
