@@ -1257,10 +1257,16 @@ async function loadIntercambiosAdmin() {
         const ecfg        = ESTADO_ADM[estado] || ESTADO_ADM.pendiente;
         const fecha       = i.fecha ? new Date(i.fecha + 'T00:00:00').toLocaleDateString('es-AR', { day:'2-digit', month:'2-digit', year:'2-digit' }) : '—';
 
+        const total      = parseFloat(i.cantidad) || 0;
+        const yaDevuelto = (i.devoluciones || []).reduce((s, d) => s + (parseFloat(d.cantidad) || 0), 0);
+        const pendiente  = Math.max(0, total - yaDevuelto);
+        const pct        = total > 0 ? Math.min(100, Math.round(yaDevuelto / total * 100)) : 0;
+        const barColor   = pct >= 100 ? '#059669' : pct > 0 ? '#f59e0b' : '#e5e7eb';
+
         const devs = (i.devoluciones || []).map(d => {
             const fd = new Date(d.creado_en).toLocaleDateString('es-AR', { day:'2-digit', month:'2-digit', year:'2-digit' });
             return `<div style="font-size:.78rem;color:#374151;background:#f9fafb;border-radius:6px;padding:4px 8px;margin-top:4px;">
-                ↩ <strong>${d.cantidad}</strong> — ${fd}${d.nota ? ` · ${d.nota}` : ''} ${d.registrado_por ? `<span style="color:#9ca3af;">(${d.registrado_por})</span>` : ''}
+                ↩ <strong>${+parseFloat(d.cantidad)}</strong> — ${fd}${d.nota ? ` · ${d.nota}` : ''} ${d.registrado_por ? `<span style="color:#9ca3af;">(${d.registrado_por})</span>` : ''}
             </div>`;
         }).join('');
 
@@ -1272,8 +1278,16 @@ async function loadIntercambiosAdmin() {
                 <span style="background:${ecfg.bg};color:${ecfg.color};font-size:.72rem;font-weight:700;padding:2px 7px;border-radius:8px;">${ecfg.label}</span>
                 <span style="font-size:.75rem;color:#9ca3af;margin-left:auto;">${fecha}</span>
             </div>
-            <p style="font-size:.9rem;font-weight:600;color:#111;margin:0 0 2px;">${i.producto}</p>
-            <p style="font-size:.82rem;color:#6b7280;margin:0 0 4px;">Total: ${i.cantidad}${i.creado_por ? ` · Cargado por: ${i.creado_por}` : ''}</p>
+            <p style="font-size:.9rem;font-weight:600;color:#111;margin:0 0 6px;">${i.producto}</p>
+            <div style="display:flex;justify-content:space-between;font-size:.78rem;color:#6b7280;margin-bottom:4px;">
+                <span>Total: <strong style="color:#111;">${+total}</strong></span>
+                <span>Devuelto: <strong style="color:#111;">${+yaDevuelto}</strong></span>
+                <span>Pendiente: <strong style="color:${pendiente > 0 ? '#b45309' : '#059669'};">${+pendiente}</strong></span>
+            </div>
+            <div style="background:#e5e7eb;border-radius:4px;height:6px;margin-bottom:8px;">
+                <div style="background:${barColor};height:6px;border-radius:4px;width:${pct}%;transition:width .3s;"></div>
+            </div>
+            ${i.creado_por ? `<p style="font-size:.78rem;color:#9ca3af;margin:0 0 4px;">Cargado por: ${i.creado_por}</p>` : ''}
             ${i.notas ? `<p style="font-size:.8rem;color:#374151;font-style:italic;margin:0 0 4px;">📝 ${i.notas}</p>` : ''}
             ${devs}
             ${estado !== 'completo' ? `
