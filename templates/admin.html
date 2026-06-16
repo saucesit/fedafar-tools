@@ -286,6 +286,7 @@
             📋 Licitaciones
             <span id="badge-licitaciones" style="display:none;position:absolute;top:4px;right:4px;background:#dc2626;color:#fff;border-radius:50%;width:18px;height:18px;font-size:.7rem;font-weight:800;line-height:18px;text-align:center;">0</span>
         </button>
+        <button class="admin-tab" id="tab-intercambios" onclick="switchTab('intercambios')">🔄 Intercambios</button>
     </div>
 
     <div class="container">
@@ -481,6 +482,19 @@
         </div>
 
         <!-- ── Sección Licitaciones ── -->
+        <div class="admin-section" id="section-intercambios">
+            <div class="card" style="margin-top:0;">
+                <div class="card-header">
+                    <h2>🔄 Intercambios de Mercadería</h2>
+                    <button class="btn-add" style="background:#6b7280;font-size:.8rem;" onclick="loadIntercambiosAdmin()">↺ Actualizar</button>
+                </div>
+                <div id="intercambios-admin-resumen" style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:18px;"></div>
+                <div id="intercambios-admin-body" style="display:flex;flex-direction:column;gap:10px;">
+                    <p class="empty-msg">Cargando...</p>
+                </div>
+            </div>
+        </div>
+
         <div class="admin-section" id="section-licitaciones">
             <div class="card" style="margin-top:0;">
                 <div class="card-header">
@@ -600,7 +614,8 @@ function switchTab(tab) {
     if (tab === 'faltantes')     loadFaltantesAdmin();
     if (tab === 'estadisticas')  loadEstadisticas();
     if (tab === 'balance')       loadBalanceAdmin();
-    if (tab === 'licitaciones')  { loadLicitaciones(); marcarVistasLicitaciones(); }
+    if (tab === 'licitaciones')   { loadLicitaciones(); marcarVistasLicitaciones(); }
+    if (tab === 'intercambios')  { loadIntercambiosAdmin(); }
 }
 
 // ── Balance Stock ─────────────────────────────────────────────────────────────
@@ -1195,6 +1210,93 @@ async function syncLicitaciones(btn) {
         btn.textContent = '❌ Error de conexión';
     }
     setTimeout(() => { btn.disabled = false; btn.textContent = '🔄 Sincronizar ahora'; }, 3000);
+}
+
+// ── Intercambios Admin ────────────────────────────────────────────────────────
+
+const ESTADO_ADM = {
+    pendiente: { label: 'Pendiente', bg: '#fee2e2', color: '#991b1b' },
+    parcial:   { label: 'Parcial',   bg: '#fef3c7', color: '#92400e' },
+    completo:  { label: 'Completo',  bg: '#d1fae5', color: '#065f46' },
+};
+
+async function loadIntercambiosAdmin() {
+    const body    = document.getElementById('intercambios-admin-body');
+    const resumen = document.getElementById('intercambios-admin-resumen');
+    body.innerHTML = '<p class="empty-msg">Cargando...</p>';
+
+    const res = await fetch(`${BASE}/api/intercambios`, { credentials: 'include' });
+    if (!res.ok) { body.innerHTML = '<p class="empty-msg">Error al cargar.</p>'; return; }
+    const data = await res.json();
+
+    // Resumen
+    const pendientes = data.filter(i => i.estado === 'pendiente' || !i.estado).length;
+    const parciales  = data.filter(i => i.estado === 'parcial').length;
+    const completos  = data.filter(i => i.estado === 'completo').length;
+    resumen.innerHTML = [
+        { num: pendientes, label: 'Pendientes', color: '#991b1b', bg: '#fee2e2' },
+        { num: parciales,  label: 'Parciales',  color: '#92400e', bg: '#fef3c7' },
+        { num: completos,  label: 'Completos',  color: '#065f46', bg: '#d1fae5' },
+    ].map(s => `
+        <div style="background:${s.bg};border-radius:10px;padding:10px 18px;text-align:center;min-width:80px;">
+            <div style="font-size:1.5rem;font-weight:800;color:${s.color};line-height:1;">${s.num}</div>
+            <div style="font-size:.75rem;color:#555;">${s.label}</div>
+        </div>`).join('');
+
+    if (!data.length) {
+        body.innerHTML = '<p class="empty-msg">Sin intercambios registrados.</p>';
+        return;
+    }
+
+    body.innerHTML = data.map(i => {
+        const esPrestamos = i.tipo === 'prestamos_a';
+        const tipoLabel   = esPrestamos ? '📤 Le prestamos a' : '📥 Nos prestaron';
+        const tipoBg      = esPrestamos ? '#eff6ff' : '#f0fdf4';
+        const tipoColor   = esPrestamos ? '#1d4ed8' : '#15803d';
+        const estado      = i.estado || 'pendiente';
+        const ecfg        = ESTADO_ADM[estado] || ESTADO_ADM.pendiente;
+        const fecha       = i.fecha ? new Date(i.fecha + 'T00:00:00').toLocaleDateString('es-AR', { day:'2-digit', month:'2-digit', year:'2-digit' }) : '—';
+
+        const devs = (i.devoluciones || []).map(d => {
+            const fd = new Date(d.creado_en).toLocaleDateString('es-AR', { day:'2-digit', month:'2-digit', year:'2-digit' });
+            return `<div style="font-size:.78rem;color:#374151;background:#f9fafb;border-radius:6px;padding:4px 8px;margin-top:4px;">
+                ↩ <strong>${d.cantidad}</strong> — ${fd}${d.nota ? ` · ${d.nota}` : ''} ${d.registrado_por ? `<span style="color:#9ca3af;">(${d.registrado_por})</span>` : ''}
+            </div>`;
+        }).join('');
+
+        return `
+        <div style="border:1px solid #e5e7eb;border-radius:12px;padding:14px;background:#fff;">
+            <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:8px;">
+                <span style="background:${tipoBg};color:${tipoColor};font-size:.75rem;font-weight:700;padding:2px 8px;border-radius:8px;">${tipoLabel}</span>
+                <span style="font-size:.85rem;font-weight:700;color:#111;">${i.entidad}</span>
+                <span style="background:${ecfg.bg};color:${ecfg.color};font-size:.72rem;font-weight:700;padding:2px 7px;border-radius:8px;">${ecfg.label}</span>
+                <span style="font-size:.75rem;color:#9ca3af;margin-left:auto;">${fecha}</span>
+            </div>
+            <p style="font-size:.9rem;font-weight:600;color:#111;margin:0 0 2px;">${i.producto}</p>
+            <p style="font-size:.82rem;color:#6b7280;margin:0 0 4px;">Total: ${i.cantidad}${i.creado_por ? ` · Cargado por: ${i.creado_por}` : ''}</p>
+            ${i.notas ? `<p style="font-size:.8rem;color:#374151;font-style:italic;margin:0 0 4px;">📝 ${i.notas}</p>` : ''}
+            ${devs}
+            <div style="text-align:right;margin-top:10px;">
+                <button onclick="borrarIntercambioAdmin('${i.id}')"
+                    style="background:#fee2e2;color:#991b1b;border:none;border-radius:8px;padding:5px 12px;font-size:.78rem;font-weight:600;cursor:pointer;">
+                    🗑 Eliminar
+                </button>
+            </div>
+        </div>`;
+    }).join('');
+}
+
+async function borrarIntercambioAdmin(id) {
+    if (!confirm('¿Eliminar este intercambio? Esta acción no se puede deshacer.')) return;
+    const res = await fetch(`${BASE}/api/intercambios/${id}`, {
+        method: 'DELETE', credentials: 'include'
+    });
+    if (res.ok) {
+        loadIntercambiosAdmin();
+    } else {
+        const err = await res.json().catch(() => ({}));
+        alert('Error: ' + (err.error || 'desconocido'));
+    }
 }
 
 // ── Init ──────────────────────────────────────────────────────────────────────
