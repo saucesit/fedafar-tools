@@ -3,6 +3,15 @@ let cart        = JSON.parse(localStorage.getItem('fedafar_cart') || '[]');
 let activeCategory = 'all';
 let currentUser = null;  // { nombre, tipo_precio }
 
+function _validarCarritoUsuario(userId) {
+    const duenio = localStorage.getItem('fedafar_cart_owner');
+    if (duenio && duenio !== String(userId)) {
+        cart = [];
+        localStorage.removeItem('fedafar_cart');
+    }
+    localStorage.setItem('fedafar_cart_owner', String(userId));
+}
+
 const BASE_URL = (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')
     ? 'http://127.0.0.1:5001'
     : '';
@@ -102,6 +111,7 @@ async function checkSession() {
             const data = await res.json();
             if (data.authenticated) {
                 currentUser = data;
+                _validarCarritoUsuario(data.id);
                 showApp();
                 return;
             }
@@ -217,6 +227,7 @@ async function doLogin() {
 
         if (res.ok && data.ok) {
             currentUser = data;
+            _validarCarritoUsuario(data.id);
             loginError.classList.add('hidden');
             showApp();
         } else {
@@ -240,6 +251,7 @@ logoutBtn.addEventListener('click', async () => {
     currentUser = null;
     cart = [];
     localStorage.removeItem('fedafar_cart');
+    localStorage.removeItem('fedafar_cart_owner');
     showLogin();
 });
 

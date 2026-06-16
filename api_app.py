@@ -110,6 +110,7 @@ def api_login():
         pass
     return jsonify({
         'ok':          True,
+        'id':          user.id,
         'nombre':      user.nombre,
         'tipo_precio': user.tipo_precio,
     })
