@@ -1735,6 +1735,75 @@ def api_admin_productos_nombres():
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
+# ── CRM Licitaciones ───────────────────────────────────────────────────────────
+
+@app.route('/api/admin/crm', methods=['GET'])
+@admin_required
+def api_admin_crm_list():
+    try:
+        sb  = get_sb()
+        crm = sb.table('licitaciones_crm').select('*').order('actualizado_en', desc=True).execute().data or []
+        if not crm:
+            return jsonify([])
+        lic_ids = list({e['licitacion_id'] for e in crm})
+        lics    = sb.table('licitaciones').select('id,objeto,organismo,fecha_apertura,url,productos_detectados,fuente,numero_proceso').in_('id', lic_ids).execute().data or []
+        lic_map = {l['id']: l for l in lics}
+        return jsonify([{**e, 'licitacion': lic_map.get(e['licitacion_id'], {})} for e in crm])
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/admin/crm', methods=['POST'])
+@admin_required
+def api_admin_crm_add():
+    data   = request.get_json() or {}
+    lic_id = data.get('licitacion_id')
+    if not lic_id:
+        return jsonify({'error': 'licitacion_id requerido'}), 400
+    try:
+        sb       = get_sb()
+        existing = sb.table('licitaciones_crm').select('id').eq('licitacion_id', lic_id).execute().data
+        if existing:
+            return jsonify({'ok': True, 'id': existing[0]['id'], 'ya_existia': True})
+        res = sb.table('licitaciones_crm').insert({'licitacion_id': lic_id, 'estado': 'identificada', 'notas': ''}).execute()
+        return jsonify({'ok': True, 'id': res.data[0]['id']})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/admin/crm/<crm_id>/estado', methods=['PATCH'])
+@admin_required
+def api_admin_crm_estado(crm_id):
+    data   = request.get_json() or {}
+    estado = data.get('estado')
+    if estado not in ('identificada', 'cotizando', 'presentada', 'ganada', 'perdida'):
+        return jsonify({'error': 'Estado inválido'}), 400
+    try:
+        sb = get_sb()
+        sb.table('licitaciones_crm').update({'estado': estado, 'actualizado_en': datetime.now(timezone.utc).isoformat()}).eq('id', crm_id).execute()
+        return jsonify({'ok': True})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/admin/crm/<crm_id>/notas', methods=['PATCH'])
+@admin_required
+def api_admin_crm_notas(crm_id):
+    data = request.get_json() or {}
+    try:
+        sb = get_sb()
+        sb.table('licitaciones_crm').update({'notas': data.get('notas', ''), 'actualizado_en': datetime.now(timezone.utc).isoformat()}).eq('id', crm_id).execute()
+        return jsonify({'ok': True})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/admin/crm/<crm_id>', methods=['DELETE'])
+@admin_required
+def api_admin_crm_delete(crm_id):
+    try:
+        sb = get_sb()
+        sb.table('licitaciones_crm').delete().eq('id', crm_id).execute()
+        return jsonify({'ok': True})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
 # ── Intercambios de mercadería ─────────────────────────────────────────────────
 
 def _jefe_o_admin_required(f):

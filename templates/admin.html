@@ -288,6 +288,7 @@
         </button>
         <button class="admin-tab" id="tab-intercambios" onclick="switchTab('intercambios')">🔄 Intercambios</button>
         <button class="admin-tab" id="tab-pedidos" onclick="switchTab('pedidos')">🛒 Pedidos</button>
+        <button class="admin-tab" id="tab-crm" onclick="switchTab('crm')">🎯 CRM</button>
     </div>
 
     <div class="container">
@@ -524,6 +525,20 @@
             </div>
         </div>
 
+        <!-- ── Sección CRM ── -->
+        <div class="admin-section" id="section-crm">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:18px;flex-wrap:wrap;gap:10px;">
+                <div>
+                    <h2 style="margin:0;font-size:1.1rem;font-weight:800;color:#1e293b;">🎯 Pipeline de Licitaciones</h2>
+                    <p style="margin:4px 0 0;font-size:.82rem;color:#6b7280;">Arrastrá las cards entre columnas para actualizar el estado. Las licitaciones marcadas APLICA se agregan automáticamente.</p>
+                </div>
+                <button onclick="loadCRM()" style="background:#6b7280;color:#fff;border:none;border-radius:8px;padding:7px 14px;font-size:.82rem;cursor:pointer;font-weight:600;">↺ Actualizar</button>
+            </div>
+            <div id="crm-board" style="display:flex;gap:14px;overflow-x:auto;padding-bottom:16px;align-items:flex-start;">
+                <p class="empty-msg" style="width:100%;">Cargando...</p>
+            </div>
+        </div>
+
         <!-- ── Sección Pedidos ── -->
         <div class="admin-section" id="section-pedidos">
             <div id="pedidos-resumen" style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:18px;"></div>
@@ -667,6 +682,7 @@ function switchTab(tab) {
     if (tab === 'licitaciones')   { _cargarProductosNombres(); loadLicitaciones(); marcarVistasLicitaciones(); }
     if (tab === 'intercambios')  { loadIntercambiosAdmin(); }
     if (tab === 'pedidos')       loadPedidosAdmin();
+    if (tab === 'crm')           loadCRM();
 }
 
 // ── Balance Stock ─────────────────────────────────────────────────────────────
@@ -1296,8 +1312,8 @@ async function clasificarLicitacion(id, idx, nuevaClas) {
         body: JSON.stringify({ clasificacion: nuevaClas }),
     });
     if (res.ok) {
-        // Actualizar datos locales y re-renderizar solo esa card
         window._licitacionesData[idx].clasificacion = nuevaClas;
+        if (nuevaClas === 'APLICA') await agregarAlCRM(id);
         loadLicitaciones();
     } else {
         alert('Error al guardar clasificación');
@@ -1579,6 +1595,122 @@ async function registrarDevolucionAdmin(id) {
 
 // ── Init ──────────────────────────────────────────────────────────────────────
 checkAdmin();
+
+// ── CRM Licitaciones ─────────────────────────────────────────────────────────
+
+const CRM_COLS = [
+    { id: 'identificada', emoji: '🔍', label: 'Identificada', color: '#1e40af', bg: '#eff6ff', border: '#bfdbfe' },
+    { id: 'cotizando',    emoji: '💬', label: 'Cotizando',    color: '#92400e', bg: '#fffbeb', border: '#fcd34d' },
+    { id: 'presentada',   emoji: '📤', label: 'Presentada',   color: '#9a3412', bg: '#fff7ed', border: '#fed7aa' },
+    { id: 'ganada',       emoji: '✅', label: 'Ganada',        color: '#065f46', bg: '#f0fdf4', border: '#86efac' },
+    { id: 'perdida',      emoji: '❌', label: 'Perdida',       color: '#7f1d1d', bg: '#fef2f2', border: '#fca5a5' },
+];
+
+let _crmDragId = null;
+
+async function loadCRM() {
+    const board = document.getElementById('crm-board');
+    board.innerHTML = '<p class="empty-msg" style="width:100%;">Cargando...</p>';
+    const res = await fetch(`${BASE}/api/admin/crm`, { credentials: 'include' });
+    if (!res.ok) { board.innerHTML = '<p class="empty-msg">Error al cargar.</p>'; return; }
+    const entries = await res.json();
+
+    const byEstado = {};
+    CRM_COLS.forEach(c => { byEstado[c.id] = []; });
+    entries.forEach(e => { (byEstado[e.estado] || byEstado['identificada']).push(e); });
+
+    board.innerHTML = CRM_COLS.map(col => {
+        const cards = byEstado[col.id] || [];
+        return `
+        <div style="flex:0 0 270px;display:flex;flex-direction:column;">
+            <div style="background:${col.bg};border:1px solid ${col.border};border-radius:12px 12px 0 0;padding:10px 14px;display:flex;align-items:center;gap:8px;">
+                <span style="font-size:.85rem;font-weight:800;color:${col.color};">${col.emoji} ${col.label}</span>
+                <span style="background:${col.color};color:#fff;border-radius:20px;padding:1px 8px;font-size:.72rem;font-weight:700;margin-left:auto;">${cards.length}</span>
+            </div>
+            <div id="crm-col-${col.id}" data-estado="${col.id}"
+                style="min-height:320px;background:#f8fafc;border:1px solid ${col.border};border-top:none;border-radius:0 0 12px 12px;padding:10px;display:flex;flex-direction:column;gap:10px;transition:background .15s;"
+                ondragover="event.preventDefault();this.style.background='#e0e7ff';"
+                ondragleave="this.style.background='#f8fafc';"
+                ondrop="_crmDrop(event,'${col.id}')">
+                ${cards.length === 0
+                    ? `<div style="text-align:center;color:#d1d5db;font-size:.8rem;padding:24px 0;">Sin licitaciones</div>`
+                    : cards.map(e => _crmCard(e)).join('')}
+            </div>
+        </div>`;
+    }).join('');
+}
+
+function _crmCard(e) {
+    const l = e.licitacion || {};
+    let prods = [];
+    try { prods = l.productos_detectados ? JSON.parse(l.productos_detectados) : []; } catch(ex) {}
+    const visibles = prods.slice(0, 3);
+    const extras   = prods.length > 3 ? `<span style="font-size:.72rem;color:#6b7280;align-self:center;">+${prods.length - 3}</span>` : '';
+    const chips    = visibles.map(p =>
+        `<span style="background:#f0fdf4;color:#166534;border:1px solid #bbf7d0;border-radius:6px;padding:2px 7px;font-size:.7rem;font-weight:600;">${p}</span>`
+    ).join('');
+    const objeto = (l.objeto || '—').length > 72 ? l.objeto.slice(0, 72) + '…' : (l.objeto || '—');
+
+    return `
+    <div id="crm-card-${e.id}" draggable="true"
+        ondragstart="_crmDragId='${e.id}';this.style.opacity='.4';"
+        ondragend="this.style.opacity='1';"
+        style="background:#fff;border:1px solid #e5e7eb;border-radius:10px;padding:12px;cursor:grab;box-shadow:0 1px 3px rgba(0,0,0,.06);">
+        <div style="font-size:.75rem;color:#9ca3af;margin-bottom:4px;">${l.numero_proceso || ''}</div>
+        <div style="font-size:.82rem;font-weight:700;color:#1e293b;line-height:1.35;margin-bottom:6px;">${objeto}</div>
+        <div style="font-size:.74rem;color:#6b7280;margin-bottom:8px;">🏛 ${l.organismo || '—'}<br>📅 ${l.fecha_apertura || '—'}</div>
+        ${(chips || extras) ? `<div style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:8px;">${chips}${extras}</div>` : ''}
+        <textarea placeholder="Notas: precio ofertado, contacto, observaciones..."
+            onblur="guardarNotasCRM('${e.id}', this.value)"
+            style="width:100%;border:1px solid #e5e7eb;border-radius:6px;padding:5px 7px;font-size:.75rem;color:#374151;resize:vertical;min-height:54px;box-sizing:border-box;font-family:inherit;"
+        >${e.notas || ''}</textarea>
+        <div style="display:flex;gap:6px;margin-top:8px;">
+            ${l.url ? `<a href="${l.url}" target="_blank"
+                style="flex:1;text-align:center;background:#eff6ff;color:#1e40af;border:1px solid #bfdbfe;border-radius:6px;padding:5px 0;font-size:.75rem;font-weight:600;text-decoration:none;">🔗 Pliego</a>` : '<div style="flex:1"></div>'}
+            <button onclick="quitarDelCRM('${e.id}')"
+                title="Quitar del pipeline"
+                style="background:#fef2f2;color:#991b1b;border:1px solid #fecaca;border-radius:6px;padding:5px 9px;font-size:.75rem;cursor:pointer;font-weight:600;">🗑</button>
+        </div>
+    </div>`;
+}
+
+function _crmDrop(event, nuevoEstado) {
+    event.currentTarget.style.background = '#f8fafc';
+    if (!_crmDragId) return;
+    _actualizarEstadoCRM(_crmDragId, nuevoEstado);
+    _crmDragId = null;
+}
+
+async function _actualizarEstadoCRM(crmId, estado) {
+    const res = await fetch(`${BASE}/api/admin/crm/${crmId}/estado`, {
+        method: 'PATCH', credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ estado })
+    });
+    if (res.ok) loadCRM();
+}
+
+async function guardarNotasCRM(crmId, notas) {
+    await fetch(`${BASE}/api/admin/crm/${crmId}/notas`, {
+        method: 'PATCH', credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ notas })
+    });
+}
+
+async function quitarDelCRM(crmId) {
+    if (!confirm('¿Quitar esta licitación del pipeline?')) return;
+    const res = await fetch(`${BASE}/api/admin/crm/${crmId}`, { method: 'DELETE', credentials: 'include' });
+    if (res.ok) loadCRM();
+}
+
+async function agregarAlCRM(licId) {
+    await fetch(`${BASE}/api/admin/crm`, {
+        method: 'POST', credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ licitacion_id: licId })
+    });
+}
 
 // ── Pedidos Admin ─────────────────────────────────────────────────────────────
 
