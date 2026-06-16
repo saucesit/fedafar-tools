@@ -1642,6 +1642,96 @@ def api_admin_licitaciones_clasificar(id):
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
+# ── Intercambios de mercadería ─────────────────────────────────────────────────
+
+def _jefe_o_admin_required(f):
+    from functools import wraps
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        if not current_user.is_authenticated:
+            return jsonify({'error': 'No autenticado'}), 401
+        if current_user.tipo_precio not in ('jefe', 'jefe_deposito', 'farmaceutico', 'admin'):
+            return jsonify({'error': 'Sin permiso'}), 403
+        return f(*args, **kwargs)
+    return decorated
+
+@app.route('/api/intercambios', methods=['GET'])
+@_jefe_o_admin_required
+def api_intercambios_list():
+    try:
+        sb  = get_sb()
+        res = sb.table('prestamos_externos').select('*').order('creado_en', desc=True).limit(200).execute()
+        return jsonify(res.data or [])
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/intercambios/pendientes-count', methods=['GET'])
+@_jefe_o_admin_required
+def api_intercambios_count():
+    try:
+        sb  = get_sb()
+        res = sb.table('prestamos_externos').select('id').eq('devuelto', False).execute()
+        return jsonify({'count': len(res.data or [])})
+    except Exception as e:
+        return jsonify({'count': 0})
+
+@app.route('/api/intercambios', methods=['POST'])
+@_jefe_o_admin_required
+def api_intercambios_crear():
+    data    = request.get_json() or {}
+    tipo    = data.get('tipo', '').strip()
+    entidad = data.get('entidad', '').strip()
+    producto= data.get('producto', '').strip()
+    cantidad= data.get('cantidad', '').strip()
+    notas   = data.get('notas', '').strip()
+
+    if not tipo or not entidad or not producto or not cantidad:
+        return jsonify({'error': 'Faltan campos obligatorios'}), 400
+    if tipo not in ('prestamos_a', 'nos_prestaron'):
+        return jsonify({'error': 'Tipo inválido'}), 400
+
+    try:
+        from datetime import datetime, timezone, date
+        sb = get_sb()
+        sb.table('prestamos_externos').insert({
+            'tipo':       tipo,
+            'entidad':    entidad,
+            'producto':   producto,
+            'cantidad':   cantidad,
+            'notas':      notas or None,
+            'creado_por': current_user.nombre,
+            'fecha':      date.today().isoformat(),
+            'devuelto':   False,
+            'creado_en':  datetime.now(timezone.utc).isoformat(),
+        }).execute()
+        return jsonify({'ok': True})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/intercambios/<id>/devolver', methods=['PATCH'])
+@_jefe_o_admin_required
+def api_intercambios_devolver(id):
+    try:
+        from datetime import datetime, timezone
+        sb = get_sb()
+        sb.table('prestamos_externos').update({
+            'devuelto':         True,
+            'fecha_devolucion': datetime.now(timezone.utc).isoformat(),
+        }).eq('id', id).execute()
+        return jsonify({'ok': True})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/intercambios/<id>', methods=['DELETE'])
+@admin_required
+def api_intercambios_borrar(id):
+    try:
+        sb = get_sb()
+        sb.table('prestamos_externos').delete().eq('id', id).execute()
+        return jsonify({'ok': True})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5001))
     print(f"Iniciando API FEDAFAR en puerto {port}...")

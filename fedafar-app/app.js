@@ -171,6 +171,14 @@ function showApp() {
         balanceBtn.classList.add('hidden');
     }
 
+    // Intercambios de mercadería: jefe_deposito, farmaceutico, jefe, admin
+    if (tipo === 'jefe_deposito' || tipo === 'farmaceutico' || tipo === 'jefe' || tipo === 'admin') {
+        intercambiosBtn.classList.remove('hidden');
+        actualizarBadgeIntercambios();
+    } else {
+        intercambiosBtn.classList.add('hidden');
+    }
+
     // Faltantes: jefe_deposito, farmaceutico, jefe, admin
     if (tipo === 'jefe_deposito' || tipo === 'farmaceutico' || tipo === 'jefe' || tipo === 'admin') {
         faltantesBtn.classList.remove('hidden');
@@ -2015,6 +2023,167 @@ function initDesktopMode() {
 modoBtn.addEventListener('click', () => {
     setDesktopMode(!document.body.classList.contains('desktop-mode'));
 });
+
+// ── Intercambios de mercadería ─────────────────────────────────────────────────
+
+const intercambiosBtn        = document.getElementById('intercambios-btn');
+const intercambiosModal      = document.getElementById('intercambios-modal');
+const closeIntercambiosBtn   = document.getElementById('close-intercambios');
+const backFromIntercambios   = document.getElementById('back-from-intercambios');
+const intercambiosBody       = document.getElementById('intercambios-body');
+const intercambiosFormSect   = document.getElementById('intercambios-form-section');
+const intercambioNuevoBtn    = document.getElementById('intercambio-nuevo-btn');
+const intercambioTipoSel     = document.getElementById('intercambio-tipo-sel');
+const intercambioEntidadInp  = document.getElementById('intercambio-entidad-input');
+const intercambioProductoInp = document.getElementById('intercambio-producto-input');
+const intercambioCantidadInp = document.getElementById('intercambio-cantidad-input');
+const intercambioNotasInp    = document.getElementById('intercambio-notas-input');
+const intercambioSubmitBtn   = document.getElementById('intercambio-submit-btn');
+const intercambioSubmitMsg   = document.getElementById('intercambio-submit-msg');
+const intercambiosCount      = document.getElementById('intercambios-count');
+
+async function actualizarBadgeIntercambios() {
+    try {
+        const res  = await fetch(`${BASE_URL}/api/intercambios/pendientes-count`, { credentials: 'include' });
+        const data = await res.json();
+        const n    = data.count || 0;
+        if (n > 0) {
+            intercambiosCount.textContent = n;
+            intercambiosCount.classList.remove('hidden');
+        } else {
+            intercambiosCount.classList.add('hidden');
+        }
+    } catch (e) { intercambiosCount.classList.add('hidden'); }
+}
+
+intercambiosBtn.addEventListener('click', () => {
+    intercambiosModal.classList.remove('hidden');
+    intercambiosFormSect.classList.add('hidden');
+    intercambioNuevoBtn.textContent = '+ Nuevo';
+    loadIntercambios();
+});
+closeIntercambiosBtn.addEventListener('click', () => { intercambiosModal.classList.add('hidden'); actualizarBadgeIntercambios(); });
+backFromIntercambios.addEventListener('click',  () => { intercambiosModal.classList.add('hidden'); actualizarBadgeIntercambios(); });
+
+intercambioNuevoBtn.addEventListener('click', () => {
+    const abierto = !intercambiosFormSect.classList.contains('hidden');
+    intercambiosFormSect.classList.toggle('hidden', abierto);
+    intercambioNuevoBtn.textContent = abierto ? '+ Nuevo' : '— Cancelar';
+    if (!abierto) {
+        intercambioEntidadInp.value  = '';
+        intercambioProductoInp.value = '';
+        intercambioCantidadInp.value = '';
+        intercambioNotasInp.value    = '';
+        intercambioSubmitMsg.classList.add('hidden');
+    }
+});
+
+intercambioSubmitBtn.addEventListener('click', async () => {
+    const tipo     = intercambioTipoSel.value;
+    const entidad  = intercambioEntidadInp.value.trim();
+    const producto = intercambioProductoInp.value.trim();
+    const cantidad = intercambioCantidadInp.value.trim();
+    const notas    = intercambioNotasInp.value.trim();
+
+    if (!entidad || !producto || !cantidad) {
+        intercambioSubmitMsg.textContent = 'Completá entidad, producto y cantidad.';
+        intercambioSubmitMsg.className   = 'docs-msg error';
+        intercambioSubmitMsg.classList.remove('hidden');
+        return;
+    }
+
+    intercambioSubmitBtn.disabled = true;
+    const res = await fetch(`${BASE_URL}/api/intercambios`, {
+        method: 'POST', credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tipo, entidad, producto, cantidad, notas }),
+    });
+
+    if (res.ok) {
+        intercambioSubmitMsg.textContent = '✅ Registrado';
+        intercambioSubmitMsg.className   = 'docs-msg success';
+        intercambioSubmitMsg.classList.remove('hidden');
+        intercambioEntidadInp.value  = '';
+        intercambioProductoInp.value = '';
+        intercambioCantidadInp.value = '';
+        intercambioNotasInp.value    = '';
+        loadIntercambios();
+        actualizarBadgeIntercambios();
+        setTimeout(() => { intercambioSubmitMsg.classList.add('hidden'); }, 2500);
+    } else {
+        intercambioSubmitMsg.textContent = '❌ Error al registrar';
+        intercambioSubmitMsg.className   = 'docs-msg error';
+        intercambioSubmitMsg.classList.remove('hidden');
+    }
+    intercambioSubmitBtn.disabled = false;
+});
+
+async function loadIntercambios() {
+    intercambiosBody.innerHTML = '<p class="empty-msg">Cargando...</p>';
+    const res = await fetch(`${BASE_URL}/api/intercambios`, { credentials: 'include' });
+    if (!res.ok) { intercambiosBody.innerHTML = '<p class="empty-msg">Error al cargar.</p>'; return; }
+    const data = await res.json();
+
+    if (!data.length) {
+        intercambiosBody.innerHTML = '<p class="empty-msg">Sin intercambios registrados.</p>';
+        return;
+    }
+
+    const pendientes = data.filter(i => !i.devuelto);
+    const devueltos  = data.filter(i => i.devuelto);
+
+    let html = '';
+
+    if (pendientes.length) {
+        html += '<p style="font-size:.75rem;font-weight:700;color:#6b7280;text-transform:uppercase;letter-spacing:.05em;margin:4px 0 8px;">Pendientes</p>';
+        html += pendientes.map(i => renderIntercambioCard(i)).join('');
+    }
+
+    if (devueltos.length) {
+        html += `<p style="font-size:.75rem;font-weight:700;color:#9ca3af;text-transform:uppercase;letter-spacing:.05em;margin:16px 0 8px;">Devueltos (${devueltos.length})</p>`;
+        html += devueltos.map(i => renderIntercambioCard(i, true)).join('');
+    }
+
+    intercambiosBody.innerHTML = html;
+}
+
+function renderIntercambioCard(item, archivado = false) {
+    const esPrestamos = item.tipo === 'prestamos_a';
+    const tipoLabel   = esPrestamos ? '📤 Le prestamos a' : '📥 Nos prestaron';
+    const tipoBg      = esPrestamos ? '#eff6ff' : '#f0fdf4';
+    const tipoColor   = esPrestamos ? '#1d4ed8' : '#15803d';
+    const fecha       = item.fecha ? new Date(item.fecha + 'T00:00:00').toLocaleDateString('es-AR', { day:'2-digit', month:'2-digit', year:'2-digit' }) : '—';
+    const opacity     = archivado ? 'opacity:.6;' : '';
+
+    return `
+    <div style="border:1px solid #e5e7eb;border-radius:12px;padding:14px;margin-bottom:10px;background:#fff;${opacity}">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;flex-wrap:wrap;">
+            <span style="background:${tipoBg};color:${tipoColor};font-size:.75rem;font-weight:700;padding:2px 8px;border-radius:8px;">${tipoLabel}</span>
+            <span style="font-size:.8rem;font-weight:700;color:#111;">${item.entidad}</span>
+            <span style="font-size:.75rem;color:#9ca3af;margin-left:auto;">${fecha}</span>
+        </div>
+        <p style="font-size:.9rem;font-weight:600;color:#111;margin:0 0 2px;">${item.producto}</p>
+        <p style="font-size:.82rem;color:#6b7280;margin:0 0 8px;">Cantidad: ${item.cantidad}</p>
+        ${item.notas ? `<p style="font-size:.8rem;color:#374151;font-style:italic;margin:0 0 8px;">📝 ${item.notas}</p>` : ''}
+        ${!archivado ? `<button onclick="devolverIntercambio('${item.id}')"
+            style="background:#d1fae5;color:#065f46;border:none;border-radius:8px;padding:6px 14px;font-size:.82rem;font-weight:700;cursor:pointer;width:100%;">
+            ✅ Marcar como devuelto
+        </button>` : `<p style="font-size:.75rem;color:#9ca3af;text-align:right;margin:0;">Devuelto ✓</p>`}
+    </div>`;
+}
+
+async function devolverIntercambio(id) {
+    if (!confirm('¿Confirmás que fue devuelto?')) return;
+    const res = await fetch(`${BASE_URL}/api/intercambios/${id}/devolver`, {
+        method: 'PATCH', credentials: 'include',
+    });
+    if (res.ok) {
+        loadIntercambios();
+        actualizarBadgeIntercambios();
+    } else {
+        alert('Error al registrar devolución');
+    }
+}
 
 // ── Init ───────────────────────────────────────────────────────────────────────
 initDesktopMode();
