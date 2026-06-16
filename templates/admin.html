@@ -282,6 +282,10 @@
         <button class="admin-tab" id="tab-faltantes" onclick="switchTab('faltantes')">📦 Faltantes</button>
         <button class="admin-tab" id="tab-estadisticas" onclick="switchTab('estadisticas')">📊 Estadísticas</button>
         <button class="admin-tab" id="tab-balance" onclick="switchTab('balance')">⚖️ Balance Stock</button>
+        <button class="admin-tab" id="tab-licitaciones" onclick="switchTab('licitaciones')" style="position:relative;">
+            📋 Licitaciones
+            <span id="badge-licitaciones" style="display:none;position:absolute;top:4px;right:4px;background:#dc2626;color:#fff;border-radius:50%;width:18px;height:18px;font-size:.7rem;font-weight:800;line-height:18px;text-align:center;">0</span>
+        </button>
     </div>
 
     <div class="container">
@@ -476,6 +480,20 @@
             </div>
         </div>
 
+        <!-- ── Sección Licitaciones ── -->
+        <div class="admin-section" id="section-licitaciones">
+            <div class="card" style="margin-top:0;">
+                <div class="card-header">
+                    <h2>📋 Licitaciones Públicas</h2>
+                    <button class="btn-add" id="btn-sync-licitaciones" style="background:#6b7280;font-size:.8rem;" onclick="syncLicitaciones(this)">🔄 Sincronizar ahora</button>
+                </div>
+                <div id="licitaciones-resumen" style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:18px;"></div>
+                <div id="licitaciones-body" style="display:flex;flex-direction:column;gap:12px;">
+                    <p class="empty-msg">Cargando...</p>
+                </div>
+            </div>
+        </div>
+
     </div>
 </div>
 
@@ -571,6 +589,7 @@ function showApp() {
     document.getElementById('login-screen').style.display = 'none';
     document.getElementById('admin-app').style.display    = 'block';
     loadClientes();
+    actualizarBadgeLicitaciones();
 }
 
 function switchTab(tab) {
@@ -581,6 +600,7 @@ function switchTab(tab) {
     if (tab === 'faltantes')     loadFaltantesAdmin();
     if (tab === 'estadisticas')  loadEstadisticas();
     if (tab === 'balance')       loadBalanceAdmin();
+    if (tab === 'licitaciones')  { loadLicitaciones(); marcarVistasLicitaciones(); }
 }
 
 // ── Balance Stock ─────────────────────────────────────────────────────────────
@@ -987,6 +1007,115 @@ async function loadFaltantesAdmin() {
             </tr>`;
         }).join('');
     }
+}
+
+// ── Licitaciones ──────────────────────────────────────────────────────────────
+
+const CLAS_CONFIG = {
+    APLICA:    { bg: '#d1fae5', color: '#065f46', label: '✅ Aplica' },
+    REVISAR:   { bg: '#fef3c7', color: '#92400e', label: '⚠️ Revisar' },
+    NO_APLICA: { bg: '#fee2e2', color: '#991b1b', label: '❌ No aplica' },
+};
+
+async function actualizarBadgeLicitaciones() {
+    try {
+        const res  = await fetch(`${BASE}/api/admin/licitaciones`, { credentials: 'include' });
+        if (!res.ok) return;
+        const data = await res.json();
+        const nuevas = data.filter(l => !l.notificado).length;
+        const badge  = document.getElementById('badge-licitaciones');
+        if (nuevas > 0) {
+            badge.textContent = nuevas > 99 ? '99+' : nuevas;
+            badge.style.display = 'block';
+        } else {
+            badge.style.display = 'none';
+        }
+    } catch (e) {}
+}
+
+async function marcarVistasLicitaciones() {
+    try {
+        await fetch(`${BASE}/api/admin/licitaciones/marcar-vistas`, {
+            method: 'PATCH', credentials: 'include'
+        });
+        document.getElementById('badge-licitaciones').style.display = 'none';
+    } catch (e) {}
+}
+
+async function loadLicitaciones() {
+    const body    = document.getElementById('licitaciones-body');
+    const resumen = document.getElementById('licitaciones-resumen');
+    body.innerHTML = '<p class="empty-msg">Cargando...</p>';
+
+    const res = await fetch(`${BASE}/api/admin/licitaciones`, { credentials: 'include' });
+    if (!res.ok) { body.innerHTML = '<p class="empty-msg">Error al cargar.</p>'; return; }
+    const data = await res.json();
+
+    // Resumen
+    const aplica   = data.filter(l => l.clasificacion === 'APLICA').length;
+    const revisar  = data.filter(l => l.clasificacion === 'REVISAR').length;
+    const noAplica = data.filter(l => l.clasificacion === 'NO_APLICA').length;
+    resumen.innerHTML = [
+        { num: aplica,   label: '✅ Aplican',   color: '#065f46', bg: '#d1fae5' },
+        { num: revisar,  label: '⚠️ Revisar',   color: '#92400e', bg: '#fef3c7' },
+        { num: noAplica, label: '❌ No aplican', color: '#991b1b', bg: '#fee2e2' },
+    ].map(s => `
+        <div style="background:${s.bg};border-radius:10px;padding:10px 18px;text-align:center;min-width:80px;">
+            <div style="font-size:1.5rem;font-weight:800;color:${s.color};line-height:1;">${s.num}</div>
+            <div style="font-size:.75rem;color:#555;">${s.label}</div>
+        </div>`).join('');
+
+    if (!data.length) {
+        body.innerHTML = '<p class="empty-msg">Sin licitaciones registradas. Hacé click en "Sincronizar ahora".</p>';
+        return;
+    }
+
+    // Ordenar: APLICA → REVISAR → NO_APLICA, luego por fecha
+    const orden = { APLICA: 0, REVISAR: 1, NO_APLICA: 2 };
+    data.sort((a, b) => (orden[a.clasificacion] ?? 9) - (orden[b.clasificacion] ?? 9));
+
+    body.innerHTML = data.map(l => {
+        const cfg    = CLAS_CONFIG[l.clasificacion] || CLAS_CONFIG.REVISAR;
+        const fecha  = l.fecha_scraping
+            ? new Date(l.fecha_scraping).toLocaleDateString('es-AR', { day:'2-digit', month:'2-digit', year:'2-digit' })
+            : '—';
+        const nueva  = !l.notificado
+            ? '<span style="background:#dc2626;color:#fff;font-size:.7rem;font-weight:700;padding:2px 7px;border-radius:10px;margin-left:8px;">NUEVA</span>'
+            : '';
+        return `
+        <div style="border:1px solid #e5e7eb;border-radius:12px;padding:14px 18px;background:#fff;border-left:4px solid ${cfg.color};">
+            <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:6px;">
+                <span style="background:${cfg.bg};color:${cfg.color};font-size:.78rem;font-weight:700;padding:3px 10px;border-radius:12px;">${cfg.label}</span>
+                <span style="font-size:.8rem;color:#6b7280;font-weight:600;">${l.numero_proceso || '—'}</span>
+                ${nueva}
+                <span style="font-size:.75rem;color:#9ca3af;margin-left:auto;">Scraped: ${fecha}</span>
+            </div>
+            <p style="font-size:.95rem;font-weight:600;color:#111;margin:0 0 4px;">${l.objeto || '—'}</p>
+            <p style="font-size:.82rem;color:#6b7280;margin:0 0 4px;">🏛 ${l.organismo || '—'} &nbsp;·&nbsp; 📅 Apertura: ${l.fecha_apertura || '—'} &nbsp;·&nbsp; ${l.estado || ''}</p>
+            ${l.analisis ? `<p style="font-size:.82rem;color:#374151;margin:6px 0 0;font-style:italic;">🤖 ${l.analisis}</p>` : ''}
+            ${l.url ? `<a href="${l.url}" target="_blank" style="font-size:.8rem;color:#2563eb;text-decoration:none;display:inline-block;margin-top:6px;">🔗 Ver licitación</a>` : ''}
+        </div>`;
+    }).join('');
+}
+
+async function syncLicitaciones(btn) {
+    btn.disabled   = true;
+    btn.textContent = '⏳ Sincronizando...';
+    try {
+        const res  = await fetch(`${BASE}/api/admin/licitaciones/sync`, {
+            method: 'POST', credentials: 'include'
+        });
+        const data = await res.json();
+        if (res.ok) {
+            btn.textContent = `✅ Listo (${data.guardadas} nuevas)`;
+            loadLicitaciones();
+        } else {
+            btn.textContent = '❌ Error — ' + (data.error || '').slice(0, 40);
+        }
+    } catch (e) {
+        btn.textContent = '❌ Error de conexión';
+    }
+    setTimeout(() => { btn.disabled = false; btn.textContent = '🔄 Sincronizar ahora'; }, 3000);
 }
 
 // ── Init ──────────────────────────────────────────────────────────────────────

@@ -1589,6 +1589,43 @@ def get_productos():
     prods = parse_price_list(tipo)
     return jsonify(prods)
 
+# ── Licitaciones ──────────────────────────────────────────────────────────────
+
+@app.route('/api/admin/licitaciones', methods=['GET'])
+@admin_required
+def api_admin_licitaciones_list():
+    try:
+        sb  = get_sb()
+        res = sb.table('licitaciones').select('*').order('fecha_scraping', desc=True).limit(300).execute()
+        return jsonify(res.data or [])
+    except Exception as e:
+        print(f"[ERROR] {e}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/admin/licitaciones/marcar-vistas', methods=['PATCH'])
+@admin_required
+def api_admin_licitaciones_marcar_vistas():
+    try:
+        sb = get_sb()
+        sb.table('licitaciones').update({'notificado': True}).eq('notificado', False).execute()
+        return jsonify({'ok': True})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/admin/licitaciones/sync', methods=['POST'])
+@admin_required
+def api_admin_licitaciones_sync():
+    try:
+        import importlib, sys
+        if 'licitaciones_scraper' in sys.modules:
+            del sys.modules['licitaciones_scraper']
+        from licitaciones_scraper import run_scraper
+        total = run_scraper()
+        return jsonify({'ok': True, 'guardadas': total})
+    except Exception as e:
+        print(f"[ERROR sync licitaciones] {e}")
+        return jsonify({'error': str(e)}), 500
+
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5001))
     print(f"Iniciando API FEDAFAR en puerto {port}...")

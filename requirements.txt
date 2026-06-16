@@ -10,3 +10,4 @@ beautifulsoup4
 python-dotenv
 supabase
 fpdf2
+anthropic
