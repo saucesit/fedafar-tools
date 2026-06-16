@@ -502,8 +502,23 @@
                     <button class="btn-add" id="btn-sync-licitaciones" style="background:#6b7280;font-size:.8rem;" onclick="syncLicitaciones(this)">🔄 Sincronizar ahora</button>
                 </div>
                 <div id="licitaciones-resumen" style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:18px;"></div>
-                <div id="licitaciones-body" style="display:flex;flex-direction:column;gap:12px;">
-                    <p class="empty-msg">Cargando...</p>
+                <div style="display:flex;gap:20px;align-items:flex-start;flex-wrap:wrap;">
+                    <div id="licitaciones-body" style="flex:1;min-width:260px;display:flex;flex-direction:column;gap:12px;">
+                        <p class="empty-msg">Cargando...</p>
+                    </div>
+                    <!-- Papelera lateral -->
+                    <div style="width:240px;flex-shrink:0;">
+                        <div style="background:#f9fafb;border:1px dashed #d1d5db;border-radius:12px;overflow:hidden;">
+                            <div style="display:flex;align-items:center;gap:8px;padding:12px 14px;cursor:pointer;user-select:none;" onclick="togglePapelera()">
+                                <span>🗑</span>
+                                <span style="font-size:.82rem;font-weight:700;color:#6b7280;">Descartadas</span>
+                                <span id="papelera-count" style="background:#fee2e2;color:#991b1b;font-size:.72rem;font-weight:700;padding:1px 8px;border-radius:10px;min-width:18px;text-align:center;">0</span>
+                                <span id="papelera-chevron" style="margin-left:auto;color:#9ca3af;font-size:.75rem;display:inline-block;transition:transform .2s;">▼</span>
+                            </div>
+                            <div id="papelera-body" style="display:none;flex-direction:column;gap:8px;padding:0 12px 12px;">
+                            </div>
+                        </div>
+                    </div>
                 </div>
             </div>
         </div>
@@ -1085,59 +1100,96 @@ async function loadLicitaciones() {
             <div style="font-size:.75rem;color:#555;">${s.label}</div>
         </div>`).join('');
 
-    if (!data.length) {
-        body.innerHTML = '<p class="empty-msg">Sin licitaciones registradas. Hacé click en "Sincronizar ahora".</p>';
-        return;
-    }
-
     const orden = { APLICA: 0, REVISAR: 1, NO_APLICA: 2 };
     data.sort((a, b) => (orden[a.clasificacion] ?? 9) - (orden[b.clasificacion] ?? 9));
-
-    // Guardar datos para el modal
     window._licitacionesData = data;
 
-    body.innerHTML = data.map((l, i) => {
-        const cfg    = CLAS_CONFIG[l.clasificacion] || CLAS_CONFIG.REVISAR;
-        const fuente = FUENTE_CONFIG[l.fuente] || FUENTE_CONFIG.saltacompra;
-        const fecha  = l.fecha_scraping
-            ? new Date(l.fecha_scraping).toLocaleDateString('es-AR', { day:'2-digit', month:'2-digit', year:'2-digit' })
-            : '—';
-        const nueva  = !l.notificado
-            ? '<span style="background:#dc2626;color:#fff;font-size:.7rem;font-weight:700;padding:2px 7px;border-radius:10px;">NUEVA</span>'
-            : '';
+    const activas     = data.map((l, i) => [l, i]).filter(([l]) => l.clasificacion !== 'NO_APLICA');
+    const descartadas = data.map((l, i) => [l, i]).filter(([l]) => l.clasificacion === 'NO_APLICA');
 
-        const btnClas = (clas, emoji, label) => {
-            const activo = l.clasificacion === clas;
-            const cfg2   = CLAS_CONFIG[clas];
-            return `<button onclick="clasificarLicitacion('${l.id}',${i},'${clas}')"
-                style="border:2px solid ${activo ? cfg2.color : '#d1d5db'};background:${activo ? cfg2.bg : '#f9fafb'};
-                color:${activo ? cfg2.color : '#6b7280'};border-radius:8px;padding:4px 10px;font-size:.75rem;
-                font-weight:${activo ? '700' : '500'};cursor:pointer;">${emoji} ${label}</button>`;
-        };
+    if (!activas.length) {
+        body.innerHTML = '<p class="empty-msg">Sin licitaciones activas. Hacé click en "Sincronizar ahora".</p>';
+    } else {
+        body.innerHTML = activas.map(([l, i]) => {
+            const cfg    = CLAS_CONFIG[l.clasificacion] || CLAS_CONFIG.REVISAR;
+            const fuente = FUENTE_CONFIG[l.fuente] || FUENTE_CONFIG.saltacompra;
+            const fecha  = l.fecha_scraping
+                ? new Date(l.fecha_scraping).toLocaleDateString('es-AR', { day:'2-digit', month:'2-digit', year:'2-digit' })
+                : '—';
+            const nueva  = !l.notificado
+                ? '<span style="background:#dc2626;color:#fff;font-size:.7rem;font-weight:700;padding:2px 7px;border-radius:10px;">NUEVA</span>'
+                : '';
+            const btnClas = (clas, emoji, label) => {
+                const activo = l.clasificacion === clas;
+                const cfg2   = CLAS_CONFIG[clas];
+                return `<button onclick="clasificarLicitacion('${l.id}',${i},'${clas}')"
+                    style="border:2px solid ${activo ? cfg2.color : '#d1d5db'};background:${activo ? cfg2.bg : '#f9fafb'};
+                    color:${activo ? cfg2.color : '#6b7280'};border-radius:8px;padding:4px 10px;font-size:.75rem;
+                    font-weight:${activo ? '700' : '500'};cursor:pointer;">${emoji} ${label}</button>`;
+            };
+            return `
+            <div id="lic-card-${i}" style="border:1px solid #e5e7eb;border-radius:12px;padding:14px 18px;background:#fff;border-left:4px solid ${cfg.color};">
+                <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:8px;">
+                    <span style="background:${fuente.bg};color:${fuente.color};font-size:.72rem;font-weight:700;padding:2px 8px;border-radius:10px;">${fuente.label}</span>
+                    <span style="background:${cfg.bg};color:${cfg.color};font-size:.78rem;font-weight:700;padding:3px 10px;border-radius:12px;">${cfg.label}</span>
+                    <span style="font-size:.8rem;color:#6b7280;font-weight:600;">${l.numero_proceso || '—'}</span>
+                    ${nueva}
+                    <span style="font-size:.75rem;color:#9ca3af;margin-left:auto;">Scraped: ${fecha}</span>
+                </div>
+                <p style="font-size:.95rem;font-weight:600;color:#111;margin:0 0 4px;">${l.objeto || '—'}</p>
+                <p style="font-size:.82rem;color:#6b7280;margin:0 0 8px;">🏛 ${l.organismo || '—'} &nbsp;·&nbsp; 📅 Apertura: ${l.fecha_apertura || '—'} &nbsp;·&nbsp; ${l.estado || ''}</p>
+                ${l.analisis ? `<p style="font-size:.82rem;color:#374151;margin:0 0 10px;font-style:italic;">🤖 ${l.analisis}</p>` : ''}
+                <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+                    ${btnClas('APLICA',    '✅', 'Aplica')}
+                    ${btnClas('REVISAR',   '⚠️', 'Revisar')}
+                    ${btnClas('NO_APLICA', '❌', 'No aplica')}
+                    <button onclick="verLicitacion(${i})"
+                        style="margin-left:auto;border:none;background:#2563eb;color:#fff;border-radius:8px;padding:5px 14px;font-size:.8rem;font-weight:600;cursor:pointer;">
+                        🔍 Ver detalle
+                    </button>
+                </div>
+            </div>`;
+        }).join('');
+    }
 
-        return `
-        <div id="lic-card-${i}" style="border:1px solid #e5e7eb;border-radius:12px;padding:14px 18px;background:#fff;border-left:4px solid ${cfg.color};">
-            <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:8px;">
-                <span style="background:${fuente.bg};color:${fuente.color};font-size:.72rem;font-weight:700;padding:2px 8px;border-radius:10px;">${fuente.label}</span>
-                <span style="background:${cfg.bg};color:${cfg.color};font-size:.78rem;font-weight:700;padding:3px 10px;border-radius:12px;">${cfg.label}</span>
-                <span style="font-size:.8rem;color:#6b7280;font-weight:600;">${l.numero_proceso || '—'}</span>
-                ${nueva}
-                <span style="font-size:.75rem;color:#9ca3af;margin-left:auto;">Scraped: ${fecha}</span>
-            </div>
-            <p style="font-size:.95rem;font-weight:600;color:#111;margin:0 0 4px;">${l.objeto || '—'}</p>
-            <p style="font-size:.82rem;color:#6b7280;margin:0 0 8px;">🏛 ${l.organismo || '—'} &nbsp;·&nbsp; 📅 Apertura: ${l.fecha_apertura || '—'} &nbsp;·&nbsp; ${l.estado || ''}</p>
-            ${l.analisis ? `<p style="font-size:.82rem;color:#374151;margin:0 0 10px;font-style:italic;">🤖 ${l.analisis}</p>` : ''}
-            <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
-                ${btnClas('APLICA',    '✅', 'Aplica')}
-                ${btnClas('REVISAR',   '⚠️', 'Revisar')}
-                ${btnClas('NO_APLICA', '❌', 'No aplica')}
-                <button onclick="verLicitacion(${i})"
-                    style="margin-left:auto;border:none;background:#2563eb;color:#fff;border-radius:8px;padding:5px 14px;font-size:.8rem;font-weight:600;cursor:pointer;">
-                    🔍 Ver detalle
-                </button>
-            </div>
-        </div>`;
-    }).join('');
+    // Papelera
+    const papeleraCount = document.getElementById('papelera-count');
+    const papeleraBody  = document.getElementById('papelera-body');
+    if (papeleraCount) papeleraCount.textContent = descartadas.length;
+    if (papeleraBody) {
+        papeleraBody.innerHTML = descartadas.length
+            ? descartadas.map(([l, i]) => {
+                const f = FUENTE_CONFIG[l.fuente] || FUENTE_CONFIG.saltacompra;
+                const titulo = (l.objeto || '—').length > 65 ? l.objeto.slice(0, 65) + '…' : (l.objeto || '—');
+                return `
+                <div style="background:#fff;border:1px solid #e5e7eb;border-radius:8px;padding:10px 12px;">
+                    <div style="display:flex;gap:6px;align-items:center;margin-bottom:4px;">
+                        <span style="background:${f.bg};color:${f.color};font-size:.68rem;font-weight:700;padding:1px 6px;border-radius:6px;">${f.label}</span>
+                        <span style="font-size:.68rem;color:#9ca3af;">${l.numero_proceso || ''}</span>
+                    </div>
+                    <p style="font-size:.78rem;color:#6b7280;margin:0 0 8px;line-height:1.35;">${titulo}</p>
+                    <div style="display:flex;gap:6px;">
+                        <button onclick="clasificarLicitacion('${l.id}',${i},'REVISAR')"
+                            style="flex:1;background:#fef3c7;color:#92400e;border:1px solid #fcd34d;border-radius:6px;padding:4px 0;font-size:.72rem;font-weight:700;cursor:pointer;">
+                            ↩ Restaurar
+                        </button>
+                        <button onclick="verLicitacion(${i})"
+                            style="background:#eff6ff;color:#1d4ed8;border:1px solid #bfdbfe;border-radius:6px;padding:4px 8px;font-size:.75rem;cursor:pointer;">
+                            🔍
+                        </button>
+                    </div>
+                </div>`;
+            }).join('')
+            : '<p style="font-size:.78rem;color:#9ca3af;text-align:center;margin:4px 0 0;">Sin descartadas</p>';
+    }
+}
+
+function togglePapelera() {
+    const body    = document.getElementById('papelera-body');
+    const chevron = document.getElementById('papelera-chevron');
+    const open    = body.style.display === 'flex';
+    body.style.display      = open ? 'none' : 'flex';
+    chevron.style.transform = open ? '' : 'rotate(180deg)';
 }
 
 async function clasificarLicitacion(id, idx, nuevaClas) {
