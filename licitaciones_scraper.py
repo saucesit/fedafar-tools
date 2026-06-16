@@ -72,6 +72,16 @@ def extraer_form_data(soup):
                 data[name] = val
     return data
 
+def get_form_action(soup):
+    """Extrae la URL de action del form principal."""
+    form = soup.find('form')
+    if form and form.get('action'):
+        action = form['action']
+        if action.startswith('http'):
+            return action
+        return 'https://saltacompra.gob.ar/' + action.lstrip('/')
+    return URL_LICITACIONES
+
 def obtener_evento_pagina(soup, pagina_siguiente):
     """Devuelve (target, arg) para el link de la página siguiente, o (None, None)."""
     patron = re.compile(r"__doPostBack\('([^']+)','([^']+)'\)", re.I)
@@ -82,7 +92,6 @@ def obtener_evento_pagina(soup, pagina_siguiente):
             continue
         target, arg = m.group(1), m.group(2)
         txt = a.get_text(strip=True)
-        # Coincide si el texto es ">" / "»" / número de página siguiente
         if txt in ('>', '»', 'Siguiente', 'Next', str(pagina_siguiente)):
             return target, arg
         if arg == f'Page${pagina_siguiente}':
@@ -190,8 +199,13 @@ def clasificar(fila):
             max_tokens=200,
             messages=[{'role': 'user', 'content': prompt}]
         )
-        return json.loads(resp.content[0].text.strip())
+        text = resp.content[0].text.strip()
+        # Quitar markdown fences si Claude las agrega
+        text = re.sub(r'^```json?\s*', '', text)
+        text = re.sub(r'\s*```$', '', text)
+        return json.loads(text)
     except Exception as e:
+        print(f'      [Claude error] {e}')
         return {'clasificacion': 'REVISAR', 'rubro': 'Error', 'analisis': str(e)[:100]}
 
 # ── Supabase ──────────────────────────────────────────────────────────────────
@@ -284,12 +298,12 @@ def run_scraper():
             print('  Sin más páginas.')
             break
 
+        form_action = get_form_action(soup)
         form_data = extraer_form_data(soup)
         form_data['__EVENTTARGET']   = target
         form_data['__EVENTARGUMENT'] = arg
-
         try:
-            resp = session.post(URL_LICITACIONES, data=form_data, timeout=30)
+            resp = session.post(form_action, data=form_data, timeout=30)
             soup = BeautifulSoup(resp.content, 'html.parser')
         except Exception as e:
             print(f'  [ERROR paginación] {e}')
