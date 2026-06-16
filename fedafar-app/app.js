@@ -2111,7 +2111,8 @@ intercambioSubmitBtn.addEventListener('click', async () => {
         actualizarBadgeIntercambios();
         setTimeout(() => { intercambioSubmitMsg.classList.add('hidden'); }, 2500);
     } else {
-        intercambioSubmitMsg.textContent = '❌ Error al registrar';
+        const errData = await res.json().catch(() => ({}));
+        intercambioSubmitMsg.textContent = '❌ ' + (errData.error || `HTTP ${res.status}`);
         intercambioSubmitMsg.className   = 'docs-msg error';
         intercambioSubmitMsg.classList.remove('hidden');
     }

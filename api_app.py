@@ -1645,7 +1645,6 @@ def api_admin_licitaciones_clasificar(id):
 # ── Intercambios de mercadería ─────────────────────────────────────────────────
 
 def _jefe_o_admin_required(f):
-    from functools import wraps
     @wraps(f)
     def decorated(*args, **kwargs):
         if not current_user.is_authenticated:
@@ -1656,6 +1655,7 @@ def _jefe_o_admin_required(f):
     return decorated
 
 @app.route('/api/intercambios', methods=['GET'])
+@login_required
 @_jefe_o_admin_required
 def api_intercambios_list():
     try:
@@ -1666,6 +1666,7 @@ def api_intercambios_list():
         return jsonify({'error': str(e)}), 500
 
 @app.route('/api/intercambios/pendientes-count', methods=['GET'])
+@login_required
 @_jefe_o_admin_required
 def api_intercambios_count():
     try:
@@ -1676,6 +1677,7 @@ def api_intercambios_count():
         return jsonify({'count': 0})
 
 @app.route('/api/intercambios', methods=['POST'])
+@login_required
 @_jefe_o_admin_required
 def api_intercambios_crear():
     data    = request.get_json() or {}
@@ -1709,6 +1711,7 @@ def api_intercambios_crear():
         return jsonify({'error': str(e)}), 500
 
 @app.route('/api/intercambios/<id>/devolver', methods=['PATCH'])
+@login_required
 @_jefe_o_admin_required
 def api_intercambios_devolver(id):
     try:
