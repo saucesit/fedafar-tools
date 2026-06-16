@@ -380,9 +380,10 @@ function renderProducts(filter = '', category = 'all') {
 async function fetchProducts() {
     productGrid.innerHTML = '<p style="text-align:center;width:100%;padding:40px 0;">Cargando catálogo...</p>';
     try {
-        const tipo = currentUser?.tipo_precio || 'contado';
-        const res  = await fetch(`${BASE_URL}/api/productos?tipo=${tipo}`, { credentials: 'include' });
-        PRODUCTS   = await res.json();
+        const res = await fetch(`${BASE_URL}/api/productos`, { credentials: 'include' });
+        if (res.status === 401) { showLogin(); return; }
+        if (!res.ok) throw new Error('Error del servidor');
+        PRODUCTS = await res.json();
         cart = cart.filter(item => PRODUCTS.find(p => p.id === item.id));
         cart = cart.map(item => {
             const fresh = PRODUCTS.find(p => p.id === item.id);

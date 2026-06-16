@@ -52,6 +52,10 @@ def get_sb():
 login_manager = LoginManager()
 login_manager.init_app(app)
 
+@login_manager.unauthorized_handler
+def unauthorized():
+    return jsonify({'error': 'No autenticado', 'authenticated': False}), 401
+
 class ClientUser(UserMixin):
     def __init__(self, data):
         self.id              = str(data['id'])
@@ -1634,10 +1638,9 @@ def serve_tienda_static(path):
     return send_from_directory(FEDAFAR_APP_DIR, path)
 
 @app.route('/api/productos', methods=['GET'])
+@login_required
 def get_productos():
-    tipo = request.args.get('tipo', 'contado')
-    if current_user.is_authenticated:
-        tipo = current_user.tipo_precio
+    tipo = current_user.tipo_precio
     prods = parse_price_list(tipo)
     return jsonify(prods)
 
