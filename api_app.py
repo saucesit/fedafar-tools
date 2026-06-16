@@ -1659,9 +1659,20 @@ def _jefe_o_admin_required(f):
 @_jefe_o_admin_required
 def api_intercambios_list():
     try:
-        sb  = get_sb()
-        res = sb.table('prestamos_externos').select('*').order('creado_en', desc=True).limit(200).execute()
-        return jsonify(res.data or [])
+        from datetime import datetime, timezone
+        sb   = get_sb()
+        res  = sb.table('prestamos_externos').select('*').order('creado_en', desc=True).limit(200).execute()
+        items = res.data or []
+        # Cargar devoluciones de cada intercambio
+        if items:
+            ids  = [i['id'] for i in items]
+            devs = sb.table('intercambios_devoluciones').select('*').in_('intercambio_id', ids).order('creado_en').execute()
+            devs_map = {}
+            for d in (devs.data or []):
+                devs_map.setdefault(d['intercambio_id'], []).append(d)
+            for item in items:
+                item['devoluciones'] = devs_map.get(item['id'], [])
+        return jsonify(items)
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
@@ -1671,7 +1682,7 @@ def api_intercambios_list():
 def api_intercambios_count():
     try:
         sb  = get_sb()
-        res = sb.table('prestamos_externos').select('id').eq('devuelto', False).execute()
+        res = sb.table('prestamos_externos').select('id').neq('estado', 'completo').execute()
         return jsonify({'count': len(res.data or [])})
     except Exception as e:
         return jsonify({'count': 0})
@@ -1704,24 +1715,41 @@ def api_intercambios_crear():
             'creado_por': current_user.nombre,
             'fecha':      date.today().isoformat(),
             'devuelto':   False,
+            'estado':     'pendiente',
             'creado_en':  datetime.now(timezone.utc).isoformat(),
         }).execute()
         return jsonify({'ok': True})
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
-@app.route('/api/intercambios/<id>/devolver', methods=['PATCH'])
+@app.route('/api/intercambios/<id>/devolucion', methods=['POST'])
 @login_required
 @_jefe_o_admin_required
-def api_intercambios_devolver(id):
+def api_intercambios_devolucion(id):
+    data     = request.get_json() or {}
+    cantidad = data.get('cantidad', '').strip()
+    nota     = data.get('nota', '').strip()
+    completo = data.get('completo', False)
+
+    if not cantidad:
+        return jsonify({'error': 'Ingresá la cantidad devuelta'}), 400
+
     try:
         from datetime import datetime, timezone
         sb = get_sb()
+        sb.table('intercambios_devoluciones').insert({
+            'intercambio_id': id,
+            'cantidad':       cantidad,
+            'nota':           nota or None,
+            'registrado_por': current_user.nombre,
+            'creado_en':      datetime.now(timezone.utc).isoformat(),
+        }).execute()
+        nuevo_estado = 'completo' if completo else 'parcial'
         sb.table('prestamos_externos').update({
-            'devuelto':         True,
-            'fecha_devolucion': datetime.now(timezone.utc).isoformat(),
+            'estado':   nuevo_estado,
+            'devuelto': completo,
         }).eq('id', id).execute()
-        return jsonify({'ok': True})
+        return jsonify({'ok': True, 'estado': nuevo_estado})
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 

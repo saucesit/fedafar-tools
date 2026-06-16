@@ -2130,23 +2130,29 @@ async function loadIntercambios() {
         return;
     }
 
-    const pendientes = data.filter(i => !i.devuelto);
-    const devueltos  = data.filter(i => i.devuelto);
+    const activos   = data.filter(i => i.estado !== 'completo');
+    const completos = data.filter(i => i.estado === 'completo');
 
     let html = '';
 
-    if (pendientes.length) {
-        html += '<p style="font-size:.75rem;font-weight:700;color:#6b7280;text-transform:uppercase;letter-spacing:.05em;margin:4px 0 8px;">Pendientes</p>';
-        html += pendientes.map(i => renderIntercambioCard(i)).join('');
+    if (activos.length) {
+        html += '<p style="font-size:.75rem;font-weight:700;color:#6b7280;text-transform:uppercase;letter-spacing:.05em;margin:4px 0 8px;">Activos</p>';
+        html += activos.map(i => renderIntercambioCard(i)).join('');
     }
 
-    if (devueltos.length) {
-        html += `<p style="font-size:.75rem;font-weight:700;color:#9ca3af;text-transform:uppercase;letter-spacing:.05em;margin:16px 0 8px;">Devueltos (${devueltos.length})</p>`;
-        html += devueltos.map(i => renderIntercambioCard(i, true)).join('');
+    if (completos.length) {
+        html += `<p style="font-size:.75rem;font-weight:700;color:#9ca3af;text-transform:uppercase;letter-spacing:.05em;margin:16px 0 8px;">Completados (${completos.length})</p>`;
+        html += completos.map(i => renderIntercambioCard(i, true)).join('');
     }
 
     intercambiosBody.innerHTML = html;
 }
+
+const ESTADO_CONFIG = {
+    pendiente: { label: 'Pendiente', bg: '#fee2e2', color: '#991b1b' },
+    parcial:   { label: 'Parcial',   bg: '#fef3c7', color: '#92400e' },
+    completo:  { label: 'Completo',  bg: '#d1fae5', color: '#065f46' },
+};
 
 function renderIntercambioCard(item, archivado = false) {
     const esPrestamos = item.tipo === 'prestamos_a';
@@ -2154,35 +2160,79 @@ function renderIntercambioCard(item, archivado = false) {
     const tipoBg      = esPrestamos ? '#eff6ff' : '#f0fdf4';
     const tipoColor   = esPrestamos ? '#1d4ed8' : '#15803d';
     const fecha       = item.fecha ? new Date(item.fecha + 'T00:00:00').toLocaleDateString('es-AR', { day:'2-digit', month:'2-digit', year:'2-digit' }) : '—';
-    const opacity     = archivado ? 'opacity:.6;' : '';
+    const estado      = item.estado || 'pendiente';
+    const estadoCfg   = ESTADO_CONFIG[estado] || ESTADO_CONFIG.pendiente;
+    const opacity     = archivado ? 'opacity:.65;' : '';
+
+    const devolucionesHtml = (item.devoluciones || []).map(d => {
+        const fDev = new Date(d.creado_en).toLocaleDateString('es-AR', { day:'2-digit', month:'2-digit', year:'2-digit' });
+        return `<div style="background:#f9fafb;border-radius:8px;padding:6px 10px;margin-top:6px;font-size:.78rem;color:#374151;">
+            ↩ <strong>${d.cantidad}</strong> — ${fDev}${d.nota ? ` · ${d.nota}` : ''}${d.registrado_por ? ` <span style="color:#9ca3af;">(${d.registrado_por})</span>` : ''}
+        </div>`;
+    }).join('');
+
+    const formDevolucion = !archivado ? `
+        <div id="form-dev-${item.id}" style="display:none;margin-top:10px;border-top:1px solid #f3f4f6;padding-top:10px;">
+            <input type="text" id="dev-cant-${item.id}" class="docs-input" placeholder="Cantidad devuelta *" style="margin-bottom:6px;">
+            <input type="text" id="dev-nota-${item.id}" class="docs-input" placeholder="Nota (opcional)" style="margin-bottom:8px;">
+            <label style="display:flex;align-items:center;gap:8px;font-size:.83rem;color:#374151;margin-bottom:10px;cursor:pointer;">
+                <input type="checkbox" id="dev-completo-${item.id}" style="width:16px;height:16px;">
+                Esto cierra el intercambio (devolución completa)
+            </label>
+            <div style="display:flex;gap:8px;">
+                <button onclick="registrarDevolucion('${item.id}')"
+                    style="flex:1;background:#059669;color:#fff;border:none;border-radius:8px;padding:8px;font-size:.83rem;font-weight:700;cursor:pointer;">
+                    Confirmar devolución
+                </button>
+                <button onclick="document.getElementById('form-dev-${item.id}').style.display='none';document.getElementById('btn-dev-${item.id}').style.display='block';"
+                    style="background:#f3f4f6;color:#374151;border:none;border-radius:8px;padding:8px 12px;font-size:.83rem;cursor:pointer;">
+                    Cancelar
+                </button>
+            </div>
+        </div>
+        <button id="btn-dev-${item.id}" onclick="document.getElementById('form-dev-${item.id}').style.display='block';this.style.display='none';"
+            style="width:100%;margin-top:10px;background:#d1fae5;color:#065f46;border:none;border-radius:8px;padding:7px;font-size:.83rem;font-weight:700;cursor:pointer;">
+            ↩ Registrar devolución
+        </button>` : '';
 
     return `
     <div style="border:1px solid #e5e7eb;border-radius:12px;padding:14px;margin-bottom:10px;background:#fff;${opacity}">
         <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;flex-wrap:wrap;">
             <span style="background:${tipoBg};color:${tipoColor};font-size:.75rem;font-weight:700;padding:2px 8px;border-radius:8px;">${tipoLabel}</span>
             <span style="font-size:.8rem;font-weight:700;color:#111;">${item.entidad}</span>
+            <span style="background:${estadoCfg.bg};color:${estadoCfg.color};font-size:.72rem;font-weight:700;padding:2px 7px;border-radius:8px;">${estadoCfg.label}</span>
             <span style="font-size:.75rem;color:#9ca3af;margin-left:auto;">${fecha}</span>
         </div>
         <p style="font-size:.9rem;font-weight:600;color:#111;margin:0 0 2px;">${item.producto}</p>
-        <p style="font-size:.82rem;color:#6b7280;margin:0 0 8px;">Cantidad: ${item.cantidad}</p>
-        ${item.notas ? `<p style="font-size:.8rem;color:#374151;font-style:italic;margin:0 0 8px;">📝 ${item.notas}</p>` : ''}
-        ${!archivado ? `<button onclick="devolverIntercambio('${item.id}')"
-            style="background:#d1fae5;color:#065f46;border:none;border-radius:8px;padding:6px 14px;font-size:.82rem;font-weight:700;cursor:pointer;width:100%;">
-            ✅ Marcar como devuelto
-        </button>` : `<p style="font-size:.75rem;color:#9ca3af;text-align:right;margin:0;">Devuelto ✓</p>`}
+        <p style="font-size:.82rem;color:#6b7280;margin:0 0 4px;">Total: ${item.cantidad}</p>
+        ${item.notas ? `<p style="font-size:.8rem;color:#374151;font-style:italic;margin:0 0 4px;">📝 ${item.notas}</p>` : ''}
+        ${devolucionesHtml}
+        ${formDevolucion}
     </div>`;
 }
 
-async function devolverIntercambio(id) {
-    if (!confirm('¿Confirmás que fue devuelto?')) return;
-    const res = await fetch(`${BASE_URL}/api/intercambios/${id}/devolver`, {
-        method: 'PATCH', credentials: 'include',
+async function registrarDevolucion(id) {
+    const cantidad = document.getElementById(`dev-cant-${id}`).value.trim();
+    const nota     = document.getElementById(`dev-nota-${id}`).value.trim();
+    const completo = document.getElementById(`dev-completo-${id}`).checked;
+
+    if (!cantidad) {
+        alert('Ingresá la cantidad devuelta');
+        return;
+    }
+
+    const res = await fetch(`${BASE_URL}/api/intercambios/${id}/devolucion`, {
+        method: 'POST', credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ cantidad, nota, completo }),
     });
+
     if (res.ok) {
         loadIntercambios();
         actualizarBadgeIntercambios();
     } else {
-        alert('Error al registrar devolución');
+        const err = await res.json().catch(() => ({}));
+        alert('Error: ' + (err.error || 'desconocido'));
     }
 }
 
