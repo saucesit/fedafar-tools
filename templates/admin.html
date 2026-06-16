@@ -676,6 +676,8 @@ function switchTab(tab) {
     document.querySelectorAll('.admin-tab').forEach(t => t.classList.remove('active'));
     document.getElementById(`section-${tab}`).classList.add('active');
     document.getElementById(`tab-${tab}`).classList.add('active');
+    const cont = document.querySelector('.container');
+    if (cont) { cont.style.maxWidth = tab === 'crm' ? 'none' : ''; cont.style.padding = tab === 'crm' ? '24px 24px' : ''; }
     if (tab === 'faltantes')     loadFaltantesAdmin();
     if (tab === 'estadisticas')  loadEstadisticas();
     if (tab === 'balance')       loadBalanceAdmin();
