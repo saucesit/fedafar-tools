@@ -1616,11 +1616,13 @@ def api_admin_licitaciones_marcar_vistas():
 @admin_required
 def api_admin_licitaciones_sync():
     try:
-        import importlib, sys
-        if 'licitaciones_scraper' in sys.modules:
-            del sys.modules['licitaciones_scraper']
-        from licitaciones_scraper import run_scraper
-        total = run_scraper()
+        import sys
+        for mod in ('licitaciones_scraper', 'ips_scraper'):
+            if mod in sys.modules:
+                del sys.modules[mod]
+        from licitaciones_scraper import run_scraper as run_saltacompra
+        from ips_scraper import run_scraper as run_ips
+        total = run_saltacompra() + run_ips()
         return jsonify({'ok': True, 'guardadas': total})
     except Exception as e:
         print(f"[ERROR sync licitaciones] {e}")

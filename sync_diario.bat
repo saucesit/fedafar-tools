@@ -16,8 +16,11 @@ echo [3/4] Sincronizando cuentas corrientes... >> sync_log.txt
 echo [4/4] Sincronizando items de facturas... >> sync_log.txt
 "C:\Users\FEDAFAR\AppData\Local\Programs\Python\Python312\python.exe" sync_items.py >> sync_log.txt 2>&1
 
-echo [5/5] Scrapeando licitaciones... >> sync_log.txt
+echo [5/6] Scrapeando licitaciones SaltaCompra... >> sync_log.txt
 "C:\Users\FEDAFAR\AppData\Local\Programs\Python\Python312\python.exe" licitaciones_scraper.py >> sync_log.txt 2>&1
+
+echo [6/6] Scrapeando solicitudes IPS... >> sync_log.txt
+"C:\Users\FEDAFAR\AppData\Local\Programs\Python\Python312\python.exe" ips_scraper.py >> sync_log.txt 2>&1
 
 echo === Fin sync === >> sync_log.txt
 echo. >> sync_log.txt
