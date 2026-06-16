@@ -1276,7 +1276,18 @@ async function loadIntercambiosAdmin() {
             <p style="font-size:.82rem;color:#6b7280;margin:0 0 4px;">Total: ${i.cantidad}${i.creado_por ? ` · Cargado por: ${i.creado_por}` : ''}</p>
             ${i.notas ? `<p style="font-size:.8rem;color:#374151;font-style:italic;margin:0 0 4px;">📝 ${i.notas}</p>` : ''}
             ${devs}
-            <div style="text-align:right;margin-top:10px;">
+            ${estado !== 'completo' ? `
+            <div style="display:flex;gap:8px;align-items:center;margin-top:10px;padding-top:8px;border-top:1px solid #f3f4f6;flex-wrap:wrap;">
+                <input type="number" id="adm-dev-cant-${i.id}" min="0.01" step="0.01" placeholder="Cantidad"
+                    style="width:90px;padding:5px 8px;border:1px solid #d1d5db;border-radius:8px;font-size:.82rem;">
+                <input type="text" id="adm-dev-nota-${i.id}" placeholder="Nota (opcional)"
+                    style="flex:1;min-width:80px;padding:5px 8px;border:1px solid #d1d5db;border-radius:8px;font-size:.82rem;">
+                <button onclick="registrarDevolucionAdmin('${i.id}')"
+                    style="background:#22c55e;color:#fff;border:none;border-radius:8px;padding:5px 12px;font-size:.78rem;font-weight:600;cursor:pointer;white-space:nowrap;">
+                    ↩ Registrar devolución
+                </button>
+            </div>` : ''}
+            <div style="text-align:right;margin-top:8px;">
                 <button onclick="borrarIntercambioAdmin('${i.id}')"
                     style="background:#fee2e2;color:#991b1b;border:none;border-radius:8px;padding:5px 12px;font-size:.78rem;font-weight:600;cursor:pointer;">
                     🗑 Eliminar
@@ -1290,6 +1301,25 @@ async function borrarIntercambioAdmin(id) {
     if (!confirm('¿Eliminar este intercambio? Esta acción no se puede deshacer.')) return;
     const res = await fetch(`${BASE}/api/intercambios/${id}`, {
         method: 'DELETE', credentials: 'include'
+    });
+    if (res.ok) {
+        loadIntercambiosAdmin();
+    } else {
+        const err = await res.json().catch(() => ({}));
+        alert('Error: ' + (err.error || 'desconocido'));
+    }
+}
+
+async function registrarDevolucionAdmin(id) {
+    const cantEl = document.getElementById(`adm-dev-cant-${id}`);
+    const notaEl = document.getElementById(`adm-dev-nota-${id}`);
+    const cantidad = Number(cantEl?.value || 0);
+    const nota     = notaEl?.value.trim() || '';
+    if (!cantidad || cantidad <= 0) { alert('Ingresá una cantidad válida mayor a 0'); return; }
+    const res = await fetch(`${BASE}/api/intercambios/${id}/devolucion`, {
+        method: 'POST', credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ cantidad, nota }),
     });
     if (res.ok) {
         loadIntercambiosAdmin();
