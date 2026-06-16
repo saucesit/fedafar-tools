@@ -664,7 +664,7 @@ function switchTab(tab) {
     if (tab === 'faltantes')     loadFaltantesAdmin();
     if (tab === 'estadisticas')  loadEstadisticas();
     if (tab === 'balance')       loadBalanceAdmin();
-    if (tab === 'licitaciones')   { loadLicitaciones(); marcarVistasLicitaciones(); }
+    if (tab === 'licitaciones')   { _cargarProductosNombres(); loadLicitaciones(); marcarVistasLicitaciones(); }
     if (tab === 'intercambios')  { loadIntercambiosAdmin(); }
     if (tab === 'pedidos')       loadPedidosAdmin();
 }
@@ -1116,6 +1116,50 @@ async function marcarVistasLicitaciones() {
     } catch (e) {}
 }
 
+// ── Matching licitaciones ↔ catálogo ─────────────────────────────────────────
+
+window._productosNombres = null;
+
+async function _cargarProductosNombres() {
+    if (window._productosNombres) return;
+    try {
+        const res = await fetch(`${BASE}/api/admin/productos-nombres`, { credentials: 'include' });
+        if (res.ok) window._productosNombres = await res.json();
+    } catch(e) {}
+}
+
+function _normTexto(str) {
+    return str.toLowerCase()
+        .normalize('NFD').replace(/[̀-ͯ]/g, '')
+        .replace(/[^a-z0-9\s]/g, ' ')
+        .replace(/\s+/g, ' ').trim();
+}
+
+const _STOPWORDS = new Set([
+    'de','la','el','los','las','un','una','del','al','por','para','con','en','se',
+    'que','y','o','a','e','su','sus','si','no','mas','como','adquisicion','provision',
+    'suministro','compra','servicio','servicios','medicamentos','medicamento',
+    'insumos','insumo','farmaceuticos','farmaceutico','segun','varios','tipo',
+    'frasco','comprimidos','comprimido','capsula','capsulas','ampolla','ampollas',
+    'tabletas','tableta','sobre','sobres','unidad','unidades','miligramos','gramos',
+    'mililitros','litros','cada','todo','todos','este','esta','estos','estas'
+]);
+
+function _matchearProductos(objeto) {
+    const prods = window._productosNombres;
+    if (!prods || !objeto) return [];
+    const tokens = _normTexto(objeto).split(' ')
+        .filter(t => t.length > 3 && !_STOPWORDS.has(t));
+    if (!tokens.length) return [];
+    const resultados = [];
+    for (const nombre of prods) {
+        const n = _normTexto(nombre);
+        const hits = tokens.filter(t => n.includes(t));
+        if (hits.length) resultados.push({ nombre, score: hits.length });
+    }
+    return resultados.sort((a, b) => b.score - a.score).slice(0, 12);
+}
+
 async function loadLicitaciones() {
     const body    = document.getElementById('licitaciones-body');
     const resumen = document.getElementById('licitaciones-resumen');
@@ -1246,7 +1290,7 @@ async function clasificarLicitacion(id, idx, nuevaClas) {
     }
 }
 
-function verLicitacion(idx) {
+async function verLicitacion(idx) {
     const l   = window._licitacionesData[idx];
     const cfg = CLAS_CONFIG[l.clasificacion] || CLAS_CONFIG.REVISAR;
     const fuente = FUENTE_CONFIG[l.fuente] || FUENTE_CONFIG.saltacompra;
@@ -1274,6 +1318,9 @@ function verLicitacion(idx) {
                 <tr><td style="color:#6b7280;padding:5px 0;">Estado</td><td style="font-weight:600;">${l.estado || '—'}</td></tr>
             </table>
             ${l.analisis ? `<div style="background:#f8fafc;border-radius:10px;padding:12px;margin-bottom:16px;font-size:.85rem;color:#374151;font-style:italic;">🤖 ${l.analisis}</div>` : ''}
+            <div id="modal-lic-matches" style="margin-bottom:16px;">
+                <div style="font-size:.78rem;color:#9ca3af;font-style:italic;">Buscando en catálogo...</div>
+            </div>
             ${l.url ? `<a href="${l.url}" target="_blank"
                 style="display:block;text-align:center;background:#2563eb;color:#fff;border-radius:10px;padding:12px;font-size:.9rem;font-weight:700;text-decoration:none;">
                 🔗 Abrir en sitio oficial (pliego y detalles)
@@ -1281,6 +1328,25 @@ function verLicitacion(idx) {
         </div>`;
     modal.addEventListener('click', e => { if (e.target === modal) modal.remove(); });
     document.body.appendChild(modal);
+
+    // Matching asíncrono: espera que el catálogo esté listo
+    await _cargarProductosNombres();
+    const matches = _matchearProductos(l.objeto);
+    const matchDiv = document.getElementById('modal-lic-matches');
+    if (!matchDiv) return;
+    if (!matches.length) {
+        matchDiv.innerHTML = `<div style="font-size:.78rem;color:#9ca3af;font-style:italic;">Sin coincidencias en catálogo.</div>`;
+    } else {
+        matchDiv.innerHTML = `
+            <div style="font-size:.8rem;font-weight:700;color:#374151;margin-bottom:8px;">
+                📦 Productos del catálogo que podrían coincidir (${matches.length})
+            </div>
+            <div style="display:flex;flex-wrap:wrap;gap:6px;">
+                ${matches.map(m =>
+                    `<span style="background:#dbeafe;color:#1e40af;border-radius:8px;padding:4px 10px;font-size:.78rem;font-weight:600;">${m.nombre}</span>`
+                ).join('')}
+            </div>`;
+    }
 }
 
 async function syncLicitaciones(btn) {

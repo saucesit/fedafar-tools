@@ -1697,6 +1697,15 @@ def api_admin_licitaciones_clasificar(id):
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
+@app.route('/api/admin/productos-nombres', methods=['GET'])
+@admin_required
+def api_admin_productos_nombres():
+    try:
+        prods = parse_price_list('contado')
+        return jsonify([p['name'] for p in prods])
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
 # ── Intercambios de mercadería ─────────────────────────────────────────────────
 
 def _jefe_o_admin_required(f):
