@@ -2174,24 +2174,24 @@ function renderIntercambioCard(item, archivado = false) {
     const formDevolucion = !archivado ? `
         <div id="form-dev-${item.id}" style="display:none;margin-top:10px;border-top:1px solid #f3f4f6;padding-top:10px;">
             <input type="text" id="dev-cant-${item.id}" class="docs-input" placeholder="Cantidad devuelta *" style="margin-bottom:6px;">
-            <input type="text" id="dev-nota-${item.id}" class="docs-input" placeholder="Nota (opcional)" style="margin-bottom:8px;">
-            <label style="display:flex;align-items:center;gap:8px;font-size:.83rem;color:#374151;margin-bottom:10px;cursor:pointer;">
-                <input type="checkbox" id="dev-completo-${item.id}" style="width:16px;height:16px;">
-                Esto cierra el intercambio (devolución completa)
-            </label>
-            <div style="display:flex;gap:8px;">
-                <button onclick="registrarDevolucion('${item.id}')"
-                    style="flex:1;background:#059669;color:#fff;border:none;border-radius:8px;padding:8px;font-size:.83rem;font-weight:700;cursor:pointer;">
-                    Confirmar devolución
+            <input type="text" id="dev-nota-${item.id}" class="docs-input" placeholder="Nota (opcional)" style="margin-bottom:10px;">
+            <div style="display:flex;gap:8px;margin-bottom:6px;">
+                <button onclick="registrarDevolucion('${item.id}', false)"
+                    style="flex:1;background:#fef3c7;color:#92400e;border:2px solid #f59e0b;border-radius:8px;padding:9px 6px;font-size:.82rem;font-weight:700;cursor:pointer;">
+                    ⚠️ Parcial
                 </button>
-                <button onclick="document.getElementById('form-dev-${item.id}').style.display='none';document.getElementById('btn-dev-${item.id}').style.display='block';"
-                    style="background:#f3f4f6;color:#374151;border:none;border-radius:8px;padding:8px 12px;font-size:.83rem;cursor:pointer;">
-                    Cancelar
+                <button onclick="registrarDevolucion('${item.id}', true)"
+                    style="flex:1;background:#d1fae5;color:#065f46;border:2px solid #059669;border-radius:8px;padding:9px 6px;font-size:.82rem;font-weight:700;cursor:pointer;">
+                    ✅ Cerrar ticket
                 </button>
             </div>
+            <button onclick="document.getElementById('form-dev-${item.id}').style.display='none';document.getElementById('btn-dev-${item.id}').style.display='block';"
+                style="width:100%;background:#f3f4f6;color:#6b7280;border:none;border-radius:8px;padding:7px;font-size:.82rem;cursor:pointer;">
+                Cancelar
+            </button>
         </div>
         <button id="btn-dev-${item.id}" onclick="document.getElementById('form-dev-${item.id}').style.display='block';this.style.display='none';"
-            style="width:100%;margin-top:10px;background:#d1fae5;color:#065f46;border:none;border-radius:8px;padding:7px;font-size:.83rem;font-weight:700;cursor:pointer;">
+            style="width:100%;margin-top:10px;background:#eff6ff;color:#1d4ed8;border:2px solid #bfdbfe;border-radius:8px;padding:7px;font-size:.83rem;font-weight:700;cursor:pointer;">
             ↩ Registrar devolución
         </button>` : '';
 
@@ -2211,10 +2211,9 @@ function renderIntercambioCard(item, archivado = false) {
     </div>`;
 }
 
-async function registrarDevolucion(id) {
+async function registrarDevolucion(id, completo) {
     const cantidad = document.getElementById(`dev-cant-${id}`).value.trim();
     const nota     = document.getElementById(`dev-nota-${id}`).value.trim();
-    const completo = document.getElementById(`dev-completo-${id}`).checked;
 
     if (!cantidad) {
         alert('Ingresá la cantidad devuelta');
