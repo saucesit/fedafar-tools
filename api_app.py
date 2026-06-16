@@ -682,7 +682,20 @@ def fuzzy_stock_match(price_name, stock_dict):
             return stock_val
     return None
 
+_price_cache: dict = {}   # { tipo: (timestamp, [products]) }
+_CACHE_TTL = 900          # 15 minutos
+
+def invalidar_cache_productos():
+    _price_cache.clear()
+
 def parse_price_list(tipo='contado'):
+    import time
+    now = time.time()
+    if tipo in _price_cache:
+        ts, cached = _price_cache[tipo]
+        if now - ts < _CACHE_TTL:
+            return cached
+
     products   = []
     stock_dict = get_stock_data()
     principios = get_principios()
@@ -791,6 +804,7 @@ def parse_price_list(tipo='contado'):
 
         products.append(producto)
 
+    _price_cache[tipo] = (now, products)
     return products
 
 # ── Préstamos internos ────────────────────────────────────────────────────────
@@ -1525,15 +1539,40 @@ def api_admin_balance_stock_cerrar(ticket_id):
     nota = (data.get('nota') or '').strip()
     now  = datetime.now(timezone.utc).isoformat()
     try:
-        sb     = get_sb()
+        sb = get_sb()
+
+        # Obtener datos del balance antes de cerrar
+        ticket = sb.table('balance_stock').select('producto,stock_real').eq('id', ticket_id).single().execute()
+
         update = {'estado': 'cerrado', 'cerrado_en': now}
         if nota:
             update['nota_cierre'] = nota
         sb.table('balance_stock').update(update).eq('id', ticket_id).execute()
+
+        # Aplicar el stock real a stock_productos
+        if ticket.data:
+            producto   = ticket.data['producto']
+            stock_real = float(ticket.data['stock_real'] or 0)
+            if stock_real > 0:
+                sb.table('stock_productos').upsert({
+                    'nombre':        producto,
+                    'existencia':    stock_real,
+                    'actualizado_en': now,
+                }).execute()
+            else:
+                sb.table('stock_productos').delete().eq('nombre', producto).execute()
+
+        invalidar_cache_productos()
         return jsonify({'ok': True})
     except Exception as e:
         print(f"[ERROR] {e}")
         return jsonify({'error': 'Error interno del servidor'}), 500
+
+@app.route('/api/admin/productos/invalidar-cache', methods=['POST'])
+@admin_required
+def api_admin_invalidar_cache():
+    invalidar_cache_productos()
+    return jsonify({'ok': True})
 
 # ── Pedidos ────────────────────────────────────────────────────────────────────
 

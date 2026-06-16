@@ -653,7 +653,7 @@ async function loadBalanceAdmin() {
             ? `<span class="badge badge-activo">Cerrado</span>`
             : `<span class="badge badge-inactivo">Pendiente</span>`;
         const acciones = t.estado === 'pendiente'
-            ? `<button class="btn-edit" onclick="abrirCierreBalance(${t.id}, '${t.producto.replace(/'/g,"\\'")}')">Cerrar ticket</button>`
+            ? `<button class="btn-edit" onclick="abrirCierreBalance(${t.id}, '${t.producto.replace(/'/g,"\\'")}', ${t.stock_real})" style="background:#059669;color:#fff;">✅ Aplicar al stock</button>`
             : `<span style="font-size:.78rem;color:var(--muted)">${t.nota_cierre || '—'}</span>`;
         return `<tr>
             <td><strong>${t.producto}</strong></td>
@@ -668,8 +668,11 @@ async function loadBalanceAdmin() {
     }).join('');
 }
 
-function abrirCierreBalance(id, producto) {
-    const nota = prompt(`Cerrar ticket: "${producto}"\n\nNota de cierre (opcional):`);
+function abrirCierreBalance(id, producto, stockReal) {
+    const accion = stockReal > 0
+        ? `Esto va a actualizar el stock de "${producto}" a ${stockReal} unidades en el catálogo.`
+        : `Esto va a QUITAR "${producto}" del catálogo (stock real = 0).`;
+    const nota = prompt(`${accion}\n\nNota de cierre (opcional):`);
     if (nota === null) return;
     cerrarBalanceTicket(id, nota);
 }

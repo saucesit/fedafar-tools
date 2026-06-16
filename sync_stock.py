@@ -172,8 +172,25 @@ def _subir_a_supabase(stock_dict: dict):
         # Borrar productos que ya no tienen stock (no aparecieron en este sync)
         sb.table('stock_productos').delete().lt('actualizado_en', ts).execute()
         print(f"  [OK] {len(registros)} productos actualizados en Supabase.")
+        # Invalidar caché de productos en Render
+        _invalidar_cache_render()
     except Exception as e:
         print(f"  [WARN] No se pudo subir a Supabase: {e}")
+
+
+def _invalidar_cache_render():
+    RENDER_URL = os.getenv('RENDER_URL', 'https://fedafar-tools.onrender.com')
+    ADMIN_PASS = os.getenv('ADMIN_PASSWORD', '')
+    if not ADMIN_PASS:
+        return
+    try:
+        import requests as req
+        s = req.Session()
+        s.post(f'{RENDER_URL}/api/admin/login', json={'password': ADMIN_PASS}, timeout=10)
+        s.post(f'{RENDER_URL}/api/admin/productos/invalidar-cache', timeout=10)
+        print("  [OK] Caché de productos invalidado en Render.")
+    except Exception as e:
+        print(f"  [WARN] No se pudo invalidar caché en Render: {e}")
 
 
 if __name__ == "__main__":
