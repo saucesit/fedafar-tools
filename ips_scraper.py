@@ -112,12 +112,21 @@ def parsear_solicitudes(html_content):
 # ── Scraping de ítems del pliego ─────────────────────────────────────────────
 
 def scrape_items(session, url):
-    """Entra al pliego de cada solicitud y extrae la lista de productos."""
+    """Entra al pliego de cada solicitud y extrae la lista de productos.
+    Retorna (items, no_encontrada) donde no_encontrada=True si IPS dice que
+    la solicitud no existe para este usuario (proveedor no habilitado)."""
     if not url:
-        return []
+        return [], False
     try:
         r    = session.get(url, timeout=20)
         soup = BeautifulSoup(r.content, 'html.parser')
+
+        # IPS avisa en JS cuando el proveedor no tiene acceso a esa solicitud
+        for script in soup.find_all('script'):
+            if 'solicitud no fue encontrada' in script.get_text().lower():
+                print('    [IPS] Solicitud no accesible para este proveedor')
+                return [], True
+
         items = []
 
         # Buscar tabla de detalle (id contiene gvDetSolicitud, o la siguiente a h3 "Detalle de Productos")
@@ -156,10 +165,10 @@ def scrape_items(session, url):
                 items.append({'descripcion': nombre, 'cantidad': cantidad, 'unidad': ''})
 
         print(f'    Ítems encontrados: {len(items)}')
-        return items[:50]
+        return items[:50], False
     except Exception as e:
         print(f'    [IPS] Error ítems: {e}')
-        return []
+        return [], False
 
 # ── Supabase ──────────────────────────────────────────────────────────────────
 
@@ -225,7 +234,12 @@ def run_scraper():
             print(f'  [SKIP] {numero}')
             continue
         print(f'  [+] {numero} — {sol["objeto"][:60]}')
-        sol['items'] = scrape_items(session, sol['url'])
+        items, no_encontrada = scrape_items(session, sol['url'])
+        if no_encontrada:
+            print(f'  [SKIP] {numero} — proveedor sin acceso, se omite')
+            time.sleep(0.5)
+            continue
+        sol['items'] = items
         time.sleep(0.5)
         if guardar(sb, sol):
             guardadas += 1
