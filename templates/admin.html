@@ -1259,10 +1259,16 @@ async function loadLicitaciones() {
                     ${btnClas('APLICA',    '✅', 'Aplica')}
                     ${btnClas('REVISAR',   '⚠️', 'Revisar')}
                     ${btnClas('NO_APLICA', '❌', 'No aplica')}
-                    <button onclick="verLicitacion(${i})"
-                        style="margin-left:auto;border:none;background:#2563eb;color:#fff;border-radius:8px;padding:5px 14px;font-size:.8rem;font-weight:600;cursor:pointer;">
-                        🔍 Ver detalle
-                    </button>
+                    <div style="display:flex;gap:6px;margin-left:auto;">
+                        ${l.url ? `<a href="${l.url}" target="_blank"
+                            style="border:none;background:#059669;color:#fff;border-radius:8px;padding:5px 14px;font-size:.8rem;font-weight:600;cursor:pointer;text-decoration:none;">
+                            🔗 Pliego
+                        </a>` : ''}
+                        <button onclick="verLicitacion(${i})"
+                            style="border:none;background:#2563eb;color:#fff;border-radius:8px;padding:5px 14px;font-size:.8rem;font-weight:600;cursor:pointer;">
+                            🔍 Detalle
+                        </button>
+                    </div>
                 </div>
             </div>`;
         }).join('');
