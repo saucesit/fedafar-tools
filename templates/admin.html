@@ -1708,15 +1708,18 @@ async function quitarDelCRM(crmId) {
 
 async function agregarAlCRM(licId) {
     try {
+        console.log('[CRM] Enviando licitacion_id:', licId, typeof licId);
         const res  = await fetch(`${BASE}/api/admin/crm`, {
             method: 'POST', credentials: 'include',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ licitacion_id: String(licId) })
         });
         const data = await res.json();
-        if (!res.ok) console.error('[CRM] Error al agregar:', data);
+        if (!res.ok) {
+            alert('Error al agregar al CRM:\n' + JSON.stringify(data));
+        }
     } catch(e) {
-        console.error('[CRM] Error de red:', e);
+        alert('Error de red al agregar al CRM: ' + e.message);
     }
 }
 
