@@ -1614,8 +1614,6 @@ let _crmDragId = null;
 async function loadCRM() {
     const board = document.getElementById('crm-board');
     board.innerHTML = '<p class="empty-msg" style="width:100%;">Cargando...</p>';
-    // Auto-importar todas las APLICA que todavía no estén en el CRM
-    await fetch(`${BASE}/api/admin/crm/sync-aplicas`, { method: 'POST', credentials: 'include' });
     const res = await fetch(`${BASE}/api/admin/crm`, { credentials: 'include' });
     if (!res.ok) { board.innerHTML = '<p class="empty-msg">Error al cargar.</p>'; return; }
     const entries = await res.json();
@@ -1672,8 +1670,8 @@ function _crmCard(e) {
         <div style="display:flex;gap:6px;margin-top:8px;">
             ${l.url ? `<a href="${l.url}" target="_blank"
                 style="flex:1;text-align:center;background:#eff6ff;color:#1e40af;border:1px solid #bfdbfe;border-radius:6px;padding:5px 0;font-size:.75rem;font-weight:600;text-decoration:none;">🔗 Pliego</a>` : '<div style="flex:1"></div>'}
-            <button onclick="quitarDelCRM('${e.id}')"
-                title="Quitar del pipeline"
+            <button onclick="quitarDelCRM('${e.id}','${e.licitacion_id}')"
+                title="Quitar del pipeline y volver al inbox"
                 style="background:#fef2f2;color:#991b1b;border:1px solid #fecaca;border-radius:6px;padding:5px 9px;font-size:.75rem;cursor:pointer;font-weight:600;">🗑</button>
         </div>
     </div>`;
@@ -1703,8 +1701,14 @@ async function guardarNotasCRM(crmId, notas) {
     });
 }
 
-async function quitarDelCRM(crmId) {
-    if (!confirm('¿Quitar esta licitación del pipeline?')) return;
+async function quitarDelCRM(crmId, licId) {
+    if (!confirm('¿Quitar esta licitación del pipeline? Volverá al inbox para revisarla.')) return;
+    // Volver clasificacion a REVISAR para que aparezca en el inbox
+    await fetch(`${BASE}/api/admin/licitaciones/${licId}/clasificar`, {
+        method: 'PATCH', credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ clasificacion: 'REVISAR' })
+    });
     const res = await fetch(`${BASE}/api/admin/crm/${crmId}`, { method: 'DELETE', credentials: 'include' });
     if (res.ok) loadCRM();
 }
