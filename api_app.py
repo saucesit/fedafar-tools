@@ -1752,7 +1752,14 @@ def api_admin_ips_pliego():
         r = s.get(url, timeout=20)
         html = r.text
         base_tag = '<base href="https://www.ipssalta.gov.ar/Cotizaciones/Proveedor/">'
-        html = html.replace('<head>', f'<head>{base_tag}', 1) if '<head>' in html else base_tag + html
+        # Suprimir alerts de IPS (ej. "solicitud no encontrada") y notificar al padre
+        intercept = """<script>
+window.alert = function(msg) {
+    window.parent.postMessage({type:'ips-alert', msg: msg}, '*');
+};
+</script>"""
+        inject = base_tag + intercept
+        html = html.replace('<head>', f'<head>{inject}', 1) if '<head>' in html else inject + html
         return html, 200, {'Content-Type': 'text/html; charset=utf-8'}
     except Exception as e:
         return f'<html><body style="font-family:sans-serif;padding:20px"><b>Error al cargar pliego IPS:</b><br>{e}</body></html>', 500, {'Content-Type': 'text/html'}
