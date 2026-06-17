@@ -1707,11 +1707,17 @@ async function quitarDelCRM(crmId) {
 }
 
 async function agregarAlCRM(licId) {
-    await fetch(`${BASE}/api/admin/crm`, {
-        method: 'POST', credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ licitacion_id: licId })
-    });
+    try {
+        const res  = await fetch(`${BASE}/api/admin/crm`, {
+            method: 'POST', credentials: 'include',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ licitacion_id: String(licId) })
+        });
+        const data = await res.json();
+        if (!res.ok) console.error('[CRM] Error al agregar:', data);
+    } catch(e) {
+        console.error('[CRM] Error de red:', e);
+    }
 }
 
 // ── Pedidos Admin ─────────────────────────────────────────────────────────────
