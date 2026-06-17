@@ -192,9 +192,10 @@ def clasificar(fila):
         'REVISAR = posiblemente relevante (equipamiento sanitario, servicios hospitalarios)\n'
         'NO_APLICA = sin relación con droguería\n'
         'rubro: máx 40 chars | analisis: máx 120 chars\n'
-        'productos: lista de nombres genéricos (DCI) de medicamentos/insumos mencionados. '
-        'Si el objeto es genérico sin nombres específicos, inferí los productos más probables '
-        'según el tipo de organismo y contexto. Máx 10 items, array vacío si no aplica.'
+        'productos: lista de nombres genéricos (DCI) de medicamentos/insumos EXPLÍCITAMENTE '
+        'mencionados en el objeto. NO inferir ni completar: si el objeto dice "PROVISION DE MEDICAMENTOS" '
+        'sin nombrar cuáles, devolvé array vacío. Solo incluir lo que está escrito textualmente. '
+        'Máx 10 items, array vacío si no hay nombres concretos.'
     )
     try:
         resp = client.messages.create(
