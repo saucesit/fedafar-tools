@@ -1737,6 +1737,26 @@ def api_admin_productos_nombres():
 
 # ── CRM Licitaciones ───────────────────────────────────────────────────────────
 
+@app.route('/api/admin/ips-pliego')
+@admin_required
+def api_admin_ips_pliego():
+    url = request.args.get('url', '')
+    if not url or 'ipssalta.gov.ar' not in url:
+        return '<html><body><p>URL inválida</p></body></html>', 400, {'Content-Type': 'text/html'}
+    try:
+        import sys
+        if 'ips_scraper' in sys.modules:
+            del sys.modules['ips_scraper']
+        from ips_scraper import hacer_login
+        s, _ = hacer_login()
+        r = s.get(url, timeout=20)
+        html = r.text
+        base_tag = '<base href="https://www.ipssalta.gov.ar/Cotizaciones/Proveedor/">'
+        html = html.replace('<head>', f'<head>{base_tag}', 1) if '<head>' in html else base_tag + html
+        return html, 200, {'Content-Type': 'text/html; charset=utf-8'}
+    except Exception as e:
+        return f'<html><body style="font-family:sans-serif;padding:20px"><b>Error al cargar pliego IPS:</b><br>{e}</body></html>', 500, {'Content-Type': 'text/html'}
+
 @app.route('/api/admin/crm/sync-aplicas', methods=['POST'])
 @admin_required
 def api_admin_crm_sync_aplicas():
