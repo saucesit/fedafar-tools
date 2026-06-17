@@ -1703,14 +1703,19 @@ async function guardarNotasCRM(crmId, notas) {
 
 async function quitarDelCRM(crmId, licId) {
     if (!confirm('¿Quitar esta licitación del pipeline? Volverá al inbox para revisarla.')) return;
-    // Volver clasificacion a REVISAR para que aparezca en el inbox
-    await fetch(`${BASE}/api/admin/licitaciones/${licId}/clasificar`, {
+    // Volver clasificacion a REVISAR
+    const r1 = await fetch(`${BASE}/api/admin/licitaciones/${licId}/clasificar`, {
         method: 'PATCH', credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ clasificacion: 'REVISAR' })
     });
-    const res = await fetch(`${BASE}/api/admin/crm/${crmId}`, { method: 'DELETE', credentials: 'include' });
-    if (res.ok) loadCRM();
+    if (!r1.ok) { alert('Error al cambiar clasificación: ' + (await r1.text())); return; }
+    // Borrar del CRM
+    const r2 = await fetch(`${BASE}/api/admin/crm/${crmId}`, { method: 'DELETE', credentials: 'include' });
+    if (!r2.ok) { alert('Error al quitar del CRM: ' + (await r2.text())); return; }
+    // Ir al inbox y refrescar
+    switchTab('licitaciones');
+    loadLicitaciones();
 }
 
 async function agregarAlCRM(licId) {
