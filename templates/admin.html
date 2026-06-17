@@ -684,7 +684,7 @@ function switchTab(tab) {
     if (tab === 'licitaciones')   { _cargarProductosNombres(); loadLicitaciones(); marcarVistasLicitaciones(); }
     if (tab === 'intercambios')  { loadIntercambiosAdmin(); }
     if (tab === 'pedidos')       loadPedidosAdmin();
-    if (tab === 'crm')           loadCRM();
+    if (tab === 'crm')           { _cargarProductosNombres(); loadCRM(); }
 }
 
 // ── Balance Stock ─────────────────────────────────────────────────────────────
@@ -1163,23 +1163,29 @@ const _STOPWORDS = new Set([
     'mililitros','litros','cada','todo','todos','este','esta','estos','estas'
 ]);
 
-function _matchearProductos(objeto, productosDetectados) {
+function _matchearProductos(objeto, productosDetectados, itemsDetalle) {
     const prods = window._productosNombres;
     if (!prods) return [];
 
-    // Si Claude ya extrajo nombres genéricos, usarlos como tokens más precisos
     let tokens = [];
-    if (productosDetectados && productosDetectados.length) {
+
+    // Prioridad 1: ítems reales del pliego (IPS)
+    if (itemsDetalle && itemsDetalle.length) {
+        tokens = itemsDetalle.flatMap(it =>
+            _normTexto(it.descripcion || '').split(' ').filter(t => t.length > 3 && !_STOPWORDS.has(t))
+        );
+    }
+    // Prioridad 2: nombres explícitos extraídos por Claude (SaltaCompra)
+    else if (productosDetectados && productosDetectados.length) {
         tokens = productosDetectados.flatMap(p =>
             _normTexto(p).split(' ').filter(t => t.length > 3 && !_STOPWORDS.has(t))
         );
     }
-    // Siempre complementar con tokens del objeto
-    if (objeto) {
-        tokens = tokens.concat(
-            _normTexto(objeto).split(' ').filter(t => t.length > 3 && !_STOPWORDS.has(t))
-        );
+    // Sin datos confiables → no matchear
+    else {
+        return [];
     }
+
     tokens = [...new Set(tokens)];
     if (!tokens.length) return [];
 
@@ -1390,12 +1396,13 @@ async function verLicitacion(idx) {
 
     // Matching asíncrono contra catálogo
     await _cargarProductosNombres();
-    const prodDet = l.productos_detectados ? JSON.parse(l.productos_detectados) : [];
-    const matches = _matchearProductos(l.objeto, prodDet);
+    const prodDet  = l.productos_detectados ? JSON.parse(l.productos_detectados) : [];
+    const itemsDet = l.items_detalle ? JSON.parse(l.items_detalle) : [];
+    const matches  = _matchearProductos(l.objeto, prodDet, itemsDet);
     const matchDiv = document.getElementById('modal-lic-matches');
     if (!matchDiv) return;
     if (!matches.length) {
-        matchDiv.innerHTML = `<div style="font-size:.78rem;color:#9ca3af;font-style:italic;">Sin coincidencias en catálogo. Usá "Re-analizar con IA" para mejorar la búsqueda.</div>`;
+        matchDiv.innerHTML = `<div style="font-size:.78rem;color:#9ca3af;font-style:italic;">Sin coincidencias en catálogo${(!prodDet.length && !itemsDet.length) ? ' — no hay productos identificados aún' : ''}.</div>`;
     } else {
         matchDiv.innerHTML = `
             <div style="font-size:.8rem;font-weight:700;color:#374151;margin-bottom:8px;">
@@ -1445,8 +1452,9 @@ async function reanalizarLicitacion(id, idx) {
 
         // Refrescar secciones del modal
         _renderProductosDetectados(window._licitacionesData[idx]);
-        const prodDet = data.analisis.productos || [];
-        const matches = _matchearProductos(window._licitacionesData[idx].objeto, prodDet);
+        const prodDet  = data.analisis.productos || [];
+        const itemsDet = window._licitacionesData[idx].items_detalle ? JSON.parse(window._licitacionesData[idx].items_detalle) : [];
+        const matches  = _matchearProductos(window._licitacionesData[idx].objeto, prodDet, itemsDet);
         const matchDiv = document.getElementById('modal-lic-matches');
         if (matchDiv) {
             matchDiv.innerHTML = matches.length
@@ -1719,6 +1727,17 @@ function _crmCard(e) {
                 </div>`).join('')}
             </div>
         </details>` : '';
+
+    const matches = _matchearProductos(l.objeto, prods, items);
+    const matchesHTML = matches.length ? `
+        <details style="margin-bottom:8px;">
+            <summary style="font-size:.72rem;font-weight:700;color:#1e40af;cursor:pointer;user-select:none;">
+                📦 En nuestro catálogo (${matches.length})
+            </summary>
+            <div style="margin-top:5px;display:flex;flex-wrap:wrap;gap:4px;">
+                ${matches.map(m => `<span style="background:#dbeafe;color:#1e40af;border-radius:6px;padding:2px 7px;font-size:.7rem;font-weight:600;">${m.nombre}</span>`).join('')}
+            </div>
+        </details>` : '';
     const objeto = (l.objeto || '—').length > 72 ? l.objeto.slice(0, 72) + '…' : (l.objeto || '—');
 
     return `
@@ -1731,6 +1750,7 @@ function _crmCard(e) {
         <div style="font-size:.74rem;color:#6b7280;margin-bottom:8px;">🏛 ${l.organismo || '—'}<br>📅 ${l.fecha_apertura || '—'}</div>
         ${(chips || extras) ? `<div style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:8px;">${chips}${extras}</div>` : ''}
         ${itemsHTML}
+        ${matchesHTML}
         <textarea placeholder="Notas: precio ofertado, contacto, observaciones..."
             onblur="guardarNotasCRM('${e.id}', this.value)"
             style="width:100%;border:1px solid #e5e7eb;border-radius:6px;padding:5px 7px;font-size:.75rem;color:#374151;resize:vertical;min-height:54px;box-sizing:border-box;font-family:inherit;"
