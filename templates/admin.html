@@ -1206,24 +1206,25 @@ async function loadLicitaciones() {
     const revisar  = data.filter(l => l.clasificacion === 'REVISAR').length;
     const noAplica = data.filter(l => l.clasificacion === 'NO_APLICA').length;
     resumen.innerHTML = [
-        { num: aplica,   label: '✅ Aplican',   color: '#065f46', bg: '#d1fae5' },
-        { num: revisar,  label: '⚠️ Revisar',   color: '#92400e', bg: '#fef3c7' },
-        { num: noAplica, label: '❌ No aplican', color: '#991b1b', bg: '#fee2e2' },
+        { num: revisar,  label: '📥 Para revisar', color: '#92400e', bg: '#fef3c7' },
+        { num: aplica,   label: '🎯 En CRM',        color: '#065f46', bg: '#d1fae5' },
+        { num: noAplica, label: '🗑 Descartadas',   color: '#991b1b', bg: '#fee2e2' },
     ].map(s => `
         <div style="background:${s.bg};border-radius:10px;padding:10px 18px;text-align:center;min-width:80px;">
             <div style="font-size:1.5rem;font-weight:800;color:${s.color};line-height:1;">${s.num}</div>
             <div style="font-size:.75rem;color:#555;">${s.label}</div>
         </div>`).join('');
 
-    const orden = { APLICA: 0, REVISAR: 1, NO_APLICA: 2 };
+    const orden = { REVISAR: 0, APLICA: 1, NO_APLICA: 2 };
     data.sort((a, b) => (orden[a.clasificacion] ?? 9) - (orden[b.clasificacion] ?? 9));
     window._licitacionesData = data;
 
-    const activas     = data.map((l, i) => [l, i]).filter(([l]) => l.clasificacion !== 'NO_APLICA');
+    // Inbox: solo las pendientes de clasificar (REVISAR)
+    const activas     = data.map((l, i) => [l, i]).filter(([l]) => l.clasificacion === 'REVISAR');
     const descartadas = data.map((l, i) => [l, i]).filter(([l]) => l.clasificacion === 'NO_APLICA');
 
     if (!activas.length) {
-        body.innerHTML = '<p class="empty-msg">Sin licitaciones activas. Hacé click en "Sincronizar ahora".</p>';
+        body.innerHTML = '<p class="empty-msg">✅ Sin licitaciones pendientes. Las que aplicaste están en el tab 🎯 CRM.</p>';
     } else {
         body.innerHTML = activas.map(([l, i]) => {
             const cfg    = CLAS_CONFIG[l.clasificacion] || CLAS_CONFIG.REVISAR;
@@ -1613,6 +1614,8 @@ let _crmDragId = null;
 async function loadCRM() {
     const board = document.getElementById('crm-board');
     board.innerHTML = '<p class="empty-msg" style="width:100%;">Cargando...</p>';
+    // Auto-importar todas las APLICA que todavía no estén en el CRM
+    await fetch(`${BASE}/api/admin/crm/sync-aplicas`, { method: 'POST', credentials: 'include' });
     const res = await fetch(`${BASE}/api/admin/crm`, { credentials: 'include' });
     if (!res.ok) { board.innerHTML = '<p class="empty-msg">Error al cargar.</p>'; return; }
     const entries = await res.json();

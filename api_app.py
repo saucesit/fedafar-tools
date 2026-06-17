@@ -1737,6 +1737,26 @@ def api_admin_productos_nombres():
 
 # ── CRM Licitaciones ───────────────────────────────────────────────────────────
 
+@app.route('/api/admin/crm/sync-aplicas', methods=['POST'])
+@admin_required
+def api_admin_crm_sync_aplicas():
+    try:
+        sb      = get_sb()
+        aplicas = sb.table('licitaciones').select('id').eq('clasificacion', 'APLICA').execute().data or []
+        existing = sb.table('licitaciones_crm').select('licitacion_id').execute().data or []
+        existing_ids = {e['licitacion_id'] for e in existing}
+        added = 0
+        for a in aplicas:
+            lic_id = str(a['id'])
+            if lic_id not in existing_ids:
+                sb.table('licitaciones_crm').insert({
+                    'licitacion_id': lic_id, 'estado': 'identificada', 'notas': ''
+                }).execute()
+                added += 1
+        return jsonify({'ok': True, 'agregadas': added})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
 @app.route('/api/admin/crm', methods=['GET'])
 @admin_required
 def api_admin_crm_list():
