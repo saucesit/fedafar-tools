@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Scraper de solicitudes IPS Salta para FEDAFAR."""
 
-import os, re, time
+import os, re, time, json
 import requests
 from bs4 import BeautifulSoup
 from datetime import datetime, timezone
@@ -109,6 +109,57 @@ def parsear_solicitudes(html_content):
 
     return solicitudes
 
+# ── Scraping de ítems del pliego ─────────────────────────────────────────────
+
+def scrape_items(session, url):
+    """Entra al pliego de cada solicitud y extrae la lista de productos."""
+    if not url:
+        return []
+    try:
+        r    = session.get(url, timeout=20)
+        soup = BeautifulSoup(r.content, 'html.parser')
+        items = []
+
+        # Estrategia 1: buscar la sección "Detalle de Productos" y tabla siguiente
+        for tag in soup.find_all(string=lambda t: t and 'detalle de producto' in t.lower()):
+            table = tag.find_parent().find_next('table')
+            if table:
+                rows = table.find_all('tr')
+                for row in rows[1:]:
+                    cells = [td.get_text(' ', strip=True) for td in row.find_all('td')]
+                    if cells and cells[0] and len(cells[0]) > 3:
+                        items.append({
+                            'descripcion': cells[0],
+                            'cantidad':    cells[1] if len(cells) > 1 else '',
+                            'unidad':      cells[2] if len(cells) > 2 else '',
+                        })
+                if items:
+                    break
+
+        # Estrategia 2: tabla con headers de descripción/cantidad
+        if not items:
+            for table in soup.find_all('table'):
+                headers = [c.get_text(strip=True).lower()
+                           for c in (table.find('tr').find_all(['th','td']) if table.find('tr') else [])]
+                if any(h in headers for h in ['descripción','descripcion','detalle','artículo','articulo']):
+                    rows = table.find_all('tr')
+                    for row in rows[1:]:
+                        cells = [td.get_text(' ', strip=True) for td in row.find_all('td')]
+                        if cells and cells[0] and len(cells[0]) > 3:
+                            items.append({
+                                'descripcion': cells[0],
+                                'cantidad':    cells[1] if len(cells) > 1 else '',
+                                'unidad':      cells[2] if len(cells) > 2 else '',
+                            })
+                    if items:
+                        break
+
+        print(f'    Ítems encontrados: {len(items)}')
+        return items[:50]
+    except Exception as e:
+        print(f'    [IPS] Error ítems: {e}')
+        return []
+
 # ── Supabase ──────────────────────────────────────────────────────────────────
 
 def ya_existe(sb, numero):
@@ -121,18 +172,22 @@ def ya_existe(sb, numero):
         return False
 
 def guardar(sb, sol):
+    items = sol.get('items', [])
+    nombres = [i['descripcion'] for i in items if i.get('descripcion')]
     record = {
-        'numero_proceso': sol['numero_proceso'][:100],
-        'objeto':         sol['objeto'][:500],
-        'organismo':      sol['organismo'],
-        'fecha_apertura': sol['fecha_apertura'][:50],
-        'estado':         sol['estado'],
-        'clasificacion':  'APLICA',
-        'analisis':       f"IPS — {sol['rubro']}",
-        'url':            sol['url'][:500],
-        'fecha_scraping': datetime.now(timezone.utc).isoformat(),
-        'notificado':     False,
-        'fuente':         'ips',
+        'numero_proceso':      sol['numero_proceso'][:100],
+        'objeto':              sol['objeto'][:500],
+        'organismo':           sol['organismo'],
+        'fecha_apertura':      sol['fecha_apertura'][:50],
+        'estado':              sol['estado'],
+        'clasificacion':       'REVISAR',
+        'analisis':            f"IPS — {sol['rubro']}",
+        'url':                 sol['url'][:500],
+        'fecha_scraping':      datetime.now(timezone.utc).isoformat(),
+        'notificado':          False,
+        'fuente':              'ips',
+        'productos_detectados': json.dumps(nombres,   ensure_ascii=False),
+        'items_detalle':        json.dumps(items,     ensure_ascii=False),
     }
     try:
         sb.table('licitaciones').insert(record).execute()
@@ -169,6 +224,8 @@ def run_scraper():
             print(f'  [SKIP] {numero}')
             continue
         print(f'  [+] {numero} — {sol["objeto"][:60]}')
+        sol['items'] = scrape_items(session, sol['url'])
+        time.sleep(0.5)
         if guardar(sb, sol):
             guardadas += 1
 

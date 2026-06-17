@@ -1793,7 +1793,7 @@ def api_admin_crm_list():
         if not crm:
             return jsonify([])
         lic_ids = list({e['licitacion_id'] for e in crm})
-        lics    = sb.table('licitaciones').select('id,objeto,organismo,fecha_apertura,url,productos_detectados,fuente,numero_proceso').in_('id', lic_ids).execute().data or []
+        lics    = sb.table('licitaciones').select('id,objeto,organismo,fecha_apertura,url,productos_detectados,items_detalle,fuente,numero_proceso').in_('id', lic_ids).execute().data or []
         lic_map = {l['id']: l for l in lics}
         return jsonify([{**e, 'licitacion': lic_map.get(e['licitacion_id'], {})} for e in crm])
     except Exception as e:

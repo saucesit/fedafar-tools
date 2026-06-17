@@ -1701,11 +1701,24 @@ function _crmCard(e) {
     const l = e.licitacion || {};
     let prods = [];
     try { prods = l.productos_detectados ? JSON.parse(l.productos_detectados) : []; } catch(ex) {}
+    let items = [];
+    try { items = l.items_detalle ? JSON.parse(l.items_detalle) : []; } catch(ex) {}
     const visibles = prods.slice(0, 3);
     const extras   = prods.length > 3 ? `<span style="font-size:.72rem;color:#6b7280;align-self:center;">+${prods.length - 3}</span>` : '';
     const chips    = visibles.map(p =>
         `<span style="background:#f0fdf4;color:#166534;border:1px solid #bbf7d0;border-radius:6px;padding:2px 7px;font-size:.7rem;font-weight:600;">${p}</span>`
     ).join('');
+    const itemsHTML = items.length ? `
+        <details style="margin-bottom:8px;">
+            <summary style="font-size:.72rem;font-weight:700;color:#4b5563;cursor:pointer;user-select:none;">
+                📋 Ítems del pliego (${items.length})
+            </summary>
+            <div style="margin-top:5px;max-height:120px;overflow-y:auto;font-size:.7rem;color:#374151;">
+                ${items.map(it => `<div style="padding:2px 0;border-bottom:1px solid #f3f4f6;">
+                    <span style="font-weight:600;">${it.descripcion}</span>${it.cantidad ? ` — <span style="color:#6b7280;">${it.cantidad} ${it.unidad||''}</span>` : ''}
+                </div>`).join('')}
+            </div>
+        </details>` : '';
     const objeto = (l.objeto || '—').length > 72 ? l.objeto.slice(0, 72) + '…' : (l.objeto || '—');
 
     return `
@@ -1717,6 +1730,7 @@ function _crmCard(e) {
         <div style="font-size:.82rem;font-weight:700;color:#1e293b;line-height:1.35;margin-bottom:6px;">${objeto}</div>
         <div style="font-size:.74rem;color:#6b7280;margin-bottom:8px;">🏛 ${l.organismo || '—'}<br>📅 ${l.fecha_apertura || '—'}</div>
         ${(chips || extras) ? `<div style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:8px;">${chips}${extras}</div>` : ''}
+        ${itemsHTML}
         <textarea placeholder="Notas: precio ofertado, contacto, observaciones..."
             onblur="guardarNotasCRM('${e.id}', this.value)"
             style="width:100%;border:1px solid #e5e7eb;border-radius:6px;padding:5px 7px;font-size:.75rem;color:#374151;resize:vertical;min-height:54px;box-sizing:border-box;font-family:inherit;"
