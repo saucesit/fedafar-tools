@@ -120,39 +120,40 @@ def scrape_items(session, url):
         soup = BeautifulSoup(r.content, 'html.parser')
         items = []
 
-        # Estrategia 1: buscar la sección "Detalle de Productos" y tabla siguiente
-        for tag in soup.find_all(string=lambda t: t and 'detalle de producto' in t.lower()):
-            table = tag.find_parent().find_next('table')
-            if table:
-                rows = table.find_all('tr')
-                for row in rows[1:]:
-                    cells = [td.get_text(' ', strip=True) for td in row.find_all('td')]
-                    if cells and cells[0] and len(cells[0]) > 3:
-                        items.append({
-                            'descripcion': cells[0],
-                            'cantidad':    cells[1] if len(cells) > 1 else '',
-                            'unidad':      cells[2] if len(cells) > 2 else '',
-                        })
-                if items:
+        # Buscar tabla de detalle (id contiene gvDetSolicitud, o la siguiente a h3 "Detalle de Productos")
+        tabla = soup.find('table', id=lambda x: x and 'gvDetSolicitud' in x)
+        if not tabla:
+            for tag in soup.find_all(string=lambda t: t and 'detalle de producto' in t.lower()):
+                tabla = tag.find_parent().find_next('table')
+                if tabla:
                     break
 
-        # Estrategia 2: tabla con headers de descripción/cantidad
-        if not items:
-            for table in soup.find_all('table'):
-                headers = [c.get_text(strip=True).lower()
-                           for c in (table.find('tr').find_all(['th','td']) if table.find('tr') else [])]
-                if any(h in headers for h in ['descripción','descripcion','detalle','artículo','articulo']):
-                    rows = table.find_all('tr')
-                    for row in rows[1:]:
-                        cells = [td.get_text(' ', strip=True) for td in row.find_all('td')]
-                        if cells and cells[0] and len(cells[0]) > 3:
-                            items.append({
-                                'descripcion': cells[0],
-                                'cantidad':    cells[1] if len(cells) > 1 else '',
-                                'unidad':      cells[2] if len(cells) > 2 else '',
-                            })
-                    if items:
+        if tabla:
+            for row in tabla.find_all('tr')[1:]:
+                tds = row.find_all('td')
+                if len(tds) < 2:
+                    continue
+
+                # Columna "Producto": nombre en div siguiente al div "Nombre:"
+                td_prod = tds[1]
+                nombre = ''
+                divs = td_prod.find_all('div')
+                for i, d in enumerate(divs):
+                    if d.get_text(strip=True).lower() == 'nombre:' and i + 1 < len(divs):
+                        nombre = divs[i + 1].get_text(strip=True)
                         break
+                if not nombre:
+                    nombre = td_prod.get_text(' ', strip=True)
+                if not nombre or len(nombre) < 3:
+                    continue
+
+                # Columna "Cantidad": puede estar en input[value] o texto del td
+                cantidad = ''
+                if len(tds) > 2:
+                    inp = tds[2].find('input')
+                    cantidad = inp['value'].strip() if inp and inp.get('value') else tds[2].get_text(strip=True)
+
+                items.append({'descripcion': nombre, 'cantidad': cantidad, 'unidad': ''})
 
         print(f'    Ítems encontrados: {len(items)}')
         return items[:50]
