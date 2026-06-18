@@ -254,13 +254,14 @@ def ya_existe(sb, numero):
         return False
 
 def guardar(sb, fila, analisis):
+    clasificacion = analisis.get('clasificacion', 'REVISAR')
     record = {
         'numero_proceso': fila['numero_proceso'][:100],
         'objeto':         fila['objeto'][:500],
         'organismo':      fila['organismo'][:200],
         'fecha_apertura': fila['fecha_apertura'][:50],
         'estado':         fila['estado'][:50],
-        'clasificacion':        analisis.get('clasificacion', 'REVISAR'),
+        'clasificacion':        clasificacion,
         'analisis':             f"{analisis.get('rubro','')} — {analisis.get('analisis','')}",
         'productos_detectados': json.dumps(analisis.get('productos', []), ensure_ascii=False),
         'url':            fila['url'][:500],
@@ -268,7 +269,13 @@ def guardar(sb, fila, analisis):
         'notificado':     False,
     }
     try:
-        sb.table('licitaciones').insert(record).execute()
+        res = sb.table('licitaciones').insert(record).execute()
+        lic_id = res.data[0]['id']
+        if clasificacion == 'APLICA':
+            existing = sb.table('licitaciones_crm').select('id').eq('licitacion_id', str(lic_id)).execute().data
+            if not existing:
+                sb.table('licitaciones_crm').insert({'licitacion_id': str(lic_id), 'estado': 'identificada', 'notas': ''}).execute()
+                print(f'      → Agregada al CRM automáticamente')
         return True
     except Exception as e:
         print(f'  [ERROR guardar] {e}')
