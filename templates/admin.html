@@ -93,6 +93,8 @@
         .container { max-width:900px; margin:0 auto; padding:24px 16px; }
         .admin-section { display: none; }
         .admin-section.active { display: block; }
+        .refreshing { opacity: .45; pointer-events: none; transition: opacity .15s; }
+        .refreshing-done { opacity: 1; transition: opacity .2s; }
 
         .card {
             background:var(--card); border-radius:16px; padding:24px;
@@ -532,7 +534,7 @@
                     <h2 style="margin:0;font-size:1.1rem;font-weight:800;color:#1e293b;">🎯 Pipeline de Licitaciones</h2>
                     <p style="margin:4px 0 0;font-size:.82rem;color:#6b7280;">Arrastrá las cards entre columnas para actualizar el estado. Las licitaciones marcadas APLICA se agregan automáticamente.</p>
                 </div>
-                <button onclick="loadCRM()" style="background:#6b7280;color:#fff;border:none;border-radius:8px;padding:7px 14px;font-size:.82rem;cursor:pointer;font-weight:600;">↺ Actualizar</button>
+                <button onclick="_invalidarTab('crm');loadCRM();" style="background:#6b7280;color:#fff;border:none;border-radius:8px;padding:7px 14px;font-size:.82rem;cursor:pointer;font-weight:600;">↺ Actualizar</button>
             </div>
             <div id="crm-board" style="display:flex;gap:14px;overflow-x:auto;padding-bottom:16px;align-items:flex-start;">
                 <p class="empty-msg" style="width:100%;">Cargando...</p>
@@ -671,6 +673,9 @@ function showApp() {
     actualizarBadgeLicitaciones();
 }
 
+const _tabTs = {};
+const _TAB_TTL = 60000;
+
 function switchTab(tab) {
     document.querySelectorAll('.admin-section').forEach(s => s.classList.remove('active'));
     document.querySelectorAll('.admin-tab').forEach(t => t.classList.remove('active'));
@@ -678,14 +683,19 @@ function switchTab(tab) {
     document.getElementById(`tab-${tab}`).classList.add('active');
     const cont = document.querySelector('.container');
     if (cont) { cont.style.maxWidth = tab === 'crm' ? 'none' : ''; cont.style.padding = tab === 'crm' ? '24px 24px' : ''; }
-    if (tab === 'faltantes')     loadFaltantesAdmin();
-    if (tab === 'estadisticas')  loadEstadisticas();
-    if (tab === 'balance')       loadBalanceAdmin();
-    if (tab === 'licitaciones')   { _cargarProductosNombres(); loadLicitaciones(); marcarVistasLicitaciones(); }
-    if (tab === 'intercambios')  { loadIntercambiosAdmin(); }
-    if (tab === 'pedidos')       loadPedidosAdmin();
-    if (tab === 'crm')           { _cargarProductosNombres(); loadCRM(); }
+    const fresh = _tabTs[tab] && (Date.now() - _tabTs[tab]) < _TAB_TTL;
+    if (fresh) return;
+    _tabTs[tab] = Date.now();
+    if (tab === 'faltantes')    loadFaltantesAdmin();
+    if (tab === 'estadisticas') loadEstadisticas();
+    if (tab === 'balance')      loadBalanceAdmin();
+    if (tab === 'licitaciones') { _cargarProductosNombres(); loadLicitaciones(); marcarVistasLicitaciones(); }
+    if (tab === 'intercambios') loadIntercambiosAdmin();
+    if (tab === 'pedidos')      loadPedidosAdmin();
+    if (tab === 'crm')          { _cargarProductosNombres(); loadCRM(); }
 }
+
+function _invalidarTab(tab) { delete _tabTs[tab]; }
 
 // ── Balance Stock ─────────────────────────────────────────────────────────────
 
@@ -1201,9 +1211,12 @@ function _matchearProductos(objeto, productosDetectados, itemsDetalle) {
 async function loadLicitaciones() {
     const body    = document.getElementById('licitaciones-body');
     const resumen = document.getElementById('licitaciones-resumen');
-    body.innerHTML = '<p class="empty-msg">Cargando...</p>';
+    const isEmpty = !body.children.length || body.querySelector('.empty-msg');
+    if (isEmpty) body.innerHTML = '<p class="empty-msg">Cargando...</p>';
+    else body.classList.add('refreshing');
 
     const res = await fetch(`${BASE}/api/admin/licitaciones`, { credentials: 'include' });
+    body.classList.remove('refreshing');
     if (!res.ok) { body.innerHTML = '<p class="empty-msg">Error al cargar.</p>'; return; }
     const data = await res.json();
 
@@ -1333,7 +1346,8 @@ async function clasificarLicitacion(id, idx, nuevaClas) {
     });
     if (res.ok) {
         window._licitacionesData[idx].clasificacion = nuevaClas;
-        if (nuevaClas === 'APLICA') await agregarAlCRM(id);
+        if (nuevaClas === 'APLICA') { await agregarAlCRM(id); _invalidarTab('crm'); }
+        _invalidarTab('licitaciones');
         loadLicitaciones();
     } else {
         alert('Error al guardar clasificación');
@@ -1673,8 +1687,12 @@ const CRM_COLS = [
 
 async function loadCRM() {
     const board = document.getElementById('crm-board');
-    board.innerHTML = '<p class="empty-msg" style="width:100%;">Cargando...</p>';
+    const isEmpty = !board.querySelector('[id^="crm-col-"]');
+    if (isEmpty) board.innerHTML = '<p class="empty-msg" style="width:100%;">Cargando...</p>';
+    else board.classList.add('refreshing');
+
     const res = await fetch(`${BASE}/api/admin/crm`, { credentials: 'include' });
+    board.classList.remove('refreshing');
     if (!res.ok) { board.innerHTML = '<p class="empty-msg">Error al cargar.</p>'; return; }
     const entries = await res.json();
 
@@ -1688,7 +1706,7 @@ async function loadCRM() {
         <div style="flex:1 1 200px;min-width:180px;display:flex;flex-direction:column;">
             <div style="background:${col.bg};border:1px solid ${col.border};border-radius:12px 12px 0 0;padding:10px 14px;display:flex;align-items:center;gap:8px;">
                 <span style="font-size:.85rem;font-weight:800;color:${col.color};">${col.emoji} ${col.label}</span>
-                <span style="background:${col.color};color:#fff;border-radius:20px;padding:1px 8px;font-size:.72rem;font-weight:700;margin-left:auto;">${cards.length}</span>
+                <span id="crm-count-${col.id}" style="background:${col.color};color:#fff;border-radius:20px;padding:1px 8px;font-size:.72rem;font-weight:700;margin-left:auto;">${cards.length}</span>
             </div>
             <div id="crm-col-${col.id}" data-estado="${col.id}"
                 style="min-height:320px;background:#f8fafc;border:1px solid ${col.border};border-top:none;border-radius:0 0 12px 12px;padding:10px;display:flex;flex-direction:column;gap:10px;transition:background .15s;"
@@ -1696,7 +1714,7 @@ async function loadCRM() {
                 ondragleave="this.style.background='#f8fafc';"
                 ondrop="_crmDrop(event,'${col.id}')">
                 ${cards.length === 0
-                    ? `<div style="text-align:center;color:#d1d5db;font-size:.8rem;padding:24px 0;">Sin licitaciones</div>`
+                    ? `<div class="crm-empty-col" style="text-align:center;color:#d1d5db;font-size:.8rem;padding:24px 0;">Sin licitaciones</div>`
                     : cards.map(e => _crmCard(e)).join('')}
             </div>
         </div>`;
@@ -1784,12 +1802,38 @@ async function _actualizarEstadoCRM(crmId, estado) {
         body: JSON.stringify({ estado })
     });
     if (res.ok) {
-        loadCRM();
+        _crmMoverCard(crmId, estado);
     } else {
         const err = await res.text();
         console.error('CRM estado PATCH falló:', res.status, err);
         alert('Error al mover la tarjeta: ' + res.status);
     }
+}
+
+function _crmMoverCard(crmId, nuevoEstado) {
+    const card      = document.getElementById(`crm-card-${crmId}`);
+    const targetCol = document.getElementById(`crm-col-${nuevoEstado}`);
+    if (!card || !targetCol) { _invalidarTab('crm'); loadCRM(); return; }
+
+    const sourceCol = card.closest('[id^="crm-col-"]');
+
+    // quitar placeholder del destino si existe
+    targetCol.querySelector('.crm-empty-col')?.remove();
+
+    // mover card
+    targetCol.appendChild(card);
+
+    // si la fuente quedó vacía, agregar placeholder
+    if (sourceCol && !sourceCol.querySelector('[id^="crm-card-"]')) {
+        sourceCol.innerHTML = '<div class="crm-empty-col" style="text-align:center;color:#d1d5db;font-size:.8rem;padding:24px 0;">Sin licitaciones</div>';
+    }
+
+    // actualizar badges de conteo
+    CRM_COLS.forEach(col => {
+        const badge = document.getElementById(`crm-count-${col.id}`);
+        const colEl = document.getElementById(`crm-col-${col.id}`);
+        if (badge && colEl) badge.textContent = colEl.querySelectorAll('[id^="crm-card-"]').length;
+    });
 }
 
 async function guardarNotasCRM(crmId, notas) {
@@ -1809,17 +1853,27 @@ async function quitarDelCRM(crmId, licId) {
         body: JSON.stringify({ clasificacion: 'REVISAR' })
     });
     if (!r1.ok) { alert('Error al cambiar clasificación: ' + (await r1.text())); return; }
-    // Borrar del CRM
     const r2 = await fetch(`${BASE}/api/admin/crm/${crmId}`, { method: 'DELETE', credentials: 'include' });
     if (!r2.ok) { alert('Error al quitar del CRM: ' + (await r2.text())); return; }
-    // Ir al inbox y refrescar
+    // Quitar card del DOM directo
+    const card = document.getElementById(`crm-card-${crmId}`);
+    if (card) {
+        const col = card.closest('[id^="crm-col-"]');
+        card.remove();
+        if (col && !col.querySelector('[id^="crm-card-"]'))
+            col.innerHTML = '<div class="crm-empty-col" style="text-align:center;color:#d1d5db;font-size:.8rem;padding:24px 0;">Sin licitaciones</div>';
+        CRM_COLS.forEach(c => {
+            const b = document.getElementById(`crm-count-${c.id}`);
+            const e = document.getElementById(`crm-col-${c.id}`);
+            if (b && e) b.textContent = e.querySelectorAll('[id^="crm-card-"]').length;
+        });
+    }
+    _invalidarTab('licitaciones');
     switchTab('licitaciones');
-    loadLicitaciones();
 }
 
 async function agregarAlCRM(licId) {
     try {
-        console.log('[CRM] Enviando licitacion_id:', licId, typeof licId);
         const res  = await fetch(`${BASE}/api/admin/crm`, {
             method: 'POST', credentials: 'include',
             headers: { 'Content-Type': 'application/json' },
