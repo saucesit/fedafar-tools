@@ -126,7 +126,7 @@ def parsear_tabla(soup):
     if header_row:
         headers = [th.get_text(strip=True).lower() for th in header_row.find_all(['th', 'td'])]
         for i, h in enumerate(headers):
-            if any(x in h for x in ['nro', 'número', 'numero', 'proceso', 'expediente']):
+            if any(x in h for x in ['nro', 'número', 'numero', 'expediente']) or h == 'número de proceso':
                 col_idx['numero'] = i
             elif any(x in h for x in ['objeto', 'descripcion', 'descripción', 'denominacion']):
                 col_idx['objeto'] = i
@@ -147,27 +147,57 @@ def parsear_tabla(soup):
             idx = col_idx.get(key, -1)
             return texts[idx] if 0 <= idx < len(texts) else default
 
-        # Buscar URL de detalle en cualquier celda
+        # Capturar URL directa o postback target de "Descargar Pliego"
         url = URL_LICITACIONES
+        postback_target = ''
         for celda in celdas:
             a = celda.find('a', href=True)
-            if a and not a['href'].startswith('javascript'):
-                href = a['href']
+            if not a:
+                continue
+            href = a['href']
+            if not href.startswith('javascript'):
                 url = href if href.startswith('http') else SITE_ROOT + href.lstrip('/')
+                postback_target = ''
                 break
+            m = re.search(r"__doPostBack\('([^']+)'", href)
+            if m:
+                postback_target = m.group(1)
 
         fila = {
-            'numero_proceso': get_col('numero'),
-            'objeto':         get_col('objeto'),
-            'organismo':      get_col('organismo'),
-            'estado':         get_col('estado'),
-            'fecha_apertura': get_col('fecha'),
-            'url':            url,
+            'numero_proceso':   get_col('numero'),
+            'objeto':           get_col('objeto'),
+            'organismo':        get_col('organismo'),
+            'estado':           get_col('estado'),
+            'fecha_apertura':   get_col('fecha'),
+            'url':              url,
+            'postback_target':  postback_target,
         }
         if fila['numero_proceso'] or fila['objeto']:
             filas.append(fila)
 
     return filas
+
+# ── Obtener URL real del pliego via postback ──────────────────────────────────
+
+def obtener_url_pliego(session, form_action, form_data, postback_target):
+    """Simula el click en 'Descargar Pliego' y devuelve la URL resultante."""
+    if not postback_target:
+        return None
+    try:
+        data = dict(form_data)
+        data['__EVENTTARGET']   = postback_target
+        data['__EVENTARGUMENT'] = ''
+        resp = session.post(form_action, data=data, timeout=30, allow_redirects=True)
+        # Si hubo una redirección a una URL distinta, esa es la del pliego
+        if resp.url and resp.url != form_action:
+            return resp.url
+        # Buscar en los headers
+        loc = resp.headers.get('Location', '')
+        if loc:
+            return loc if loc.startswith('http') else SITE_ROOT + loc.lstrip('/')
+    except Exception as e:
+        print(f'    [SC] Error obteniendo URL pliego: {e}')
+    return None
 
 # ── Claude clasificador ────────────────────────────────────────────────────────
 
@@ -289,13 +319,24 @@ def run_scraper():
                 continue
 
             print(f'  [+] {numero} — {fila["objeto"][:55]}')
+
+            # Obtener URL real del pliego si hay postback
+            if fila.get('postback_target'):
+                url_pliego = obtener_url_pliego(
+                    session, get_form_action(soup),
+                    extraer_form_data(soup), fila['postback_target']
+                )
+                if url_pliego:
+                    fila['url'] = url_pliego
+                    print(f'      → Pliego: {url_pliego[:70]}')
+
             analisis = clasificar(fila)
             print(f'      → {analisis.get("clasificacion")} | {analisis.get("rubro","")}')
 
             if guardar(sb, fila, analisis):
                 guardadas += 1
 
-            time.sleep(0.4)
+            time.sleep(0.5)
 
         # Siguiente página
         target, arg = obtener_evento_pagina(soup, pagina + 1)

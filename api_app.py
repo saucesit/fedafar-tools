@@ -1825,7 +1825,7 @@ def api_admin_crm_estado(crm_id):
         return jsonify({'error': 'Estado inválido'}), 400
     try:
         sb = get_sb()
-        sb.table('licitaciones_crm').update({'estado': estado, 'actualizado_en': datetime.now(timezone.utc).isoformat()}).eq('id', crm_id).execute()
+        sb.table('licitaciones_crm').update({'estado': estado}).eq('id', crm_id).execute()
         return jsonify({'ok': True})
     except Exception as e:
         return jsonify({'error': str(e)}), 500

@@ -1,10 +1,11 @@
 """
 sync_items.py — Descarga ítems de facturas desde Genexus → Supabase.
 
-Para cada comprobante pendiente (saldo > 0) en cuenta_corriente:
-  1. Si no tiene genexus_factura_id → lo busca scrapeando la página de
-     comprobantes por cliente en Genexus (teso_comprobantesdecliente.aspx).
-  2. Entra a teso_facturasview.aspx?{ID}, y extrae:
+Estrategia:
+  1. Escanea teso_facturasww.aspx con 50 filas/página para construir un mapa
+     global  {client_id: {comprobante_norm: genexus_factura_id}}.
+  2. Para cada comprobante pendiente en Supabase (saldo > 0), busca su ID en
+     ese mapa y scrape la vista de factura (teso_facturasview.aspx?{ID},):
        - Solapa General : neto, IVA, total
        - Solapa Detalle : renglones (artículo, cantidad, precio, etc.)
   3. Guarda en comprobante_items y actualiza cuenta_corriente.
@@ -29,7 +30,7 @@ FEDAFAR_PASS = os.getenv("FEDAFAR_PASS")
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY")
 
-PYTHON_EXE   = r"C:\Users\FEDAFAR\AppData\Local\Programs\Python\Python312\python.exe"
+MAX_PAGES_SCAN = 40   # 40 páginas × 50 filas = hasta 2000 facturas escaneadas
 
 
 # ── Helpers ────────────────────────────────────────────────────────────────────
@@ -77,198 +78,138 @@ def do_login(page: Page) -> bool:
         return False
 
 
-# ── Paso 1: obtener el ID interno de Genexus por cliente ─────────────────────
+# ── Paso 1: escanear lista de facturas → mapa global ─────────────────────────
 
-def _seleccionar_cliente(page: Page, client_id: int) -> bool:
-    """Selecciona el cliente en el autocomplete de Genexus. Devuelve True si OK."""
-    selectors = [
-        "input[id*='Cliente']", "input[id*='cliente']",
-        "input[id*='AV6']",     "input[id*='Cli']",
-    ]
-    client_input = None
-    for sel in selectors:
-        try:
-            loc = page.locator(sel).first
-            if loc.count() > 0:
-                client_input = loc
-                break
-        except Exception:
-            continue
-    if not client_input:
-        client_input = page.locator("input[type='text']:visible").first
-
-    client_input.click()
-    client_input.press("Control+a")
-    client_input.press("Delete")
-    page.wait_for_timeout(300)
-    client_input.type(str(client_id), delay=150)
-    page.wait_for_timeout(3000)
-    client_input.press("ArrowDown")
-    page.wait_for_timeout(400)
-
-    for _ in range(25):
-        val = client_input.input_value()
-        if re.match(rf"^\s*{client_id}\b", val):
-            client_input.press("Enter")
-            page.wait_for_timeout(800)
-            return True
-        client_input.press("ArrowDown")
-        page.wait_for_timeout(200)
-
-    # Fallback con Tab
-    client_input.click()
-    client_input.press("Control+a")
-    client_input.press("Delete")
-    page.wait_for_timeout(200)
-    client_input.type(str(client_id), delay=120)
-    page.wait_for_timeout(2000)
-    client_input.press("Tab")
-    page.wait_for_timeout(1500)
-    val = client_input.input_value()
-    return bool(re.match(rf"^\s*{client_id}\b", val))
-
-
-def buscar_ids_cliente(page: Page, client_id: int) -> dict:
+def _leer_filas_facturas(page: Page, client_id: int, comp_set: set) -> dict:
     """
-    Navega a teso_comprobantesdecliente.aspx, selecciona el cliente y scrapea
-    los links a facturas individuales para obtener el ID interno de Genexus.
-
-    Retorna dict { numero_comprobante_norm: genexus_factura_id (int) }
+    Lee todas las páginas del listado de facturas filtrado por client_id.
+    Retorna { comp_norm: fac_id } para ese cliente.
+    Usa paginación por número de página en la barra '.PaginationBar'.
     """
-    id_map = {}
+    id_map  = {}
+    hallados = set()
 
-    try:
-        page.goto(f"{BASE_URL}/teso_comprobantesdecliente.aspx", timeout=15000)
-        page.wait_for_load_state("networkidle", timeout=15000)
-    except PWTimeout:
-        print(f"    ERROR: timeout abriendo comprobantes cliente {client_id}.")
-        return id_map
-
-    if not _seleccionar_cliente(page, client_id):
-        print(f"    ERROR: no se pudo seleccionar cliente {client_id}.")
-        return id_map
-
-    page.wait_for_timeout(2500)
-
-    # Buscar links a teso_facturasview en la grilla cargada
-    try:
+    for pagina in range(1, 30):   # máximo 30 páginas por cliente
         links = page.locator("a[href*='teso_facturasview']")
         n = links.count()
-        print(f"    Links a facturas encontrados: {n}")
+        if n == 0:
+            break
 
         for i in range(n):
-            lnk = links.nth(i)
-            href = lnk.get_attribute("href") or ""
-            m = re.search(r"teso_facturasview\.aspx\?(\d+)", href)
-            if not m:
-                continue
-            fac_id = int(m.group(1))
-
-            # Intentar leer el número de comprobante desde la fila
-            row_text = ""
             try:
-                row = lnk.locator("xpath=ancestor::tr[1]")
-                row_text = row.inner_text()
-            except Exception:
-                row_text = lnk.inner_text()
-
-            # Patrón típico Genexus: "FAC-B 0001-00012345" o "NC-B 0001-00001234"
-            comps = re.findall(r"[A-Z]{2,4}-[A-Z]\s+\d{4}-\d+", row_text)
-            if comps:
-                for c in comps:
-                    id_map[norm_comp(c)] = fac_id
-            else:
-                # El link mismo puede tener el número como texto
-                link_text = (lnk.inner_text() or "").strip()
-                if link_text and re.search(r"\d{4}-\d+", link_text):
-                    id_map[norm_comp(link_text)] = fac_id
-
-    except Exception as e:
-        print(f"    WARN al scrapear links: {e}")
-
-    # Fallback: si no encontramos links en teso_comprobantesdecliente,
-    # buscar en teso_facturasww.aspx filtrando por las primeras páginas
-    if not id_map:
-        print(f"    No se encontraron links en comprobantes. Buscando en lista de facturas...")
-        id_map = buscar_ids_en_lista_facturas(page, client_id)
-
-    print(f"    IDs mapeados para cliente {client_id}: {len(id_map)}")
-    return id_map
-
-
-def buscar_ids_en_lista_facturas(page: Page, client_id: int) -> dict:
-    """
-    Fallback: va a teso_facturasww.aspx y pagina buscando facturas del cliente.
-    Retorna dict { numero_comprobante_norm: genexus_factura_id }
-    """
-    id_map = {}
-    try:
-        page.goto(f"{BASE_URL}/teso_facturasww.aspx", timeout=15000)
-        page.wait_for_load_state("networkidle", timeout=12000)
-    except PWTimeout:
-        print("    ERROR: timeout en lista de facturas.")
-        return id_map
-
-    # Intentar filtrar por código de cliente
-    try:
-        filter_inputs = page.locator("input[type='text']:visible")
-        for i in range(min(filter_inputs.count(), 10)):
-            inp = filter_inputs.nth(i)
-            placeholder = (inp.get_attribute("placeholder") or "").lower()
-            iid = (inp.get_attribute("id") or "").lower()
-            if any(x in iid or x in placeholder for x in ["cli", "client", "cod"]):
-                inp.fill(str(client_id))
-                inp.press("Enter")
-                page.wait_for_load_state("networkidle", timeout=8000)
-                page.wait_for_timeout(1000)
-                break
-    except Exception:
-        pass
-
-    # Paginar hasta 10 páginas máximo
-    for pagina in range(1, 11):
-        try:
-            links = page.locator("a[href*='teso_facturasview']")
-            n = links.count()
-            if n == 0:
-                break
-
-            for i in range(n):
-                lnk = links.nth(i)
-                href = lnk.get_attribute("href") or ""
-                m = re.search(r"teso_facturasview\.aspx\?(\d+)", href)
+                lnk   = links.nth(i)
+                href  = lnk.get_attribute("href") or ""
+                m     = re.search(r"teso_facturasview\.aspx\?(\d+)", href)
                 if not m:
                     continue
                 fac_id = int(m.group(1))
 
-                row_text = ""
-                try:
-                    row = lnk.locator("xpath=ancestor::tr[1]")
-                    row_text = row.inner_text()
-                except Exception:
-                    row_text = lnk.inner_text()
-
-                # Solo incluir si el client_id aparece en la fila
-                if str(client_id) not in row_text:
+                row    = lnk.locator("xpath=ancestor::tr[1]")
+                celdas = row.locator("td")
+                if celdas.count() < 11:
                     continue
 
-                comps = re.findall(r"[A-Z]{2,4}-[A-Z]\s+\d{4}-\d+", row_text)
-                for c in comps:
-                    id_map[norm_comp(c)] = fac_id
+                # Verificar que pertenece al cliente correcto
+                cli_str = celdas.nth(10).inner_text().strip()
+                try:
+                    if int(cli_str) != client_id:
+                        continue
+                except ValueError:
+                    continue
 
-            # Siguiente página
-            siguiente = page.locator("a:has-text('Siguiente'), a:has-text('>'), a[id*='Next'], a[id*='Sig']").first
-            if siguiente.count() == 0 or not siguiente.is_visible():
-                break
-            siguiente.click()
-            page.wait_for_load_state("networkidle", timeout=8000)
-            page.wait_for_timeout(800)
+                tipo    = celdas.nth(5).inner_text().strip()
+                letra   = celdas.nth(6).inner_text().strip()
+                pto_vta = celdas.nth(7).inner_text().strip()
+                numero  = celdas.nth(8).inner_text().strip()
+                comp    = norm_comp(f"{tipo} {letra} {pto_vta}-{numero}")
 
-        except Exception as e:
-            print(f"    WARN paginando facturas (página {pagina}): {e}")
+                id_map[comp] = fac_id
+                if comp in comp_set:
+                    hallados.add(comp)
+
+            except Exception:
+                continue
+
+        # ¿Ya encontramos todo lo que buscamos?
+        if comp_set and hallados >= comp_set:
             break
 
+        # Siguiente página: Genexus muestra números de página en .PaginationBar
+        sig_pag = pagina + 1
+
+        # Esperar que desaparezca el spinner/mask de Genexus antes de clickear
+        try:
+            page.wait_for_selector(".gx-mask", state="hidden", timeout=5000)
+        except Exception:
+            pass  # si no hay mask, continuar igual
+
+        next_link = page.locator(f".PaginationBar a:has-text('{sig_pag}')").first
+        if next_link.count() == 0 or not next_link.is_visible():
+            break
+
+        # Usar JS click para bypassar cualquier overlay residual
+        page.evaluate(
+            f"Array.from(document.querySelectorAll('.PaginationBar a'))"
+            f".find(a => a.textContent.trim() === '{sig_pag}')?.click()"
+        )
+        page.wait_for_load_state("networkidle", timeout=8000)
+        page.wait_for_timeout(600)
+
     return id_map
+
+
+def scan_all_facturas(page: Page, por_cliente: dict) -> dict:
+    """
+    Escanea teso_facturasww.aspx filtrando por código de cliente (vFILTERFULLTEXT).
+    Retorna { client_id (int): { comprobante_norm (str): genexus_factura_id (int) } }
+
+    Estructura de celdas por fila (confirmada con debug_genexus.py):
+        td[3]  = ID interno Genexus
+        td[5]  = tipo comprobante  (FAC, NCRE, …)
+        td[6]  = letra             (A, B)
+        td[7]  = punto de venta    (00006)
+        td[8]  = número            (00011529)
+        td[10] = código de cliente (1248, 540, …)
+    """
+    mapping = {}
+
+    try:
+        page.goto(f"{BASE_URL}/teso_facturasww.aspx", timeout=15000)
+        page.wait_for_load_state("networkidle", timeout=12000)
+        page.wait_for_timeout(800)
+    except PWTimeout:
+        print("  ERROR: timeout abriendo lista de facturas.")
+        return mapping
+
+    filtro = page.locator("#vFILTERFULLTEXT")
+    if filtro.count() == 0:
+        print("  ERROR: no se encontró el input de filtro (vFILTERFULLTEXT).")
+        return mapping
+
+    for client_id, comps in por_cliente.items():
+        comp_set = {norm_comp(c["comprobante"]) for c in comps
+                    if not c.get("genexus_factura_id")}
+        if not comp_set:
+            continue
+
+        print(f"  Cliente {client_id}: buscando {len(comp_set)} comprobantes...")
+
+        # Filtrar por código de cliente
+        filtro.fill(str(client_id))
+        filtro.press("Enter")
+        page.wait_for_load_state("networkidle", timeout=10000)
+        page.wait_for_timeout(600)
+
+        client_map = _leer_filas_facturas(page, client_id, comp_set)
+        encontrados = len([c for c in comp_set if c in client_map])
+        print(f"    {encontrados}/{len(comp_set)} encontrados ({len(client_map)} facturas mapeadas)")
+
+        if client_map:
+            mapping[client_id] = client_map
+
+    total = sum(len(v) for v in mapping.values())
+    print(f"  Escaneo terminado: {total} facturas de {len(mapping)} clientes.")
+    return mapping
 
 
 # ── Paso 2: scrapear ítems y totales de una factura ───────────────────────────
@@ -276,7 +217,7 @@ def buscar_ids_en_lista_facturas(page: Page, client_id: int) -> dict:
 def scrape_factura(page: Page, factura_id: int) -> tuple:
     """
     Entra a teso_facturasview.aspx?{ID}, y extrae:
-      - totales (dict): neto_exento, neto_gravado, neto, iva, total
+      - totales (dict): neto, iva, total
       - items  (list of dict): renglones de la factura
 
     Retorna (items, totales). Ambos pueden ser vacíos si hay error.
@@ -298,8 +239,6 @@ def scrape_factura(page: Page, factura_id: int) -> tuple:
         tab.click()
         page.wait_for_timeout(800)
 
-        # Leer todos los pares etiqueta/valor de la página
-        # Genexus suele renderizarlos como <td>Etiqueta</td><td>Valor</td>
         rows = page.locator("table tr")
         for i in range(rows.count()):
             try:
@@ -309,11 +248,11 @@ def scrape_factura(page: Page, factura_id: int) -> tuple:
                 label = (cells.nth(0).inner_text() or "").strip().lower()
                 value = (cells.nth(1).inner_text() or "").strip()
 
-                if "neto exento"  in label: totales["neto_exento"]  = ar_num(value)
+                if "neto exento"    in label: totales["neto_exento"]  = ar_num(value)
                 elif "neto gravado" in label: totales["neto_gravado"] = ar_num(value)
                 elif label == "neto":         totales["neto"]         = ar_num(value)
-                elif "impuesto"   in label: totales["impuestos"]    = ar_num(value)
-                elif label in ("iva", "i.v.a."): totales["iva"]     = ar_num(value)
+                elif "impuesto"     in label: totales["impuestos"]    = ar_num(value)
+                elif label in ("iva", "i.v.a."): totales["iva"]      = ar_num(value)
                 elif label == "total":        totales["total"]        = ar_num(value)
             except Exception:
                 continue
@@ -376,7 +315,6 @@ def scrape_factura(page: Page, factura_id: int) -> tuple:
             try: return (cells.nth(idx).inner_text() or "").strip()
             except: return ""
 
-        # Leer filas del tbody
         filas = items_table.locator("tbody tr")
         for r in range(filas.count()):
             cells = filas.nth(r).locator("td")
@@ -384,19 +322,19 @@ def scrape_factura(page: Page, factura_id: int) -> tuple:
                 continue
             articulo = celda(cells, "articulo")
             if not articulo:
-                continue   # fila vacía o de separador
+                continue
 
             items.append({
-                "item_num":    int(celda(cells, "item_num") or 0),
-                "articulo":    articulo,
-                "laboratorio": celda(cells, "laboratorio"),
-                "cantidad":    ar_num(celda(cells, "cantidad")),
-                "precio":      ar_num(celda(cells, "precio")),
-                "iva_label":   celda(cells, "iva_label"),
-                "precio_total":ar_num(celda(cells, "precio_total")),
-                "subtotal":    ar_num(celda(cells, "subtotal")),
-                "impuesto":    ar_num(celda(cells, "impuesto")),
-                "linea":       ar_num(celda(cells, "linea")),
+                "item_num":     int(celda(cells, "item_num") or 0),
+                "articulo":     articulo,
+                "laboratorio":  celda(cells, "laboratorio"),
+                "cantidad":     ar_num(celda(cells, "cantidad")),
+                "precio":       ar_num(celda(cells, "precio")),
+                "iva_label":    celda(cells, "iva_label"),
+                "precio_total": ar_num(celda(cells, "precio_total")),
+                "subtotal":     ar_num(celda(cells, "subtotal")),
+                "impuesto":     ar_num(celda(cells, "impuesto")),
+                "linea":        ar_num(celda(cells, "linea")),
             })
 
     except Exception as e:
@@ -411,7 +349,6 @@ def guardar(sb, factura_id: int, gx_client_id: int,
             comprobante: str, items: list, totales: dict):
     now = datetime.now().isoformat()
 
-    # Limpiar ítems anteriores de esta factura
     sb.table("comprobante_items").delete().eq("genexus_factura_id", factura_id).execute()
 
     if items:
@@ -434,12 +371,11 @@ def guardar(sb, factura_id: int, gx_client_id: int,
         sb.table("comprobante_items").insert(records).execute()
         print(f"    {len(records)} ítems guardados.")
     else:
-        print(f"    Sin ítems para guardar.")
+        print(f"    Sin ítems encontrados.")
 
-    # Actualizar cuenta_corriente con el ID interno y totales
     update = {"genexus_factura_id": factura_id}
-    if totales.get("iva"):   update["iva_total"]      = totales["iva"]
-    if totales.get("total"): update["total_factura"]  = totales["total"]
+    if totales.get("iva"):    update["iva_total"]     = totales["iva"]
+    if totales.get("total"):  update["total_factura"] = totales["total"]
 
     sb.table("cuenta_corriente") \
       .update(update) \
@@ -461,7 +397,6 @@ def sync_items(force: bool = False):
     todos = res.data or []
 
     if not force:
-        # Excluir los que ya tienen ítems
         ya_ids = {
             str(r["genexus_factura_id"])
             for r in (sb.table("comprobante_items").select("genexus_factura_id").execute().data or [])
@@ -479,11 +414,14 @@ def sync_items(force: bool = False):
 
     print(f"[sync_items] Comprobantes a procesar: {len(pendientes)}")
 
-    # Agrupar por cliente para minimizar navegaciones
-    por_cliente = {}
+    # Comprobantes que ya tienen ID interno (no necesitan escaneo)
+    sin_id = [c for c in pendientes if not c.get("genexus_factura_id")]
+    con_id = [c for c in pendientes if c.get("genexus_factura_id")]
+
+    # Agrupar por cliente
+    por_cliente: dict[int, list] = {}
     for c in pendientes:
-        gx = c["genexus_client_id"]
-        por_cliente.setdefault(gx, []).append(c)
+        por_cliente.setdefault(c["genexus_client_id"], []).append(c)
 
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True)
@@ -494,35 +432,40 @@ def sync_items(force: bool = False):
             browser.close()
             return
 
+        # ── Escanear lista de facturas para encontrar IDs internos ───────────
+        if sin_id:
+            n_sin = len(sin_id)
+            print(f"\n[Paso 1] Buscando ID interno para {n_sin} comprobantes (por cliente)...")
+
+            # Agrupar solo los sin_id por cliente
+            por_cliente_sin: dict[int, list] = {}
+            for c in sin_id:
+                por_cliente_sin.setdefault(c["genexus_client_id"], []).append(c)
+
+            mapa = scan_all_facturas(page, por_cliente_sin)
+
+            # Asignar IDs encontrados
+            for c in sin_id:
+                clave  = norm_comp(c["comprobante"])
+                cli_id = c["genexus_client_id"]
+                fac_id = mapa.get(cli_id, {}).get(clave)
+                if fac_id:
+                    c["genexus_factura_id"] = fac_id
+                    con_id.append(c)
+                else:
+                    print(f"  [SKIP] Sin ID interno para: {c['comprobante']} (cliente {cli_id})")
+        else:
+            print("[Paso 1] Todos los comprobantes ya tienen ID interno. Salteando escaneo.")
+
+        # ── Descargar ítems para cada factura ────────────────────────────────
+        print(f"\n[Paso 2] Descargando ítems de {len(con_id)} facturas...")
         total_ok = 0
-
-        for gx_id, comps in por_cliente.items():
-            print(f"\n  Cliente {gx_id} — {len(comps)} comprobante(s)")
-
-            # Separar los que ya tienen ID interno de los que no
-            sin_id     = [c for c in comps if not c.get("genexus_factura_id")]
-            con_id     = [c for c in comps if c.get("genexus_factura_id")]
-
-            # Buscar IDs para los que no los tienen
-            if sin_id:
-                id_map = buscar_ids_cliente(page, gx_id)
-
-                for c in sin_id:
-                    clave = norm_comp(c["comprobante"])
-                    fac_id = id_map.get(clave)
-                    if fac_id:
-                        c["genexus_factura_id"] = fac_id
-                        con_id.append(c)
-                    else:
-                        print(f"    [SKIP] No se encontró ID para: {c['comprobante']}")
-
-            # Descargar ítems para cada factura con ID conocido
-            for c in con_id:
-                fac_id = c["genexus_factura_id"]
-                print(f"    Factura {fac_id} — {c['comprobante']}")
-                items, totales = scrape_factura(page, fac_id)
-                guardar(sb, fac_id, gx_id, c["comprobante"], items, totales)
-                total_ok += 1
+        for c in con_id:
+            fac_id = c["genexus_factura_id"]
+            print(f"  Factura {fac_id} — {c['comprobante']} (cliente {c['genexus_client_id']})")
+            items, totales = scrape_factura(page, fac_id)
+            guardar(sb, fac_id, c["genexus_client_id"], c["comprobante"], items, totales)
+            total_ok += 1
 
         browser.close()
 

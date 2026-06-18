@@ -1671,8 +1671,6 @@ const CRM_COLS = [
     { id: 'perdida',      emoji: '❌', label: 'Perdida',       color: '#7f1d1d', bg: '#fef2f2', border: '#fca5a5' },
 ];
 
-let _crmDragId = null;
-
 async function loadCRM() {
     const board = document.getElementById('crm-board');
     board.innerHTML = '<p class="empty-msg" style="width:100%;">Cargando...</p>';
@@ -1742,9 +1740,10 @@ function _crmCard(e) {
 
     return `
     <div id="crm-card-${e.id}" draggable="true"
-        ondragstart="_crmDragId='${e.id}';this.style.opacity='.4';"
+        ondragstart="event.dataTransfer.setData('text/plain','${e.id}');this.style.opacity='.4';"
         ondragend="this.style.opacity='1';"
         ondragover="event.preventDefault();"
+        ondrop="event.preventDefault();"
         style="background:#fff;border:1px solid #e5e7eb;border-radius:10px;padding:12px;cursor:grab;box-shadow:0 1px 3px rgba(0,0,0,.06);">
         <div style="font-size:.75rem;color:#9ca3af;margin-bottom:4px;">${l.numero_proceso || ''}</div>
         <div style="font-size:.82rem;font-weight:700;color:#1e293b;line-height:1.35;margin-bottom:6px;">${objeto}</div>
@@ -1754,6 +1753,8 @@ function _crmCard(e) {
         ${matchesHTML}
         <textarea placeholder="Notas: precio ofertado, contacto, observaciones..."
             onblur="guardarNotasCRM('${e.id}', this.value)"
+            ondragover="event.preventDefault();"
+            ondrop="event.preventDefault();"
             style="width:100%;border:1px solid #e5e7eb;border-radius:6px;padding:5px 7px;font-size:.75rem;color:#374151;resize:vertical;min-height:54px;box-sizing:border-box;font-family:inherit;"
         >${e.notas || ''}</textarea>
         <div style="display:flex;gap:6px;margin-top:8px;">
@@ -1769,10 +1770,11 @@ function _crmCard(e) {
 }
 
 function _crmDrop(event, nuevoEstado) {
+    event.preventDefault();
     event.currentTarget.style.background = '#f8fafc';
-    if (!_crmDragId) return;
-    _actualizarEstadoCRM(_crmDragId, nuevoEstado);
-    _crmDragId = null;
+    const crmId = event.dataTransfer.getData('text/plain');
+    if (!crmId) return;
+    _actualizarEstadoCRM(crmId, nuevoEstado);
 }
 
 async function _actualizarEstadoCRM(crmId, estado) {
@@ -1781,7 +1783,13 @@ async function _actualizarEstadoCRM(crmId, estado) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ estado })
     });
-    if (res.ok) loadCRM();
+    if (res.ok) {
+        loadCRM();
+    } else {
+        const err = await res.text();
+        console.error('CRM estado PATCH falló:', res.status, err);
+        alert('Error al mover la tarjeta: ' + res.status);
+    }
 }
 
 async function guardarNotasCRM(crmId, notas) {
