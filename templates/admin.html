@@ -1744,6 +1744,7 @@ function _crmCard(e) {
     <div id="crm-card-${e.id}" draggable="true"
         ondragstart="_crmDragId='${e.id}';this.style.opacity='.4';"
         ondragend="this.style.opacity='1';"
+        ondragover="event.preventDefault();"
         style="background:#fff;border:1px solid #e5e7eb;border-radius:10px;padding:12px;cursor:grab;box-shadow:0 1px 3px rgba(0,0,0,.06);">
         <div style="font-size:.75rem;color:#9ca3af;margin-bottom:4px;">${l.numero_proceso || ''}</div>
         <div style="font-size:.82rem;font-weight:700;color:#1e293b;line-height:1.35;margin-bottom:6px;">${objeto}</div>
