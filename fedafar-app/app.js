@@ -705,7 +705,7 @@ sendOrderBtn.addEventListener('click', () => {
         body: JSON.stringify({
             tipo_precio: tipo,
             items: cart.map(i => ({ name: i.name, lab: i.lab, qty: i.qty })),
-            total_estimado: totalPriceEl.innerText,
+            total_estimado: cart.reduce((sum, i) => sum + i.price * i.qty, 0),
         })
     }).catch(() => {});
 });
