@@ -1726,6 +1726,154 @@ def api_admin_licitaciones_reanalizar(id):
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
+@app.route('/api/admin/licitaciones/importar', methods=['POST'])
+@admin_required
+def api_admin_licitaciones_importar():
+    """Parsea archivos adjuntos de email (PDF/DOCX/XLSX) con Claude y devuelve datos extraídos."""
+    try:
+        import base64, io, re as _re, json as _json
+        import anthropic as _anthropic
+
+        files = request.files.getlist('archivos')
+        if not files or all(f.filename == '' for f in files):
+            return jsonify({'error': 'No se recibieron archivos'}), 400
+
+        ANTHROPIC_KEY = os.environ.get('ANTHROPIC_API_KEY', '')
+        if not ANTHROPIC_KEY:
+            return jsonify({'error': 'ANTHROPIC_API_KEY no configurada'}), 500
+
+        client = _anthropic.Anthropic(api_key=ANTHROPIC_KEY)
+        partes_texto = []
+        pdfs_content = []
+
+        for f in files:
+            nombre = f.filename or ''
+            ext    = nombre.lower().rsplit('.', 1)[-1] if '.' in nombre else ''
+            raw    = f.read()
+
+            if ext == 'pdf':
+                b64 = base64.standard_b64encode(raw).decode('utf-8')
+                pdfs_content.append({
+                    'type': 'document',
+                    'source': {'type': 'base64', 'media_type': 'application/pdf', 'data': b64},
+                    'title': nombre,
+                })
+            elif ext == 'docx':
+                try:
+                    from docx import Document as _Document
+                    doc  = _Document(io.BytesIO(raw))
+                    texto = '\n'.join(p.text for p in doc.paragraphs if p.text.strip())
+                    partes_texto.append(f'[{nombre}]\n{texto}')
+                except Exception as ex:
+                    partes_texto.append(f'[{nombre}] (error al leer: {ex})')
+            elif ext in ('xlsx', 'xls'):
+                try:
+                    import openpyxl as _xl
+                    wb    = _xl.load_workbook(io.BytesIO(raw), data_only=True)
+                    lineas = []
+                    for sheet in wb.worksheets:
+                        for row in sheet.iter_rows(values_only=True):
+                            fila_txt = ' | '.join(str(c) for c in row if c is not None)
+                            if fila_txt.strip():
+                                lineas.append(fila_txt)
+                    partes_texto.append(f'[{nombre}]\n' + '\n'.join(lineas[:300]))
+                except Exception as ex:
+                    partes_texto.append(f'[{nombre}] (error al leer: {ex})')
+            else:
+                try:
+                    partes_texto.append(f'[{nombre}]\n' + raw.decode('utf-8', errors='replace'))
+                except Exception:
+                    pass
+
+        prompt = (
+            'Sos experto en licitaciones públicas argentinas. '
+            'FEDAFAR es una droguería mayorista de Salta que vende medicamentos, '
+            'insumos médicos, descartables y reactivos a farmacias y hospitales.\n\n'
+            'Analizá el contenido de los documentos adjuntos de una licitación/solicitud '
+            'de cotización recibida por email y extraé la información estructurada.\n\n'
+        )
+        if partes_texto:
+            prompt += 'CONTENIDO DE ARCHIVOS:\n' + '\n\n'.join(partes_texto)[:8000] + '\n\n'
+
+        prompt += (
+            'Respondé SOLO con este JSON (sin markdown):\n'
+            '{\n'
+            '  "numero_proceso": "número o código de la licitación, o vacío",\n'
+            '  "objeto": "descripción del objeto de la contratación (máx 500 chars)",\n'
+            '  "organismo": "nombre del organismo/entidad licitante (máx 200 chars)",\n'
+            '  "fecha_apertura": "fecha de apertura o vencimiento como texto, o vacío",\n'
+            '  "estado": "estado de la licitación o Por cotizar",\n'
+            '  "clasificacion": "APLICA / REVISAR / NO_APLICA",\n'
+            '  "rubro": "categoría breve (máx 40 chars)",\n'
+            '  "analisis": "análisis de relevancia para FEDAFAR (máx 120 chars)",\n'
+            '  "productos": ["medicamentos/insumos explícitamente mencionados"],\n'
+            '  "items_detalle": [{"descripcion":"...","cantidad":"...","unidad":"..."}]\n'
+            '}\n\n'
+            'APLICA = medicamentos, insumos médicos, reactivos, descartables\n'
+            'REVISAR = posiblemente relevante (equipamiento, servicios hospitalarios)\n'
+            'NO_APLICA = sin relación con droguería\n'
+            'items_detalle: extraé TODOS los renglones con cantidad y unidad (hasta 50). '
+            'Array vacío si no hay detalle de ítems.'
+        )
+
+        content = pdfs_content + [{'type': 'text', 'text': prompt}]
+        resp = client.messages.create(
+            model='claude-haiku-4-5-20251001',
+            max_tokens=2000,
+            messages=[{'role': 'user', 'content': content}]
+        )
+        text = resp.content[0].text.strip()
+        text = _re.sub(r'^```json?\s*', '', text)
+        text = _re.sub(r'\s*```$', '', text)
+        datos = _json.loads(text)
+        return jsonify({'ok': True, 'datos': datos})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/admin/licitaciones/guardar-importada', methods=['POST'])
+@admin_required
+def api_admin_licitaciones_guardar_importada():
+    """Guarda en DB una licitación importada manualmente desde email."""
+    try:
+        import json as _json
+        from datetime import datetime, timezone
+        data = request.get_json() or {}
+        sb   = get_sb()
+
+        clasificacion = data.get('clasificacion', 'REVISAR')
+        record = {
+            'numero_proceso':       (data.get('numero_proceso') or '')[:100],
+            'objeto':               (data.get('objeto') or '')[:500],
+            'organismo':            (data.get('organismo') or '')[:200],
+            'fecha_apertura':       (data.get('fecha_apertura') or '')[:50],
+            'estado':               (data.get('estado') or 'Por cotizar')[:50],
+            'clasificacion':        clasificacion,
+            'analisis':             (f"{data.get('rubro','')} — {data.get('analisis','')}").strip(' —')[:200],
+            'productos_detectados': _json.dumps(data.get('productos', []), ensure_ascii=False),
+            'items_detalle':        _json.dumps(data.get('items_detalle', []), ensure_ascii=False),
+            'url':                  'email',
+            'fuente':               'email',
+            'fecha_scraping':       datetime.now(timezone.utc).isoformat(),
+            'notificado':           True,
+        }
+        res    = sb.table('licitaciones').insert(record).execute()
+        lic_id = res.data[0]['id']
+
+        if clasificacion == 'APLICA':
+            existing = sb.table('licitaciones_crm').select('id').eq('licitacion_id', str(lic_id)).execute().data
+            if not existing:
+                sb.table('licitaciones_crm').insert({
+                    'licitacion_id': str(lic_id),
+                    'estado':        'identificada',
+                    'notas':         ''
+                }).execute()
+
+        return jsonify({'ok': True, 'id': str(lic_id)})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
 @app.route('/api/admin/productos-nombres', methods=['GET'])
 @admin_required
 def api_admin_productos_nombres():

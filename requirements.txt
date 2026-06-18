@@ -8,6 +8,7 @@ gunicorn
 requests
 beautifulsoup4
 python-dotenv
+python-docx
 supabase
 fpdf2
 anthropic
