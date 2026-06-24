@@ -21,7 +21,7 @@ if hasattr(sys.stdout, 'reconfigure'):
 from dotenv import load_dotenv
 load_dotenv(Path(__file__).parent / '.env')
 
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from supabase import create_client
 
 # Reuso de piezas ya probadas
@@ -38,6 +38,13 @@ EMAIL_PASS   = os.environ.get('EMAIL_PASS', '')
 REMITENTE = 'hncomprasjujuy2023'
 ORGANISMO = 'Hospital Materno Infantil - Jujuy'
 TMP_DIR   = Path(__file__).parent / 'tmp_jujuy'
+VENTANA_DIAS = 2  # solo revisar los mails de los últimos N días
+_MESES = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
+
+def _fecha_since(dias):
+    """Fecha IMAP 'DD-Mon-YYYY' (meses en inglés, sin depender del locale)."""
+    d = datetime.now() - timedelta(days=dias)
+    return f'{d.day:02d}-{_MESES[d.month - 1]}-{d.year}'
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -129,9 +136,10 @@ def run():
         print(f'  [ERROR login IMAP] {e}')
         return 0
 
-    typ, data = M.uid('SEARCH', 'TEXT', REMITENTE)
+    since = _fecha_since(VENTANA_DIAS)
+    typ, data = M.uid('SEARCH', 'SINCE', since, 'TEXT', REMITENTE)
     uids = data[0].split() if data and data[0] else []
-    print(f'  Mails de Jujuy en bandeja: {len(uids)}')
+    print(f'  Mails de Jujuy (desde {since}): {len(uids)}')
 
     # ── FASE 1 (IMAP): bajar headers + PDF de los nuevos, y CERRAR la conexión.
     # Así no queda IMAP inactivo durante las llamadas lentas a Claude (Mail2World
