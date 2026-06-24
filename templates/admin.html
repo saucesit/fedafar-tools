@@ -1240,7 +1240,7 @@ async function actualizarBadgeLicitaciones() {
         const res  = await fetch(`${BASE}/api/admin/licitaciones`, { credentials: 'include' });
         if (!res.ok) return;
         const data = await res.json();
-        const nuevas = data.filter(l => !l.notificado).length;
+        const nuevas = data.filter(l => !l.notificado && !l.en_crm && l.clasificacion !== 'NO_APLICA').length;
         const badge  = document.getElementById('badge-licitaciones');
         if (nuevas > 0) {
             badge.textContent = nuevas > 99 ? '99+' : nuevas;
@@ -1336,13 +1336,13 @@ async function loadLicitaciones() {
     if (!res.ok) { body.innerHTML = '<p class="empty-msg">Error al cargar.</p>'; return; }
     const data = await res.json();
 
-    // Resumen
-    const aplica   = data.filter(l => l.clasificacion === 'APLICA').length;
-    const revisar  = data.filter(l => l.clasificacion === 'REVISAR').length;
+    // Resumen (la bandeja = lo que no está descartado ni en el pipeline)
+    const enCrm    = data.filter(l => l.en_crm).length;
+    const revisar  = data.filter(l => l.clasificacion !== 'NO_APLICA' && !l.en_crm).length;
     const noAplica = data.filter(l => l.clasificacion === 'NO_APLICA').length;
     resumen.innerHTML = [
         { num: revisar,  label: '📥 Para revisar', color: '#92400e', bg: '#fef3c7' },
-        { num: aplica,   label: '🎯 En CRM',        color: '#065f46', bg: '#d1fae5' },
+        { num: enCrm,    label: '🎯 En CRM',        color: '#065f46', bg: '#d1fae5' },
         { num: noAplica, label: '🗑 Descartadas',   color: '#991b1b', bg: '#fee2e2' },
     ].map(s => `
         <div style="background:${s.bg};border-radius:10px;padding:10px 18px;text-align:center;min-width:80px;">
@@ -1354,8 +1354,8 @@ async function loadLicitaciones() {
     data.sort((a, b) => (orden[a.clasificacion] ?? 9) - (orden[b.clasificacion] ?? 9));
     window._licitacionesData = data;
 
-    // Inbox: solo las pendientes de clasificar (REVISAR)
-    const activas     = data.map((l, i) => [l, i]).filter(([l]) => l.clasificacion === 'REVISAR');
+    // Inbox: todo lo que no está descartado ni en el pipeline (nada queda invisible)
+    const activas     = data.map((l, i) => [l, i]).filter(([l]) => l.clasificacion !== 'NO_APLICA' && !l.en_crm);
     const descartadas = data.map((l, i) => [l, i]).filter(([l]) => l.clasificacion === 'NO_APLICA');
 
     if (!activas.length) {
@@ -2151,15 +2151,20 @@ function _crmCard(e) {
                 style="background:#1e293b;color:#fff;border:none;border-radius:6px;padding:5px 12px;font-size:.74rem;font-weight:600;cursor:pointer;">💾 Guardar nota</button>
             <span id="crm-notas-fb-${e.id}" style="font-size:.72rem;font-weight:600;"></span>
         </div>
-        <div style="display:flex;gap:6px;margin-top:8px;">
+        ${((l.items_detalle && l.items_detalle !== '[]' && l.items_detalle !== 'null') || l.url) ? `<div style="display:flex;gap:6px;margin-top:8px;">
             ${(l.items_detalle && l.items_detalle !== '[]' && l.items_detalle !== 'null') ? `<button onclick="analizarLicitacion('${l.licitacion_id || e.licitacion_id}')" style="flex:1;background:#f5f3ff;color:#6d28d9;border:1px solid #ddd6fe;border-radius:6px;padding:5px 0;font-size:.75rem;font-weight:600;cursor:pointer;">🤖 Analizar</button>` : ''}
             ${l.url ? (l.fuente === 'ips'
                 ? `<button onclick="abrirPlegioIPS('${l.url}')" style="flex:1;background:#f0fdf4;color:#065f46;border:1px solid #86efac;border-radius:6px;padding:5px 0;font-size:.75rem;font-weight:600;cursor:pointer;">🔗 Pliego</button>`
                 : `<a href="${l.url}" target="_blank" style="flex:1;text-align:center;background:#eff6ff;color:#1e40af;border:1px solid #bfdbfe;border-radius:6px;padding:5px 0;font-size:.75rem;font-weight:600;text-decoration:none;">🔗 Pliego</a>`)
             : ''}
-            <button onclick="quitarDelCRM('${e.id}','${e.licitacion_id}')"
-                title="Quitar del pipeline y volver al inbox"
-                style="background:#fef2f2;color:#991b1b;border:1px solid #fecaca;border-radius:6px;padding:5px 9px;font-size:.75rem;cursor:pointer;font-weight:600;">🗑</button>
+        </div>` : ''}
+        <div style="display:flex;gap:6px;margin-top:6px;">
+            <button onclick="volverAEvaluarCRM('${e.id}','${e.licitacion_id}')"
+                title="Sacar del pipeline y volver a la bandeja de Licitaciones"
+                style="flex:1;background:#f8fafc;color:#475569;border:1px solid #e2e8f0;border-radius:6px;padding:5px 0;font-size:.75rem;cursor:pointer;font-weight:600;">↩ Volver a evaluar</button>
+            <button onclick="descartarDesdeCRM('${e.id}','${e.licitacion_id}')"
+                title="Descartar: sacar del pipeline y mandar a la papelera"
+                style="flex:1;background:#fef2f2;color:#991b1b;border:1px solid #fecaca;border-radius:6px;padding:5px 0;font-size:.75rem;cursor:pointer;font-weight:600;">🗑 Descartar</button>
         </div>
     </div>`;
 }
@@ -2237,32 +2242,45 @@ async function guardarNotasCRMBtn(crmId) {
     if (fb) setTimeout(() => { fb.textContent = ''; }, 2500);
 }
 
-async function quitarDelCRM(crmId, licId) {
-    if (!confirm('¿Quitar esta licitación del pipeline? Volverá al inbox para revisarla.')) return;
-    // Volver clasificacion a REVISAR
+function _removerCardCRM(crmId) {
+    const card = document.getElementById(`crm-card-${crmId}`);
+    if (!card) return;
+    const col = card.closest('[id^="crm-col-"]');
+    card.remove();
+    if (col && !col.querySelector('[id^="crm-card-"]'))
+        col.innerHTML = '<div class="crm-empty-col" style="text-align:center;color:#d1d5db;font-size:.8rem;padding:24px 0;">Sin licitaciones</div>';
+    CRM_COLS.forEach(c => {
+        const b = document.getElementById(`crm-count-${c.id}`);
+        const e = document.getElementById(`crm-col-${c.id}`);
+        if (b && e) b.textContent = e.querySelectorAll('[id^="crm-card-"]').length;
+    });
+}
+
+// Saca la licitación del pipeline. clas='REVISAR' la manda a la bandeja;
+// clas='NO_APLICA' la manda a la papelera (el backend borra la entrada del CRM).
+async function _sacarDeCRM(crmId, licId, clas) {
     const r1 = await fetch(`${BASE}/api/admin/licitaciones/${licId}/clasificar`, {
         method: 'PATCH', credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ clasificacion: 'REVISAR' })
+        body: JSON.stringify({ clasificacion: clas })
     });
     if (!r1.ok) { alert('Error al cambiar clasificación: ' + (await r1.text())); return; }
-    const r2 = await fetch(`${BASE}/api/admin/crm/${crmId}`, { method: 'DELETE', credentials: 'include' });
-    if (!r2.ok) { alert('Error al quitar del CRM: ' + (await r2.text())); return; }
-    // Quitar card del DOM directo
-    const card = document.getElementById(`crm-card-${crmId}`);
-    if (card) {
-        const col = card.closest('[id^="crm-col-"]');
-        card.remove();
-        if (col && !col.querySelector('[id^="crm-card-"]'))
-            col.innerHTML = '<div class="crm-empty-col" style="text-align:center;color:#d1d5db;font-size:.8rem;padding:24px 0;">Sin licitaciones</div>';
-        CRM_COLS.forEach(c => {
-            const b = document.getElementById(`crm-count-${c.id}`);
-            const e = document.getElementById(`crm-col-${c.id}`);
-            if (b && e) b.textContent = e.querySelectorAll('[id^="crm-card-"]').length;
-        });
+    // NO_APLICA ya borra la entrada del CRM en el backend; para REVISAR hay que borrarla.
+    if (clas === 'REVISAR') {
+        const r2 = await fetch(`${BASE}/api/admin/crm/${crmId}`, { method: 'DELETE', credentials: 'include' });
+        if (!r2.ok) { alert('Error al quitar del CRM: ' + (await r2.text())); return; }
     }
+    _removerCardCRM(crmId);
     _invalidarTab('licitaciones');
-    switchTab('licitaciones');
+}
+
+function volverAEvaluarCRM(crmId, licId) {
+    return _sacarDeCRM(crmId, licId, 'REVISAR');
+}
+
+function descartarDesdeCRM(crmId, licId) {
+    if (!confirm('¿Descartar esta licitación? Sale del pipeline y va a la papelera de Licitaciones.')) return;
+    return _sacarDeCRM(crmId, licId, 'NO_APLICA');
 }
 
 async function agregarAlCRM(licId) {

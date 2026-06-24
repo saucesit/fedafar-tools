@@ -1652,8 +1652,14 @@ def get_productos():
 def api_admin_licitaciones_list():
     try:
         sb  = get_sb()
-        res = sb.table('licitaciones').select('*').order('fecha_scraping', desc=True).limit(300).execute()
-        return jsonify(res.data or [])
+        res  = sb.table('licitaciones').select('*').order('fecha_scraping', desc=True).limit(300).execute()
+        lics = res.data or []
+        # Marcar cuáles ya están en el pipeline (CRM) para no duplicarlas en la bandeja
+        crm    = sb.table('licitaciones_crm').select('licitacion_id').execute().data or []
+        en_crm = {str(c['licitacion_id']) for c in crm}
+        for l in lics:
+            l['en_crm'] = str(l.get('id')) in en_crm
+        return jsonify(lics)
     except Exception as e:
         print(f"[ERROR] {e}")
         return jsonify({'error': str(e)}), 500
