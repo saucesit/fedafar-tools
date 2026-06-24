@@ -10,7 +10,8 @@ como respaldo se usan los tokens significativos del nombre comercial.
 import re
 import unicodedata
 
-# Palabras de forma farmacéutica / unidades / ruido que NO son nombre de droga
+# Palabras de forma farmacéutica / unidades / color / envase / ruido que NO son
+# nombre de droga. Evitan falsos positivos (ej. "polvo", "doble" matcheando cosas).
 _STOP = {
     'mg', 'ml', 'mcg', 'gr', 'kg', 'cm', 'mm', 'lt', 'mgml',
     'comp', 'compr', 'comprimido', 'comprimidos', 'caps', 'capsula', 'capsulas',
@@ -20,6 +21,19 @@ _STOP = {
     'kit', 'tiras', 'crema', 'pomada', 'gotas', 'jarabe', 'aerosol', 'spray',
     'por', 'para', 'con', 'sin', 'del', 'los', 'las', 'una', 'uno',
     'adquisicion', 'provision', 'pcte', 'paciente', 'destino', 'hospital',
+    # formas / presentación
+    'polvo', 'liquido', 'liquida', 'pasta', 'locion', 'gragea', 'grageas',
+    'tableta', 'tabletas', 'granulado', 'suspension', 'emulsion', 'supositorio',
+    'supositorios', 'ovulo', 'ovulos', 'parche', 'parches', 'oral', 'externo',
+    # envase / packaging
+    'envase', 'paquete', 'pote', 'pomo', 'tubo', 'tubos', 'sachet', 'bidon',
+    'bolsa', 'bolsas', 'rollo', 'pieza', 'piezas', 'pares', 'tamano',
+    # color / cualidad
+    'verde', 'azul', 'rojo', 'roja', 'blanco', 'blanca', 'negro', 'negra',
+    'amarillo', 'amarilla', 'claro', 'oscuro', 'doble', 'simple', 'tono',
+    # genéricos varios
+    'aprox', 'varios', 'varias', 'surtido', 'medida', 'medidas', 'color',
+    'piedra', 'avio', 'tipo', 'segun', 'detalle', 'refrigerado',
 }
 
 _MIN_LEN = 4  # ignorar tokens cortos (mg, x, de...)
@@ -66,6 +80,84 @@ def matchear_items(items, terminos):
             matched += 1
             coincidencias |= inter
     return matched, sorted(coincidencias)
+
+
+# ── Cobertura: item del pliego → mejor(es) producto(s) de nuestro catálogo ────
+
+def _num(v):
+    """Parsea una cantidad de texto a número (formato es-AR)."""
+    if v is None:
+        return 0.0
+    s = re.sub(r'[^\d,.]', '', str(v))
+    if not s:
+        return 0.0
+    s = s.replace('.', '').replace(',', '.')
+    try:
+        return float(s)
+    except ValueError:
+        return 0.0
+
+def candidatos_para_item(desc, productos, top=3):
+    """Devuelve los productos del catálogo que mejor matchean una descripción,
+    ordenados por puntaje (el principio activo pesa el doble que el nombre)."""
+    toks = tokens_significativos(desc)
+    if not toks:
+        return []
+    scored = []
+    for p in productos:
+        pp = tokens_significativos(p['principio']) if p.get('principio') else set()
+        nm = tokens_significativos(p.get('name', ''))
+        score = len(toks & pp) * 2 + len(toks & nm)
+        if score > 0:
+            scored.append((score, p))
+    scored.sort(key=lambda x: -x[0])
+    return [p for _, p in scored[:top]]
+
+def analizar_cobertura(items, productos):
+    """Cruza los items del pliego con el catálogo. Devuelve cobertura, el
+    detalle item→producto con precios, y el monto estimado de venta."""
+    detalle  = []
+    cubiertos = 0
+    monto     = 0.0
+    for it in items:
+        if isinstance(it, dict):
+            desc = it.get('descripcion', '')
+            cant_txt = it.get('cantidad', '')
+            unidad   = it.get('unidad', '')
+        else:
+            desc, cant_txt, unidad = str(it), '', ''
+
+        cands = candidatos_para_item(desc, productos)
+        mejor = cands[0] if cands else None
+        cant  = _num(cant_txt)
+
+        if mejor:
+            cubiertos += 1
+            if cant and mejor.get('price'):
+                monto += cant * float(mejor['price'])
+
+        detalle.append({
+            'descripcion': desc,
+            'cantidad':    cant_txt,
+            'unidad':      unidad,
+            'match': None if not mejor else {
+                'producto':  mejor['name'],
+                'precio':    mejor.get('price'),
+                'principio': mejor.get('principio'),
+            },
+            'alternativas': [
+                {'producto': c['name'], 'precio': c.get('price')} for c in cands[1:3]
+            ],
+        })
+
+    total = len(items)
+    return {
+        'cubiertos':      cubiertos,
+        'total':          total,
+        'pct':            round(cubiertos / total * 100) if total else 0,
+        'monto_estimado': round(monto, 2),
+        'items':          detalle,
+    }
 
 
 # ── Self-test ─────────────────────────────────────────────────────────────────

@@ -1874,6 +1874,30 @@ def api_admin_licitaciones_guardar_importada():
         return jsonify({'error': str(e)}), 500
 
 
+@app.route('/api/admin/licitaciones/<id>/analizar', methods=['POST'])
+@admin_required
+def api_admin_licitaciones_analizar(id):
+    try:
+        import json as _json
+        from agente_analisis import analizar_licitacion
+        sb  = get_sb()
+        row = sb.table('licitaciones').select('*').eq('id', id).single().execute().data
+        if not row:
+            return jsonify({'error': 'No encontrada'}), 404
+        try:
+            items = _json.loads(row.get('items_detalle') or '[]')
+        except Exception:
+            items = []
+        if not items:
+            return jsonify({'error': 'Esta licitación todavía no tiene items extraídos del pliego.'}), 400
+
+        productos = parse_price_list('contado')
+        analisis  = analizar_licitacion(row.get('objeto', ''), row.get('organismo', ''), items, productos)
+        return jsonify({'ok': True, 'analisis': analisis})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
 @app.route('/api/admin/productos-nombres', methods=['GET'])
 @admin_required
 def api_admin_productos_nombres():
