@@ -1866,6 +1866,10 @@ function _renderAnalisis(a) {
         <div style="height:100%;width:${pct}%;background:${barColor};"></div>
     </div>
     ${a.analisis_texto ? `<div style="background:#faf5ff;border:1px solid #e9d5ff;border-radius:10px;padding:12px 14px;font-size:.85rem;color:#4b5563;margin-bottom:16px;">🤖 ${a.analisis_texto}</div>` : ''}
+    ${(a.lecciones_usadas||[]).length ? `<div style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:10px;padding:10px 14px;margin-bottom:16px;">
+        <div style="font-size:.74rem;font-weight:700;color:#1e40af;margin-bottom:6px;">🧠 Tuvo en cuenta tus decisiones pasadas</div>
+        ${a.lecciones_usadas.map(l => `<div style="font-size:.78rem;color:#374151;padding:3px 0;border-top:1px solid #dbeafe;">· <b>[${l.estado}]</b> ${l.nota} <span style="color:#9ca3af;">(${(l.objeto||'').slice(0,42)})</span></div>`).join('')}
+    </div>` : ''}
     <div style="font-size:.74rem;font-weight:700;color:#6b7280;text-transform:uppercase;letter-spacing:.04em;margin-bottom:2px;">Items del pliego</div>
     ${itemsHTML}
     `;

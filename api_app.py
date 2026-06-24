@@ -1882,7 +1882,7 @@ def api_admin_licitaciones_guardar_importada():
 def api_admin_licitaciones_analizar(id):
     try:
         import json as _json
-        from agente_analisis import analizar_licitacion
+        from agente_analisis import analizar_licitacion, buscar_lecciones
         sb  = get_sb()
         row = sb.table('licitaciones').select('*').eq('id', id).single().execute().data
         if not row:
@@ -1895,7 +1895,9 @@ def api_admin_licitaciones_analizar(id):
             return jsonify({'error': 'Esta licitación todavía no tiene items extraídos del pliego.'}), 400
 
         productos = parse_price_list('contado')
-        analisis  = analizar_licitacion(row.get('objeto', ''), row.get('organismo', ''), items, productos)
+        lecciones = buscar_lecciones(sb, items, row.get('objeto', ''), excluir_lic_id=id)
+        analisis  = analizar_licitacion(row.get('objeto', ''), row.get('organismo', ''),
+                                        items, productos, lecciones=lecciones)
         return jsonify({'ok': True, 'analisis': analisis})
     except Exception as e:
         return jsonify({'error': str(e)}), 500
