@@ -93,20 +93,31 @@ _PROMPT_ITEMS = (
 )
 
 def _claude_items(content_blocks):
+    """Devuelve la lista de items, [] si el pliego no tiene tabla, o None si
+    falló por rate limit persistente (para reintentar en otra corrida)."""
     client = anthropic.Anthropic(api_key=ANTHROPIC_KEY)
-    try:
-        resp = client.messages.create(
-            model='claude-haiku-4-5-20251001',
-            max_tokens=1500,
-            messages=[{'role': 'user', 'content': content_blocks}]
-        )
-        text = resp.content[0].text.strip()
-        text = re.sub(r'^```json?\s*', '', text)
-        text = re.sub(r'\s*```$', '', text)
-        return json.loads(text)
-    except Exception as e:
-        print(f'    [Claude] Error: {e}')
-        return []
+    for intento in range(4):
+        try:
+            resp = client.messages.create(
+                model='claude-haiku-4-5-20251001',
+                max_tokens=1500,
+                messages=[{'role': 'user', 'content': content_blocks}]
+            )
+            text = resp.content[0].text.strip()
+            text = re.sub(r'^```json?\s*', '', text)
+            text = re.sub(r'\s*```$', '', text)
+            return json.loads(text)
+        except Exception as e:
+            msg = str(e)
+            if '429' in msg or 'rate_limit' in msg.lower():
+                espera = 30 * (intento + 1)
+                print(f'    [Claude] Rate limit; esperando {espera}s y reintento...')
+                time.sleep(espera)
+                continue
+            print(f'    [Claude] Error: {e}')
+            return []
+    print('    [Claude] Rate limit persistente; se reintenta en otra corrida')
+    return None
 
 def parsear_pdf(pdf_bytes, objeto):
     pdf_b64 = base64.standard_b64encode(pdf_bytes).decode('utf-8')
@@ -297,7 +308,15 @@ def run(limite=None):
 
                 # Extraer items solo si todavía no los tiene (evita re-llamar a Claude)
                 if _sin_items(lic):
-                    items   = parsear_pliego(tmp, objeto)
+                    items = parsear_pliego(tmp, objeto)
+                    if items is None:   # rate limit: no pisar, se reintenta otra corrida
+                        print('    => items pendientes (rate limit), se reintenta luego')
+                        if update:
+                            sb.table('licitaciones').update(update).eq('id', lic['id']).execute()
+                        tmp.unlink(missing_ok=True)
+                        sin_pliego += 1
+                        time.sleep(1)
+                        continue
                     nombres = [i['descripcion'] for i in items if i.get('descripcion')]
                     update['items_detalle']        = json.dumps(items,   ensure_ascii=False)
                     update['productos_detectados'] = json.dumps(nombres, ensure_ascii=False)
