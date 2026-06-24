@@ -206,6 +206,33 @@ def guardar(sb, sol):
         print(f'  [ERROR guardar] {e}')
         return False
 
+# ── Limpieza de solicitudes cerradas ──────────────────────────────────────────
+
+def limpiar_cerradas(sb, session):
+    """Revisa licitaciones IPS ya guardadas y descarta (NO_APLICA) las que
+    IPS ya cerró el acceso (ventana de cotización vencida)."""
+    rows = sb.table('licitaciones').select('id,url,clasificacion') \
+             .eq('fuente', 'ips').neq('clasificacion', 'NO_APLICA').execute().data or []
+    cerradas = 0
+    for r in rows:
+        url = r.get('url', '')
+        if not url:
+            continue
+        try:
+            resp = session.get(url, timeout=20)
+            if 'solicitud no fue encontrada' in resp.text.lower():
+                sb.table('licitaciones').update({
+                    'clasificacion': 'NO_APLICA',
+                    'analisis':      'IPS cerró el acceso (ventana de cotización vencida)',
+                }).eq('id', r['id']).execute()
+                sb.table('licitaciones_crm').delete().eq('licitacion_id', str(r['id'])).execute()
+                cerradas += 1
+        except Exception as e:
+            print(f'    [IPS limpieza] Error en {url}: {e}')
+        time.sleep(0.3)
+    print(f'  Licitaciones IPS cerradas/descartadas: {cerradas}')
+    return cerradas
+
 # ── Main ──────────────────────────────────────────────────────────────────────
 
 def run_scraper():
@@ -243,6 +270,9 @@ def run_scraper():
         time.sleep(0.5)
         if guardar(sb, sol):
             guardadas += 1
+
+    print('\n  Revisando licitaciones IPS ya guardadas (limpieza de cerradas)...')
+    limpiar_cerradas(sb, session)
 
     print(f'\n[OK] Guardadas nuevas: {guardadas}')
     return guardadas

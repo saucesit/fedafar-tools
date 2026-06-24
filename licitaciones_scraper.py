@@ -2,6 +2,11 @@
 """Scraper de licitaciones saltacompra.gob.ar para FEDAFAR."""
 
 import os, re, json, time, sys
+
+if hasattr(sys.stdout, 'reconfigure'):
+    sys.stdout.reconfigure(encoding='utf-8', errors='replace')
+    sys.stderr.reconfigure(encoding='utf-8', errors='replace')
+
 import requests
 from bs4 import BeautifulSoup
 from datetime import datetime, timezone
@@ -138,6 +143,11 @@ def parsear_tabla(soup):
                 col_idx['fecha'] = i
 
     for row in rows[1:]:
+        # Saltar la fila del paginador del GridView (links "Page$N" del control de páginas)
+        links_fila = row.find_all('a', href=True)
+        if links_fila and all(re.search(r"__doPostBack\('[^']+','Page\$\d+'\)", a['href']) for a in links_fila):
+            continue
+
         celdas = row.find_all('td')
         if len(celdas) < 2:
             continue
