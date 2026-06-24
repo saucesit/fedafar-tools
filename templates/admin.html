@@ -2137,12 +2137,16 @@ function _crmCard(e) {
         ${(chips || extras) ? `<div style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:8px;">${chips}${extras}</div>` : ''}
         ${itemsHTML}
         ${matchesHTML}
-        <textarea placeholder="Notas: precio ofertado, contacto, observaciones..."
-            onblur="guardarNotasCRM('${e.id}', this.value)"
+        <textarea id="crm-notas-${e.id}" placeholder="Nota y MOTIVO de tu decisión (ej: 'no cotizamos, misoprostol en falta en el mercado'). El agente aprende de esto."
             ondragover="event.preventDefault();"
             ondrop="event.preventDefault();"
             style="width:100%;border:1px solid #e5e7eb;border-radius:6px;padding:5px 7px;font-size:.75rem;color:#374151;resize:vertical;min-height:54px;box-sizing:border-box;font-family:inherit;"
         >${e.notas || ''}</textarea>
+        <div style="display:flex;align-items:center;gap:8px;margin-top:5px;">
+            <button onclick="guardarNotasCRMBtn('${e.id}')"
+                style="background:#1e293b;color:#fff;border:none;border-radius:6px;padding:5px 12px;font-size:.74rem;font-weight:600;cursor:pointer;">💾 Guardar nota</button>
+            <span id="crm-notas-fb-${e.id}" style="font-size:.72rem;font-weight:600;"></span>
+        </div>
         <div style="display:flex;gap:6px;margin-top:8px;">
             ${(l.items_detalle && l.items_detalle !== '[]' && l.items_detalle !== 'null') ? `<button onclick="analizarLicitacion('${l.licitacion_id || e.licitacion_id}')" style="flex:1;background:#f5f3ff;color:#6d28d9;border:1px solid #ddd6fe;border-radius:6px;padding:5px 0;font-size:.75rem;font-weight:600;cursor:pointer;">🤖 Analizar</button>` : ''}
             ${l.url ? (l.fuente === 'ips'
@@ -2206,11 +2210,27 @@ function _crmMoverCard(crmId, nuevoEstado) {
 }
 
 async function guardarNotasCRM(crmId, notas) {
-    await fetch(`${BASE}/api/admin/crm/${crmId}/notas`, {
+    const res = await fetch(`${BASE}/api/admin/crm/${crmId}/notas`, {
         method: 'PATCH', credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ notas })
     });
+    if (!res.ok) throw new Error('Error al guardar la nota');
+}
+
+async function guardarNotasCRMBtn(crmId) {
+    const ta = document.getElementById(`crm-notas-${crmId}`);
+    const fb = document.getElementById(`crm-notas-fb-${crmId}`);
+    if (!ta) return;
+    if (fb) { fb.textContent = 'Guardando…'; fb.style.color = '#6b7280'; }
+    try {
+        await guardarNotasCRM(crmId, ta.value);
+        if (fb) { fb.textContent = '✓ Guardado'; fb.style.color = '#16a34a'; }
+    } catch (e) {
+        if (fb) { fb.textContent = '✗ No se pudo guardar'; fb.style.color = '#dc2626'; }
+        return;
+    }
+    if (fb) setTimeout(() => { fb.textContent = ''; }, 2500);
 }
 
 async function quitarDelCRM(crmId, licId) {
