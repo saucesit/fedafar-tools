@@ -291,6 +291,119 @@ def guardar(sb, fila, analisis):
         print(f'  [ERROR guardar] {e}')
         return False
 
+# ── Procesamiento de filas ────────────────────────────────────────────────────
+
+def procesar_pagina(sb, soup, estado, session=None):
+    """Procesa todas las filas de una página ya parseada.
+    estado: dict con 'guardadas', 'procesadas' y 'vistos' (set de números).
+    session: si se pasa (modo requests), intenta resolver la URL del pliego.
+    Devuelve False si la página no tenía filas (señal de fin)."""
+    filas = parsear_tabla(soup)
+    if not filas:
+        return False
+
+    for fila in filas:
+        numero = fila['numero_proceso']
+        if numero in estado['vistos']:
+            continue
+        estado['vistos'].add(numero)
+
+        texto = f"{fila['objeto']} {fila['organismo']}"
+        if not contiene_keyword(texto):
+            continue
+
+        estado['procesadas'] += 1
+
+        if ya_existe(sb, numero):
+            print(f'  [SKIP] {numero}')
+            continue
+
+        print(f'  [+] {numero} — {fila["objeto"][:55]}')
+
+        # Obtener URL real del pliego si hay postback (solo modo requests)
+        if session is not None and fila.get('postback_target'):
+            url_pliego = obtener_url_pliego(
+                session, get_form_action(soup),
+                extraer_form_data(soup), fila['postback_target']
+            )
+            if url_pliego:
+                fila['url'] = url_pliego
+                print(f'      → Pliego: {url_pliego[:70]}')
+
+        analisis = clasificar(fila)
+        print(f'      → {analisis.get("clasificacion")} | {analisis.get("rubro","")}')
+
+        if guardar(sb, fila, analisis):
+            estado['guardadas'] += 1
+
+        time.sleep(0.5)
+
+    return True
+
+# ── Estrategia Playwright (local): recorre todas las páginas ──────────────────
+
+def _contenido_estable(page, intentos=4):
+    """page.content() puede fallar si el DOM se está actualizando por un
+    postback AJAX. Reintenta unas veces con una pausa breve."""
+    for _ in range(intentos - 1):
+        try:
+            return page.content()
+        except Exception:
+            page.wait_for_timeout(600)
+    return page.content()
+
+def _scrape_playwright(sb, estado):
+    from playwright.sync_api import sync_playwright
+    print('  Modo: Playwright (paginación completa)')
+    with sync_playwright() as p:
+        browser = p.chromium.launch(headless=True)
+        page    = browser.new_page()
+        try:
+            page.goto(URL_LICITACIONES, wait_until='networkidle', timeout=30000)
+            for pagina in range(1, MAX_PAGINAS + 1):
+                print(f'  — Página {pagina} —')
+                try:
+                    html = _contenido_estable(page)
+                except Exception as e:
+                    print(f'  [aviso] No se pudo leer la página {pagina}: {e}')
+                    break
+                soup = BeautifulSoup(html, 'html.parser')
+                if not procesar_pagina(sb, soup, estado):
+                    print('  Sin datos, fin.')
+                    break
+
+                target, arg = obtener_evento_pagina(soup, pagina + 1)
+                if not target:
+                    print('  Sin más páginas.')
+                    break
+
+                link = page.locator(f"a[href*=\"'{arg}'\"]")
+                if link.count() == 0:
+                    print('  Sin más páginas (link no encontrado).')
+                    break
+                try:
+                    link.first.click()
+                    page.wait_for_load_state('networkidle', timeout=30000)
+                    page.wait_for_timeout(1000)
+                except Exception as e:
+                    print(f'  [aviso] Falló el avance a la página {pagina + 1}: {e}')
+                    break
+        finally:
+            browser.close()
+
+# ── Estrategia requests (Render): solo página 1 ───────────────────────────────
+
+def _scrape_requests(sb, estado):
+    print('  Modo: requests (solo página 1 — sin Playwright)')
+    session = requests.Session()
+    session.headers.update(HEADERS)
+    print(f'  GET {URL_LICITACIONES}')
+    resp = session.get(URL_LICITACIONES, timeout=30)
+    resp.raise_for_status()
+    soup = BeautifulSoup(resp.content, 'html.parser')
+    print('  — Página 1 —')
+    procesar_pagina(sb, soup, estado, session=session)
+
 # ── Main ──────────────────────────────────────────────────────────────────────
 
 def run_scraper():
@@ -299,83 +412,34 @@ def run_scraper():
         print('[ERROR] Faltan SUPABASE_URL / SUPABASE_KEY')
         return 0
 
-    sb      = create_client(SUPABASE_URL, SUPABASE_KEY)
-    session = requests.Session()
-    session.headers.update(HEADERS)
-
-    guardadas  = 0
-    procesadas = 0
+    sb     = create_client(SUPABASE_URL, SUPABASE_KEY)
+    estado = {'guardadas': 0, 'procesadas': 0, 'vistos': set()}
 
     try:
-        print(f'  GET {URL_LICITACIONES}')
-        resp = session.get(URL_LICITACIONES, timeout=30)
-        resp.raise_for_status()
-        soup = BeautifulSoup(resp.content, 'html.parser')
+        import playwright  # noqa: F401
+        tiene_playwright = True
+    except ImportError:
+        tiene_playwright = False
+
+    try:
+        if tiene_playwright:
+            _scrape_playwright(sb, estado)
+        else:
+            _scrape_requests(sb, estado)
     except Exception as e:
-        print(f'  [ERROR] No se pudo cargar la página: {e}')
-        return 0
+        print(f'  [ERROR scraping] {e}')
+        # Solo caer a requests si Playwright no llegó a procesar nada
+        # (p.ej. chromium no instalado). Si ya procesó páginas, conservamos
+        # el resultado y no re-escaneamos.
+        if tiene_playwright and estado['procesadas'] == 0:
+            print('  Playwright no procesó nada; reintentando en modo requests...')
+            try:
+                _scrape_requests(sb, estado)
+            except Exception as e2:
+                print(f'  [ERROR requests fallback] {e2}')
 
-    for pagina in range(1, MAX_PAGINAS + 1):
-        print(f'  — Página {pagina} —')
-        filas = parsear_tabla(soup)
-
-        if not filas:
-            print('  Sin datos, fin.')
-            break
-
-        for fila in filas:
-            texto = f"{fila['objeto']} {fila['organismo']}"
-            if not contiene_keyword(texto):
-                continue
-
-            procesadas += 1
-            numero = fila['numero_proceso']
-
-            if ya_existe(sb, numero):
-                print(f'  [SKIP] {numero}')
-                continue
-
-            print(f'  [+] {numero} — {fila["objeto"][:55]}')
-
-            # Obtener URL real del pliego si hay postback
-            if fila.get('postback_target'):
-                url_pliego = obtener_url_pliego(
-                    session, get_form_action(soup),
-                    extraer_form_data(soup), fila['postback_target']
-                )
-                if url_pliego:
-                    fila['url'] = url_pliego
-                    print(f'      → Pliego: {url_pliego[:70]}')
-
-            analisis = clasificar(fila)
-            print(f'      → {analisis.get("clasificacion")} | {analisis.get("rubro","")}')
-
-            if guardar(sb, fila, analisis):
-                guardadas += 1
-
-            time.sleep(0.5)
-
-        # Siguiente página
-        target, arg = obtener_evento_pagina(soup, pagina + 1)
-        if not target:
-            print('  Sin más páginas.')
-            break
-
-        form_action = get_form_action(soup)
-        form_data = extraer_form_data(soup)
-        form_data['__EVENTTARGET']   = target
-        form_data['__EVENTARGUMENT'] = arg
-        try:
-            resp = session.post(form_action, data=form_data, timeout=30)
-            soup = BeautifulSoup(resp.content, 'html.parser')
-        except Exception as e:
-            print(f'  [ERROR paginación] {e}')
-            break
-
-        time.sleep(1)
-
-    print(f'\n[OK] Filtradas: {procesadas} | Guardadas nuevas: {guardadas}')
-    return guardadas
+    print(f'\n[OK] Filtradas: {estado["procesadas"]} | Guardadas nuevas: {estado["guardadas"]}')
+    return estado['guardadas']
 
 
 if __name__ == '__main__':
