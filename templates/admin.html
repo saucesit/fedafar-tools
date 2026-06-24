@@ -1467,6 +1467,7 @@ async function clasificarLicitacion(id, idx, nuevaClas) {
     if (res.ok) {
         window._licitacionesData[idx].clasificacion = nuevaClas;
         if (nuevaClas === 'APLICA') { await agregarAlCRM(id); _invalidarTab('crm'); }
+        if (nuevaClas === 'NO_APLICA') { _invalidarTab('crm'); }
         _invalidarTab('licitaciones');
         loadLicitaciones();
     } else {

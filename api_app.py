@@ -1693,6 +1693,9 @@ def api_admin_licitaciones_clasificar(id):
     try:
         sb = get_sb()
         sb.table('licitaciones').update({'clasificacion': clasificacion}).eq('id', id).execute()
+        # Si se descarta, sacarla también del pipeline (no dejar card fantasma)
+        if clasificacion == 'NO_APLICA':
+            sb.table('licitaciones_crm').delete().eq('licitacion_id', str(id)).execute()
         return jsonify({'ok': True})
     except Exception as e:
         return jsonify({'error': str(e)}), 500
