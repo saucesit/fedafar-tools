@@ -1,6 +1,7 @@
 import os
 import re
 import json
+from datetime import datetime, timezone, timedelta
 import pandas as pd
 from flask import Flask, jsonify, render_template, send_from_directory, request, session
 from flask_cors import CORS
@@ -2010,6 +2011,7 @@ def api_admin_crm_estado(crm_id):
 @app.route('/api/admin/crm/<crm_id>/notas', methods=['PATCH'])
 @admin_required
 def api_admin_crm_notas(crm_id):
+    from datetime import datetime, timezone
     data = request.get_json() or {}
     try:
         sb = get_sb()
