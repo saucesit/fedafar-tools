@@ -26,12 +26,60 @@ from match_catalogo import cargar_terminos_catalogo, matchear_items
 SUPABASE_URL  = os.environ['SUPABASE_URL']
 SUPABASE_KEY  = os.environ['SUPABASE_KEY']
 ANTHROPIC_KEY = os.environ['ANTHROPIC_API_KEY']
+# Service key (secreta): necesaria para subir pliegos a Storage. Si no está,
+# el guardado del PDF se saltea y el botón Pliego queda sin archivo.
+SUPABASE_SERVICE_KEY = os.environ.get('SUPABASE_SERVICE_KEY', '')
 # Login ya no es necesario (listado y pliegos públicos); se dejan por compat.
 SC_USER       = os.environ.get('SC_USER', '')
 SC_PASS       = os.environ.get('SC_PASS', '')
 
 URL_LISTA = 'https://saltacompra.gob.ar/Compras.aspx?qs=iouVZE0yWCs='
 TMP_DIR   = Path(__file__).parent / 'tmp_sc_pliegos'
+BUCKET    = 'pliegos'
+
+_CTYPES = {
+    '.pdf':  'application/pdf',
+    '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    '.xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    '.xls':  'application/vnd.ms-excel',
+}
+
+# ── Storage: subir el pliego y devolver URL pública ───────────────────────────
+
+def get_storage_client():
+    """Cliente con service key para Storage (la anon key no puede subir)."""
+    if not SUPABASE_SERVICE_KEY:
+        return None
+    return create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
+
+def asegurar_bucket(sb_admin):
+    if sb_admin is None:
+        return
+    try:
+        nombres = [b.name for b in sb_admin.storage.list_buckets()]
+        if BUCKET not in nombres:
+            sb_admin.storage.create_bucket(BUCKET, options={'public': True})
+            print(f'  Bucket "{BUCKET}" creado.')
+    except Exception as e:
+        print(f'  [storage] No se pudo asegurar el bucket: {e}')
+
+def subir_pliego(sb_admin, lic_id, tmp_path):
+    """Sube el pliego (upsert) y devuelve su URL pública, o None."""
+    if sb_admin is None:
+        return None
+    ext  = tmp_path.suffix.lower()
+    dest = f'{lic_id}{ext}'
+    try:
+        sb_admin.storage.from_(BUCKET).upload(
+            dest, tmp_path.read_bytes(),
+            {'content-type': _CTYPES.get(ext, 'application/octet-stream'), 'upsert': 'true'}
+        )
+        return sb_admin.storage.from_(BUCKET).get_public_url(dest)
+    except Exception as e:
+        print(f'    [storage] Error subiendo: {e}')
+        return None
+
+# ── Parsear pliego con Claude (PDF / Word / Excel) ────────────────────────────
 
 # ── Parsear pliego con Claude (PDF / Word / Excel) ────────────────────────────
 
@@ -166,19 +214,32 @@ def evaluar_crm(sb, lic_id, items, terminos):
 
 # ── Main ──────────────────────────────────────────────────────────────────────
 
+def _sin_items(r):
+    return not r.get('items_detalle') or r['items_detalle'] in ('[]', 'null', '')
+
+def _tiene_pdf(r):
+    return 'storage/v1/object/public' in (r.get('url') or '')
+
 def run(limite=None):
-    sb = create_client(SUPABASE_URL, SUPABASE_KEY)
+    sb       = create_client(SUPABASE_URL, SUPABASE_KEY)
+    sb_admin = get_storage_client()           # service key, para Storage
+    storage_ok = sb_admin is not None
+    asegurar_bucket(sb_admin)
     TMP_DIR.mkdir(exist_ok=True)
 
-    rows = sb.table('licitaciones').select('id,numero_proceso,objeto,items_detalle') \
+    if not storage_ok:
+        print('[aviso] Sin SUPABASE_SERVICE_KEY: no se guardarán los PDFs (botón Pliego sin archivo).\n')
+
+    rows = sb.table('licitaciones').select('id,numero_proceso,objeto,items_detalle,url') \
              .eq('fuente', 'saltacompra') \
              .in_('clasificacion', ['APLICA', 'REVISAR']).execute().data or []
 
+    # Pendiente = sin items, o (si hay Storage) sin el PDF subido todavía (backfill)
     pendientes = [r for r in rows
-                  if not r.get('items_detalle') or r['items_detalle'] in ('[]', 'null', '')]
+                  if _sin_items(r) or (storage_ok and not _tiene_pdf(r))]
     if limite:
         pendientes = pendientes[:limite]
-    print(f'Licitaciones SC sin items: {len(pendientes)}')
+    print(f'Licitaciones SC a procesar: {len(pendientes)}')
     if not pendientes:
         print('Nada que procesar.')
         return
@@ -205,7 +266,9 @@ def run(limite=None):
             fila = buscar_fila(page, numero, objeto)
             if fila is None:
                 print(f'    No encontrado en la lista (puede haber vencido)')
-                sb.table('licitaciones').update({'items_detalle': '[]'}).eq('id', lic['id']).execute()
+                # Solo marcar vacío si no tenía items; nunca pisar items existentes
+                if _sin_items(lic):
+                    sb.table('licitaciones').update({'items_detalle': '[]'}).eq('id', lic['id']).execute()
                 sin_pliego += 1
                 continue
 
@@ -224,14 +287,26 @@ def run(limite=None):
                 size = tmp.stat().st_size
                 print(f'    Descargado: {tmp.name} ({size:,} bytes)')
 
-                items = parsear_pliego(tmp, objeto)
+                update = {}
 
-                nombres = [i['descripcion'] for i in items if i.get('descripcion')]
-                sb.table('licitaciones').update({
-                    'items_detalle':        json.dumps(items,   ensure_ascii=False),
-                    'productos_detectados': json.dumps(nombres, ensure_ascii=False),
-                }).eq('id', lic['id']).execute()
-                print(f'    => {len(items)} items guardados')
+                # Subir el pliego a Storage y guardar su URL pública
+                url_pliego = subir_pliego(sb_admin, lic['id'], tmp)
+                if url_pliego:
+                    update['url'] = url_pliego
+                    print(f'    Pliego subido a Storage')
+
+                # Extraer items solo si todavía no los tiene (evita re-llamar a Claude)
+                if _sin_items(lic):
+                    items   = parsear_pliego(tmp, objeto)
+                    nombres = [i['descripcion'] for i in items if i.get('descripcion')]
+                    update['items_detalle']        = json.dumps(items,   ensure_ascii=False)
+                    update['productos_detectados'] = json.dumps(nombres, ensure_ascii=False)
+                    print(f'    => {len(items)} items extraídos')
+                else:
+                    items = json.loads(lic['items_detalle'])
+
+                if update:
+                    sb.table('licitaciones').update(update).eq('id', lic['id']).execute()
                 if items:
                     evaluar_crm(sb, lic['id'], items, terminos)
                 ok += 1
