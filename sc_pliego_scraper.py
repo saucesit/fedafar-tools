@@ -7,8 +7,13 @@ Busca licitaciones SaltaCompra sin items_detalle, descarga el pliego PDF
 de cada una, extrae los renglones con Claude y los guarda en Supabase.
 """
 
-import os, json, re, time, base64
+import os, sys, json, re, time, base64
 from pathlib import Path
+
+if hasattr(sys.stdout, 'reconfigure'):
+    sys.stdout.reconfigure(encoding='utf-8', errors='replace')
+    sys.stderr.reconfigure(encoding='utf-8', errors='replace')
+
 from dotenv import load_dotenv
 load_dotenv(Path(__file__).parent / '.env')
 
@@ -16,38 +21,36 @@ from playwright.sync_api import sync_playwright
 from supabase import create_client
 import anthropic
 
+from match_catalogo import cargar_terminos_catalogo, matchear_items
+
 SUPABASE_URL  = os.environ['SUPABASE_URL']
 SUPABASE_KEY  = os.environ['SUPABASE_KEY']
 ANTHROPIC_KEY = os.environ['ANTHROPIC_API_KEY']
-SC_USER       = os.environ['SC_USER']
-SC_PASS       = os.environ['SC_PASS']
+# Login ya no es necesario (listado y pliegos públicos); se dejan por compat.
+SC_USER       = os.environ.get('SC_USER', '')
+SC_PASS       = os.environ.get('SC_PASS', '')
 
 URL_LISTA = 'https://saltacompra.gob.ar/Compras.aspx?qs=iouVZE0yWCs='
 TMP_DIR   = Path(__file__).parent / 'tmp_sc_pliegos'
 
-# ── Parsear PDF con Claude ────────────────────────────────────────────────────
+# ── Parsear pliego con Claude (PDF / Word / Excel) ────────────────────────────
 
-def parsear_pdf(pdf_bytes, objeto):
+_PROMPT_ITEMS = (
+    'Este es el pliego de una licitacion publica argentina. Objeto: {objeto}\n\n'
+    'Extraé la tabla de renglones/items que se solicitan comprar. '
+    'Para cada item incluí descripcion, cantidad y unidad (si existe). '
+    'Respondi SOLO con un JSON array sin markdown:\n'
+    '[{{"descripcion":"...","cantidad":"...","unidad":"..."}},...]\n'
+    'Si no hay tabla de items, respondi [].'
+)
+
+def _claude_items(content_blocks):
     client = anthropic.Anthropic(api_key=ANTHROPIC_KEY)
-    pdf_b64 = base64.standard_b64encode(pdf_bytes).decode('utf-8')
-    prompt = (
-        f'Este es el pliego de una licitacion publica argentina. Objeto: {objeto}\n\n'
-        'Extraé la tabla de renglones/items que se solicitan comprar. '
-        'Para cada item incluí descripcion, cantidad y unidad (si existe). '
-        'Respondi SOLO con un JSON array sin markdown:\n'
-        '[{"descripcion":"...","cantidad":"...","unidad":"..."},...]\n'
-        'Si no hay tabla de items, respondi [].'
-    )
     try:
         resp = client.messages.create(
             model='claude-haiku-4-5-20251001',
-            max_tokens=1000,
-            messages=[{'role': 'user', 'content': [
-                {'type': 'document', 'source': {
-                    'type': 'base64', 'media_type': 'application/pdf', 'data': pdf_b64
-                }},
-                {'type': 'text', 'text': prompt}
-            ]}]
+            max_tokens=1500,
+            messages=[{'role': 'user', 'content': content_blocks}]
         )
         text = resp.content[0].text.strip()
         text = re.sub(r'^```json?\s*', '', text)
@@ -57,9 +60,113 @@ def parsear_pdf(pdf_bytes, objeto):
         print(f'    [Claude] Error: {e}')
         return []
 
+def parsear_pdf(pdf_bytes, objeto):
+    pdf_b64 = base64.standard_b64encode(pdf_bytes).decode('utf-8')
+    return _claude_items([
+        {'type': 'document', 'source': {
+            'type': 'base64', 'media_type': 'application/pdf', 'data': pdf_b64
+        }},
+        {'type': 'text', 'text': _PROMPT_ITEMS.format(objeto=objeto)},
+    ])
+
+def _parsear_texto(texto, objeto):
+    if not texto.strip():
+        return []
+    return _claude_items([
+        {'type': 'text', 'text': _PROMPT_ITEMS.format(objeto=objeto) +
+                                 '\n\nCONTENIDO DEL PLIEGO:\n' + texto[:12000]},
+    ])
+
+def parsear_pliego(path, objeto):
+    """Despacha según extensión: PDF, Word (.docx) o Excel (.xlsx)."""
+    ext = path.suffix.lower()
+    try:
+        if ext == '.pdf':
+            return parsear_pdf(path.read_bytes(), objeto)
+
+        if ext == '.docx':
+            from docx import Document
+            doc   = Document(str(path))
+            partes = [p.text for p in doc.paragraphs if p.text.strip()]
+            for t in doc.tables:
+                for row in t.rows:
+                    celdas = [c.text.strip() for c in row.cells]
+                    if any(celdas):
+                        partes.append(' | '.join(celdas))
+            return _parsear_texto('\n'.join(partes), objeto)
+
+        if ext in ('.xlsx', '.xls'):
+            import openpyxl
+            wb     = openpyxl.load_workbook(str(path), data_only=True)
+            lineas = []
+            for sheet in wb.worksheets:
+                for row in sheet.iter_rows(values_only=True):
+                    fila = ' | '.join(str(c) for c in row if c is not None)
+                    if fila.strip():
+                        lineas.append(fila)
+            return _parsear_texto('\n'.join(lineas[:400]), objeto)
+    except Exception as e:
+        print(f'    [parsear_pliego] Error con {ext}: {e}')
+        return []
+
+    print(f'    Formato {ext} no soportado')
+    return []
+
+# ── Buscar la fila recorriendo las páginas ────────────────────────────────────
+
+def buscar_fila(page, numero, objeto, max_paginas=15):
+    """Busca la fila de la licitación recorriendo la paginación del listado.
+    Devuelve el locator de la fila, o None si no aparece."""
+    page.goto(URL_LISTA, wait_until='networkidle', timeout=30000)
+    page.wait_for_timeout(800)
+    palabras = ' '.join(objeto.split()[:4])
+
+    for pagina in range(1, max_paginas + 1):
+        fila = page.locator(f'tr:has-text("{numero}")').first
+        if fila.count() > 0:
+            return fila
+        if palabras:
+            fila = page.locator(f'tr:has-text("{palabras}")').first
+            if fila.count() > 0:
+                return fila
+
+        # Avanzar a la página siguiente (postback AJAX vía clic en el paginador)
+        sig  = pagina + 1
+        link = page.locator(f"a[href*=\"'Page${sig}'\"]")
+        if link.count() == 0:
+            break
+        try:
+            link.first.click()
+            page.wait_for_load_state('networkidle', timeout=30000)
+            page.wait_for_timeout(900)
+        except Exception:
+            break
+    return None
+
+# ── Pase al CRM si los items matchean el catálogo ─────────────────────────────
+
+def evaluar_crm(sb, lic_id, items, terminos):
+    """Si al menos un item matchea el catálogo, agrega la licitación al CRM.
+    Devuelve (matcheados, total)."""
+    n_match, terms_match = matchear_items(items, terminos)
+    if n_match == 0:
+        print(f'    => sin coincidencias con catálogo — queda en Licitaciones')
+        return 0, len(items)
+
+    existing = sb.table('licitaciones_crm').select('id') \
+                 .eq('licitacion_id', str(lic_id)).execute().data
+    if not existing:
+        nota = (f'{n_match} de {len(items)} items matchean catálogo: '
+                f'{", ".join(terms_match[:8])}')
+        sb.table('licitaciones_crm').insert({
+            'licitacion_id': str(lic_id), 'estado': 'identificada', 'notas': nota
+        }).execute()
+    print(f'    => {n_match}/{len(items)} items matchean catálogo → agregada al CRM')
+    return n_match, len(items)
+
 # ── Main ──────────────────────────────────────────────────────────────────────
 
-def run():
+def run(limite=None):
     sb = create_client(SUPABASE_URL, SUPABASE_KEY)
     TMP_DIR.mkdir(exist_ok=True)
 
@@ -69,31 +176,24 @@ def run():
 
     pendientes = [r for r in rows
                   if not r.get('items_detalle') or r['items_detalle'] in ('[]', 'null', '')]
+    if limite:
+        pendientes = pendientes[:limite]
     print(f'Licitaciones SC sin items: {len(pendientes)}')
     if not pendientes:
         print('Nada que procesar.')
         return
+
+    print('Cargando términos del catálogo para matcheo...')
+    terminos = cargar_terminos_catalogo()
+    print(f'Términos de catálogo: {len(terminos)}\n')
 
     with sync_playwright() as p:
         browser  = p.chromium.launch(headless=True)
         context  = browser.new_context(accept_downloads=True)
         page     = context.new_page()
 
-        # Login
-        print('Abriendo SaltaCompra...')
-        page.goto(URL_LISTA, wait_until='networkidle', timeout=30000)
-        page.locator('a:has-text("Ingresar")').click()
-        page.locator('input[id*="txtUsername_txtTextBox"]').fill(SC_USER)
-        page.locator('input[id*="txtPassword_txtTextBox"]').fill(SC_PASS)
-        page.locator('input[id*="btnIngresar"]').click()
-        page.wait_for_timeout(2500)
-
-        # Verificar login
-        if page.locator('a:has-text("Ingresar")').count() > 0:
-            print('[ERROR] Login fallo — verificar credenciales SC_USER/SC_PASS')
-            browser.close()
-            return
-        print('Login OK\n')
+        # No hace falta login: el listado y la descarga de pliegos son públicos.
+        print('Abriendo SaltaCompra (sin login)...\n')
 
         ok = sin_pliego = 0
         for lic in pendientes:
@@ -101,17 +201,9 @@ def run():
             objeto = lic['objeto']
             print(f'  {numero} — {objeto[:55]}')
 
-            # Ir a la lista y buscar la fila
-            page.goto(URL_LISTA, wait_until='networkidle', timeout=30000)
-            page.wait_for_timeout(1000)
-
-            fila = page.locator(f'tr:has-text("{numero}")').first
-            if fila.count() == 0:
-                # Intentar por primeras palabras del objeto
-                palabras = ' '.join(objeto.split()[:4])
-                fila = page.locator(f'tr:has-text("{palabras}")').first
-
-            if fila.count() == 0:
+            # Buscar la fila recorriendo las páginas del listado
+            fila = buscar_fila(page, numero, objeto)
+            if fila is None:
                 print(f'    No encontrado en la lista (puede haber vencido)')
                 sb.table('licitaciones').update({'items_detalle': '[]'}).eq('id', lic['id']).execute()
                 sin_pliego += 1
@@ -132,11 +224,7 @@ def run():
                 size = tmp.stat().st_size
                 print(f'    Descargado: {tmp.name} ({size:,} bytes)')
 
-                if tmp.suffix.lower() == '.pdf':
-                    items = parsear_pdf(tmp.read_bytes(), objeto)
-                else:
-                    print(f'    Formato {tmp.suffix} no soportado aun')
-                    items = []
+                items = parsear_pliego(tmp, objeto)
 
                 nombres = [i['descripcion'] for i in items if i.get('descripcion')]
                 sb.table('licitaciones').update({
@@ -144,6 +232,8 @@ def run():
                     'productos_detectados': json.dumps(nombres, ensure_ascii=False),
                 }).eq('id', lic['id']).execute()
                 print(f'    => {len(items)} items guardados')
+                if items:
+                    evaluar_crm(sb, lic['id'], items, terminos)
                 ok += 1
                 tmp.unlink(missing_ok=True)
 
@@ -159,4 +249,5 @@ def run():
 
 
 if __name__ == '__main__':
-    run()
+    limite = int(sys.argv[1]) if len(sys.argv) > 1 and sys.argv[1].isdigit() else None
+    run(limite)

@@ -279,13 +279,10 @@ def guardar(sb, fila, analisis):
         'notificado':     False,
     }
     try:
-        res = sb.table('licitaciones').insert(record).execute()
-        lic_id = res.data[0]['id']
-        if clasificacion == 'APLICA':
-            existing = sb.table('licitaciones_crm').select('id').eq('licitacion_id', str(lic_id)).execute().data
-            if not existing:
-                sb.table('licitaciones_crm').insert({'licitacion_id': str(lic_id), 'estado': 'identificada', 'notas': ''}).execute()
-                print(f'      → Agregada al CRM automáticamente')
+        sb.table('licitaciones').insert(record).execute()
+        # NO se agrega al CRM acá: la clasificación es solo por título, sin items.
+        # El pase al pipeline lo decide sc_pliego_scraper.py una vez que descargó
+        # el pliego, extrajo los items y verificó que matcheen con el catálogo.
         return True
     except Exception as e:
         print(f'  [ERROR guardar] {e}')
