@@ -23,6 +23,7 @@ LOGIN_URL = ('https://www.ipssalta.gov.ar/Cotizaciones/login.aspx'
              '?ReturnUrl=%2fCotizaciones%2fProveedor%2fwfPanelControl.aspx')
 PANEL_URL = 'https://www.ipssalta.gov.ar/Cotizaciones/Proveedor/wfPanelControl.aspx'
 BASE_URL  = 'https://www.ipssalta.gov.ar/Cotizaciones/Proveedor/'
+LISTA_URL = BASE_URL + 'wfCotizaciones.aspx'   # lista COMPLETA (las 3 plataformas)
 
 HEADERS = {
     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 '
@@ -68,37 +69,46 @@ def hacer_login():
 
 # ── Parsear solicitudes ───────────────────────────────────────────────────────
 
+def _tabla_solicitudes(soup):
+    """Encuentra la tabla de solicitudes (header Solicitud/Título/Rubro), o la
+    de más filas como respaldo. Sirve tanto para el panel como para la lista."""
+    candidatas = soup.find_all('table')
+    for t in candidatas:
+        filas = t.find_all('tr')
+        if not filas:
+            continue
+        head = ' '.join(c.get_text(strip=True).lower() for c in filas[0].find_all(['th', 'td']))
+        if 'solicitud' in head and ('rubro' in head or 'tulo' in head):
+            return t
+    return max(candidatas, key=lambda t: len(t.find_all('tr'))) if candidatas else None
+
 def parsear_solicitudes(html_content):
-    soup = BeautifulSoup(html_content, 'html.parser')
-    tables = soup.find_all('table')
-    if len(tables) < 2:
+    soup  = BeautifulSoup(html_content, 'html.parser')
+    tabla = _tabla_solicitudes(soup)
+    if not tabla:
         return []
 
-    tabla = tables[1]
-    rows  = tabla.find_all('tr')[1:]  # saltar header
-
     solicitudes = []
-    for row in rows:
+    for row in tabla.find_all('tr')[1:]:  # saltar header
+        # Solo filas cotizables: tienen un link a un formulario de cotización
+        a = row.find('a', href=re.compile(r'wfNuevaCotizacion', re.I))
+        if not a:
+            continue
         cells = row.find_all('td')
-        if len(cells) < 5:
+        if len(cells) < 3:
             continue
 
         solicitud_txt = cells[0].get_text(strip=True)
         titulo        = cells[1].get_text(strip=True)
-        rubro         = cells[2].get_text(strip=True)
-        fecha_ap      = cells[3].get_text(strip=True)
-        hora_ap       = cells[4].get_text(strip=True)
+        rubro         = cells[2].get_text(strip=True) if len(cells) > 2 else ''
+        fecha_ap      = cells[3].get_text(strip=True) if len(cells) > 3 else ''
+        hora_ap       = cells[4].get_text(strip=True) if len(cells) > 4 else ''
 
-        link = ''
-        a = row.find('a', href=True)
-        if a:
-            href = a['href']
-            link = href if href.startswith('http') else BASE_URL + href.lstrip('/')
-
-        numero = extraer_numero(solicitud_txt)
+        href = a['href']
+        link = href if href.startswith('http') else BASE_URL + href.lstrip('/')
 
         solicitudes.append({
-            'numero_proceso': numero,
+            'numero_proceso': extraer_numero(solicitud_txt),
             'objeto':         titulo,
             'organismo':      'IPS Salta',
             'rubro':          rubro,
@@ -251,7 +261,14 @@ def run_scraper():
         print(f'  [ERROR login] {e}')
         return 0
 
-    solicitudes = parsear_solicitudes(resp.content)
+    # Leer la LISTA COMPLETA (las 3 plataformas: Insumos/Prótesis, Audífonos,
+    # Medicamentos), no solo el panel (que mostraba un subconjunto chico).
+    try:
+        lista = session.get(LISTA_URL, timeout=30)
+        solicitudes = parsear_solicitudes(lista.content)
+    except Exception as e:
+        print(f'  [aviso] No se pudo leer la lista completa ({e}); uso el panel')
+        solicitudes = parsear_solicitudes(resp.content)
     print(f'  Solicitudes abiertas encontradas: {len(solicitudes)}')
 
     guardadas = 0
