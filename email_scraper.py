@@ -110,7 +110,22 @@ def _conectar():
     M.select('INBOX')
     return M
 
+def _ensure(M):
+    """Devuelve una conexión viva. Si M es None, reconecta con backoff.
+    Devuelve None si Mail2World está rechazando las conexiones (se reintenta
+    en la próxima corrida del sync)."""
+    if M is not None:
+        return M
+    for intento in range(3):
+        try:
+            return _conectar()
+        except Exception as e:
+            time.sleep(5 * (intento + 1))
+    return None
+
 def _fetch_uid(M, uid, parts):
+    """Fetch tolerante: ante caída, reconecta con backoff. Si no puede
+    reconectar, devuelve (None, [None]) en vez de crashear."""
     for _ in range(3):
         try:
             typ, data = M.uid('FETCH', uid, parts)
@@ -122,8 +137,10 @@ def _fetch_uid(M, uid, parts):
             M.logout()
         except Exception:
             pass
-        time.sleep(1)
-        M = _conectar()
+        time.sleep(3)
+        M = _ensure(None)
+        if M is None:
+            return None, [None]
     return M, [None]
 
 # ── Main ──────────────────────────────────────────────────────────────────────
@@ -139,59 +156,67 @@ def run():
     sb_admin = get_storage_client()
     asegurar_bucket(sb_admin)
 
-    try:
-        M = _conectar()
-        print(f'  Login OK ({EMAIL_USER})')
-    except Exception as e:
-        print(f'  [ERROR login IMAP] {e}')
+    M = _ensure(None)
+    if M is None:
+        print('  [ERROR] Mail2World no aceptó la conexión; se reintenta en la próxima corrida')
         return 0
+    print(f'  Login OK ({EMAIL_USER})')
 
     since = _fecha_since(VENTANA_DIAS)
     print(f'  Ventana: desde {since} ({VENTANA_DIAS} días)\n')
 
-    # ── FASE 1 (IMAP): bajar headers + adjuntos de los nuevos y CERRAR conexión.
+    # ── FASE 1 (IMAP): bajar headers + adjuntos de los nuevos. Cada remitente va
+    # en su propio try: si uno falla (Mail2World corta/rechaza), se omite y se
+    # sigue con el resto. Nunca crashea: procesa lo que puede.
     nuevos = []  # (fuente, organismo, numero, subj, ext, adj_bytes)
     for snd in SENDERS:
         token, fuente, organismo = snd['token'], snd['fuente'], snd['organismo']
         try:
+            M = _ensure(M)
+            if M is None:
+                print(f'  [{organismo}] sin conexión; se omite (próxima corrida)')
+                continue
+
             typ, data = M.uid('SEARCH', 'SINCE', since, 'TEXT', token)
+            uids = data[0].split() if data and data[0] else []
+            if not uids:
+                continue
+            print(f'  [{organismo}]: {len(uids)} mails en la ventana')
+
+            for uid in uids:
+                M, hdata = _fetch_uid(M, uid, '(BODY.PEEK[HEADER.FIELDS (SUBJECT)])')
+                if M is None:
+                    break  # conexión perdida; se reconecta en el próximo remitente
+                if not hdata or not isinstance(hdata[0], tuple):
+                    continue
+                subj = dec(email.message_from_bytes(hdata[0][1]).get('Subject', ''))
+                if 'ORDEN DE COMPRA' in subj.upper():
+                    continue  # post-adjudicación, no es licitación a cotizar
+                numero = extraer_numero(subj)
+                if ya_existe(sb, numero, fuente):
+                    continue
+                M, bdata = _fetch_uid(M, uid, '(BODY.PEEK[])')
+                if M is None:
+                    break
+                if not bdata or not isinstance(bdata[0], tuple):
+                    continue
+                full = email.message_from_bytes(bdata[0][1])
+                adj_bytes, adj_name = primer_adjunto(full)
+                if not adj_bytes:
+                    print(f'    [skip] {numero}: sin adjunto (PDF/Word/Excel)')
+                    continue
+                ext = '.' + adj_name.lower().rsplit('.', 1)[-1]
+                nuevos.append((fuente, organismo, numero, subj, ext, adj_bytes))
+        except Exception as e:
+            print(f'  [{organismo}] error, se omite: {str(e)[:60]}')
+            M = None  # forzar reconexión para el próximo remitente
+        time.sleep(1.5)  # respiro entre remitentes (Mail2World es sensible)
+
+    if M is not None:
+        try:
+            M.logout()
         except Exception:
-            M = _conectar()
-            try:
-                typ, data = M.uid('SEARCH', 'SINCE', since, 'TEXT', token)
-            except Exception as e:
-                print(f'  [{organismo}] error de búsqueda: {str(e)[:50]}')
-                continue
-        uids = data[0].split() if data and data[0] else []
-        if not uids:
-            continue
-        print(f'  [{organismo}]: {len(uids)} mails en la ventana')
-
-        for uid in uids:
-            M, hdata = _fetch_uid(M, uid, '(BODY.PEEK[HEADER.FIELDS (SUBJECT)])')
-            if not hdata or not isinstance(hdata[0], tuple):
-                continue
-            subj = dec(email.message_from_bytes(hdata[0][1]).get('Subject', ''))
-            if 'ORDEN DE COMPRA' in subj.upper():
-                continue  # post-adjudicación, no es licitación a cotizar
-            numero = extraer_numero(subj)
-            if ya_existe(sb, numero, fuente):
-                continue
-            M, bdata = _fetch_uid(M, uid, '(BODY.PEEK[])')
-            if not bdata or not isinstance(bdata[0], tuple):
-                continue
-            full = email.message_from_bytes(bdata[0][1])
-            adj_bytes, adj_name = primer_adjunto(full)
-            if not adj_bytes:
-                print(f'    [skip] {numero}: sin adjunto (PDF/Word/Excel)')
-                continue
-            ext = '.' + adj_name.lower().rsplit('.', 1)[-1]
-            nuevos.append((fuente, organismo, numero, subj, ext, adj_bytes))
-
-    try:
-        M.logout()
-    except Exception:
-        pass
+            pass
 
     print(f'\n  Nuevas con adjunto a procesar: {len(nuevos)}')
     if not nuevos:
