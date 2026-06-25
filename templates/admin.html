@@ -1233,7 +1233,11 @@ const CLAS_CONFIG = {
 const FUENTE_CONFIG = {
     saltacompra: { label: 'SaltaCompra', bg: '#ede9fe', color: '#5b21b6' },
     ips:         { label: 'IPS',         bg: '#fff7ed', color: '#c2410c' },
+    jujuy:       { label: '📧 Jujuy HMI', bg: '#ecfeff', color: '#0e7490' },
 };
+// Cualquier otra fuente (remitentes de email) cae en esta etiqueta genérica.
+// El organismo real (hospital/ministerio) se muestra aparte en la card.
+const FUENTE_EMAIL = { label: '📧 Email', bg: '#e0f2fe', color: '#0369a1' };
 
 async function actualizarBadgeLicitaciones() {
     try {
@@ -1363,7 +1367,7 @@ async function loadLicitaciones() {
     } else {
         body.innerHTML = activas.map(([l, i]) => {
             const cfg    = CLAS_CONFIG[l.clasificacion] || CLAS_CONFIG.REVISAR;
-            const fuente = FUENTE_CONFIG[l.fuente] || FUENTE_CONFIG.saltacompra;
+            const fuente = FUENTE_CONFIG[l.fuente] || FUENTE_EMAIL;
             const fecha  = l.fecha_scraping
                 ? new Date(l.fecha_scraping).toLocaleDateString('es-AR', { day:'2-digit', month:'2-digit', year:'2-digit' })
                 : '—';
@@ -1425,7 +1429,7 @@ async function loadLicitaciones() {
     if (papeleraBody) {
         papeleraBody.innerHTML = descartadas.length
             ? descartadas.map(([l, i]) => {
-                const f = FUENTE_CONFIG[l.fuente] || FUENTE_CONFIG.saltacompra;
+                const f = FUENTE_CONFIG[l.fuente] || FUENTE_EMAIL;
                 const titulo = (l.objeto || '—').length > 65 ? l.objeto.slice(0, 65) + '…' : (l.objeto || '—');
                 return `
                 <div style="background:#fff;border:1px solid #e5e7eb;border-radius:8px;padding:10px 12px;">
@@ -1478,7 +1482,7 @@ async function clasificarLicitacion(id, idx, nuevaClas) {
 async function verLicitacion(idx) {
     const l   = window._licitacionesData[idx];
     const cfg = CLAS_CONFIG[l.clasificacion] || CLAS_CONFIG.REVISAR;
-    const fuente = FUENTE_CONFIG[l.fuente] || FUENTE_CONFIG.saltacompra;
+    const fuente = FUENTE_CONFIG[l.fuente] || FUENTE_EMAIL;
 
     const existing = document.getElementById('modal-licitacion');
     if (existing) existing.remove();
