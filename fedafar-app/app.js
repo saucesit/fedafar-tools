@@ -676,6 +676,7 @@ sendOrderBtn.addEventListener('click', () => {
     const label = tipo === 'cta-cte' ? 'Cuenta Corriente' : 'Contado';
     let msg = `📦 *NUEVO PEDIDO - FEDAFAR*\n💳 Precio: ${label}\n`;
     if (currentUser?.nombre) msg += `🏪 Farmacia: ${currentUser.nombre}\n`;
+    if (currentUser?.genexus_client_id) msg += `🆔 ID Cliente: ${currentUser.genexus_client_id}\n`;
     msg += '\n';
     cart.forEach(item => { msg += `• ${item.name} (${item.lab}) x${item.qty}\n`; });
     msg += `\n*TOTAL ESTIMADO:* ${totalPriceEl.innerText}`;
