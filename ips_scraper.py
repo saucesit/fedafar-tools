@@ -219,12 +219,18 @@ def guardar(sb, sol):
 # ── Limpieza de solicitudes cerradas ──────────────────────────────────────────
 
 def limpiar_cerradas(sb, session):
-    """Revisa licitaciones IPS ya guardadas y descarta (NO_APLICA) las que
-    IPS ya cerró el acceso (ventana de cotización vencida)."""
+    """Marca NO_APLICA las solicitudes IPS de la BANDEJA cuyo acceso ya cerró
+    IPS (ventana vencida). NUNCA toca las que están en el pipeline (CRM): esas
+    el usuario las está trabajando y son sólo suyas."""
     rows = sb.table('licitaciones').select('id,url,clasificacion') \
              .eq('fuente', 'ips').neq('clasificacion', 'NO_APLICA').execute().data or []
+    # Excluir las que están en el CRM: no se tocan bajo ningún concepto.
+    crm    = sb.table('licitaciones_crm').select('licitacion_id').execute().data or []
+    en_crm = {str(c['licitacion_id']) for c in crm}
     cerradas = 0
     for r in rows:
+        if str(r['id']) in en_crm:
+            continue  # en el pipeline → intocable
         url = r.get('url', '')
         if not url:
             continue
@@ -235,7 +241,6 @@ def limpiar_cerradas(sb, session):
                     'clasificacion': 'NO_APLICA',
                     'analisis':      'IPS cerró el acceso (ventana de cotización vencida)',
                 }).eq('id', r['id']).execute()
-                sb.table('licitaciones_crm').delete().eq('licitacion_id', str(r['id'])).execute()
                 cerradas += 1
         except Exception as e:
             print(f'    [IPS limpieza] Error en {url}: {e}')
