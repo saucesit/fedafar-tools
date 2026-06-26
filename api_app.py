@@ -2041,6 +2041,8 @@ def api_admin_crm_delete(crm_id):
 def _jefe_o_admin_required(f):
     @wraps(f)
     def decorated(*args, **kwargs):
+        if session.get('is_admin'):
+            return f(*args, **kwargs)
         if not current_user.is_authenticated:
             return jsonify({'error': 'No autenticado'}), 401
         if current_user.tipo_precio not in ('jefe', 'jefe_deposito', 'farmaceutico', 'admin'):
@@ -2049,7 +2051,6 @@ def _jefe_o_admin_required(f):
     return decorated
 
 @app.route('/api/intercambios', methods=['GET'])
-@login_required
 @_jefe_o_admin_required
 def api_intercambios_list():
     try:
@@ -2071,7 +2072,6 @@ def api_intercambios_list():
         return jsonify({'error': str(e)}), 500
 
 @app.route('/api/intercambios/pendientes-count', methods=['GET'])
-@login_required
 @_jefe_o_admin_required
 def api_intercambios_count():
     try:
@@ -2082,7 +2082,6 @@ def api_intercambios_count():
         return jsonify({'count': 0})
 
 @app.route('/api/intercambios', methods=['POST'])
-@login_required
 @_jefe_o_admin_required
 def api_intercambios_crear():
     data    = request.get_json() or {}
@@ -2112,7 +2111,7 @@ def api_intercambios_crear():
             'producto':   producto,
             'cantidad':   cantidad_num,
             'notas':      notas or None,
-            'creado_por': current_user.nombre,
+            'creado_por': current_user.nombre if current_user.is_authenticated else 'Admin',
             'fecha':      date.today().isoformat(),
             'devuelto':   False,
             'estado':     'pendiente',
@@ -2123,7 +2122,6 @@ def api_intercambios_crear():
         return jsonify({'error': str(e)}), 500
 
 @app.route('/api/intercambios/<id>/devolucion', methods=['POST'])
-@login_required
 @_jefe_o_admin_required
 def api_intercambios_devolucion(id):
     data     = request.get_json() or {}
@@ -2156,7 +2154,7 @@ def api_intercambios_devolucion(id):
             'intercambio_id': id,
             'cantidad':       cantidad,
             'nota':           nota or None,
-            'registrado_por': current_user.nombre,
+            'registrado_por': current_user.nombre if current_user.is_authenticated else 'Admin',
             'creado_en':      datetime.now(timezone.utc).isoformat(),
         }).execute()
 
