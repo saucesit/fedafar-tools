@@ -16,3 +16,13 @@ env/
 # Environment
 .env
 .env.local
+
+# Logs y archivos de debug (pueden contener datos de clientes)
+sync_log.txt
+sync_licitaciones_log.txt
+debug_*.html
+debug_*.py
+full_price_list_backup_anterior.txt
+
+# Config local de Claude Code
+.claude/

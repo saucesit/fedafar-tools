@@ -1925,7 +1925,9 @@ def api_admin_productos_nombres():
 @admin_required
 def api_admin_ips_pliego():
     url = request.args.get('url', '')
-    if not url or 'ipssalta.gov.ar' not in url:
+    from urllib.parse import urlparse
+    host = urlparse(url).hostname or ''
+    if not (host == 'ipssalta.gov.ar' or host.endswith('.ipssalta.gov.ar')):
         return '<html><body><p>URL inválida</p></body></html>', 400, {'Content-Type': 'text/html'}
     try:
         import sys
@@ -1946,7 +1948,8 @@ window.alert = function(msg) {
         html = html.replace('<head>', f'<head>{inject}', 1) if '<head>' in html else inject + html
         return html, 200, {'Content-Type': 'text/html; charset=utf-8'}
     except Exception as e:
-        return f'<html><body style="font-family:sans-serif;padding:20px"><b>Error al cargar pliego IPS:</b><br>{e}</body></html>', 500, {'Content-Type': 'text/html'}
+        print(f"[ERROR ips-pliego] {e}")
+        return '<html><body style="font-family:sans-serif;padding:20px"><b>Error al cargar pliego IPS.</b> Reintentá en unos segundos.</body></html>', 500, {'Content-Type': 'text/html'}
 
 @app.route('/api/admin/crm/sync-aplicas', methods=['POST'])
 @admin_required
