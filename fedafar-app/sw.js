@@ -5,7 +5,7 @@
 //   - assets estáticos  → caché con revalidación en segundo plano
 //
 // Subí el número de versión cada vez que quieras forzar la actualización del caché.
-const CACHE_VERSION = 'fedafar-v1';
+const CACHE_VERSION = 'fedafar-v2';
 const APP_SHELL = [
   '/tienda/',
   '/tienda/index.html',
