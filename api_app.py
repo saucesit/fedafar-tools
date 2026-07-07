@@ -681,8 +681,16 @@ def fuzzy_stock_match(price_name, stock_dict):
     if price_name_clean in stock_dict:
         return stock_dict[price_name_clean]
     parts = price_name_clean.split()
+    if not parts:
+        return None
     for stock_name, stock_val in stock_dict.items():
         stock_parts = clean_name_for_matching(stock_name).split()
+        # El primer token (nombre/marca del producto) DEBE coincidir. Sin esto,
+        # el match laxo dejaba que un producto sin stock "tomara prestado" el de
+        # otro que solo comparte dosis/presentación (ej: AMOXITRAL 500x90ml
+        # tomaba el stock de AMOXICILINA 500x90ml; CEFADE amp. el de AMPICILINA).
+        if parts[0] not in stock_parts:
+            continue
         match_count = sum(1 for part in parts if part in stock_parts)
         if match_count >= len(parts) - 1 and len(parts) > 1:
             return stock_val

@@ -446,14 +446,26 @@
         </div>
     </div>
 
-    <script src="app.js?v=20260702"></script>
+    <script src="app.js?v=20260707"></script>
 
     <!-- ── Registro del Service Worker (PWA) ──────────────────── -->
     <script>
         if ('serviceWorker' in navigator) {
+            // Cuando un SW nuevo toma el control, recargar una sola vez para que
+            // la página use el JS/CSS frescos sin depender de que el usuario
+            // cierre y reabra la app dos veces.
+            let _swRefrescando = false;
+            navigator.serviceWorker.addEventListener('controllerchange', () => {
+                if (_swRefrescando) return;
+                _swRefrescando = true;
+                window.location.reload();
+            });
             window.addEventListener('load', () => {
                 navigator.serviceWorker.register('/tienda/sw.js', { scope: '/tienda/' })
-                    .then(reg => console.log('SW registrado:', reg.scope))
+                    .then(reg => {
+                        console.log('SW registrado:', reg.scope);
+                        reg.update();  // forzar chequeo de versión nueva en cada carga
+                    })
                     .catch(err => console.warn('SW no se pudo registrar:', err));
             });
         }
