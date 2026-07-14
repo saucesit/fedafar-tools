@@ -1712,18 +1712,9 @@ def api_admin_licitaciones_limpiar_descartadas():
     if dias < 1:
         dias = 15
     try:
-        sb = get_sb()
-        corte = (datetime.now(timezone.utc) - timedelta(days=dias)).isoformat()
-        # Candidatas: NO_APLICA con fecha_scraping anterior al corte
-        rows = sb.table('licitaciones').select('id') \
-                 .eq('clasificacion', 'NO_APLICA').lt('fecha_scraping', corte).execute().data or []
-        # Proteger el pipeline: nunca borrar algo que esté en el CRM
-        crm    = sb.table('licitaciones_crm').select('licitacion_id').execute().data or []
-        en_crm = {str(c['licitacion_id']) for c in crm}
-        ids = [r['id'] for r in rows if str(r['id']) not in en_crm]
-        for lid in ids:
-            sb.table('licitaciones').delete().eq('id', lid).execute()
-        return jsonify({'ok': True, 'borradas': len(ids)})
+        from limpiar_descartadas import limpiar
+        borradas = limpiar(get_sb(), dias)
+        return jsonify({'ok': True, 'borradas': borradas})
     except Exception as e:
         print(f"[ERROR limpiar descartadas] {e}")
         return jsonify({'error': str(e)}), 500
