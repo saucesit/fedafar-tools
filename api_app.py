@@ -1698,6 +1698,36 @@ def api_admin_licitaciones_sync():
         print(f"[ERROR sync licitaciones] {e}")
         return jsonify({'error': str(e)}), 500
 
+@app.route('/api/admin/licitaciones/limpiar-descartadas', methods=['POST'])
+@admin_required
+def api_admin_licitaciones_limpiar_descartadas():
+    """Borra definitivamente las licitaciones descartadas (NO_APLICA) más viejas
+    que `dias` (default 30). No toca las del pipeline (CRM). El umbral evita
+    borrar algo que siga abierto en la fuente (se re-importaría a la bandeja)."""
+    data = request.get_json() or {}
+    try:
+        dias = int(data.get('dias', 15))
+    except (ValueError, TypeError):
+        dias = 15
+    if dias < 1:
+        dias = 15
+    try:
+        sb = get_sb()
+        corte = (datetime.now(timezone.utc) - timedelta(days=dias)).isoformat()
+        # Candidatas: NO_APLICA con fecha_scraping anterior al corte
+        rows = sb.table('licitaciones').select('id') \
+                 .eq('clasificacion', 'NO_APLICA').lt('fecha_scraping', corte).execute().data or []
+        # Proteger el pipeline: nunca borrar algo que esté en el CRM
+        crm    = sb.table('licitaciones_crm').select('licitacion_id').execute().data or []
+        en_crm = {str(c['licitacion_id']) for c in crm}
+        ids = [r['id'] for r in rows if str(r['id']) not in en_crm]
+        for lid in ids:
+            sb.table('licitaciones').delete().eq('id', lid).execute()
+        return jsonify({'ok': True, 'borradas': len(ids)})
+    except Exception as e:
+        print(f"[ERROR limpiar descartadas] {e}")
+        return jsonify({'error': str(e)}), 500
+
 @app.route('/api/admin/licitaciones/<id>/clasificar', methods=['PATCH'])
 @admin_required
 def api_admin_licitaciones_clasificar(id):

@@ -1430,7 +1430,13 @@ async function loadLicitaciones() {
     const papeleraBody  = document.getElementById('papelera-body');
     if (papeleraCount) papeleraCount.textContent = descartadas.length;
     if (papeleraBody) {
-        papeleraBody.innerHTML = descartadas.length
+        const btnLimpiar = descartadas.length
+            ? `<button onclick="limpiarDescartadas()" id="btn-limpiar-descartadas"
+                   style="width:100%;background:#fff;color:#991b1b;border:1px solid #fca5a5;border-radius:6px;padding:6px 0;font-size:.72rem;font-weight:700;cursor:pointer;margin-bottom:4px;">
+                   🧹 Limpiar viejas (+15 días)
+               </button>`
+            : '';
+        papeleraBody.innerHTML = btnLimpiar + (descartadas.length
             ? descartadas.map(([l, i]) => {
                 const f = FUENTE_CONFIG[l.fuente] || FUENTE_EMAIL;
                 const titulo = (l.objeto || '—').length > 65 ? l.objeto.slice(0, 65) + '…' : (l.objeto || '—');
@@ -1453,7 +1459,34 @@ async function loadLicitaciones() {
                     </div>
                 </div>`;
             }).join('')
-            : '<p style="font-size:.78rem;color:#9ca3af;text-align:center;margin:4px 0 0;">Sin descartadas</p>';
+            : '<p style="font-size:.78rem;color:#9ca3af;text-align:center;margin:4px 0 0;">Sin descartadas</p>');
+    }
+}
+
+async function limpiarDescartadas() {
+    if (!confirm('¿Borrar definitivamente las descartadas de más de 15 días?\n\nLas recientes se conservan. No afecta al pipeline (CRM).')) return;
+    const btn = document.getElementById('btn-limpiar-descartadas');
+    if (btn) { btn.disabled = true; btn.textContent = 'Limpiando…'; }
+    try {
+        const res = await fetch(`${BASE}/api/admin/licitaciones/limpiar-descartadas`, {
+            method: 'POST', credentials: 'include',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ dias: 15 }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (res.ok) {
+            alert(data.borradas > 0
+                ? `🧹 Se borraron ${data.borradas} descartadas viejas.`
+                : 'No había descartadas de más de 15 días (todas son recientes).');
+            _invalidarTab('licitaciones');
+            loadLicitaciones();
+        } else {
+            alert('Error: ' + (data.error || `HTTP ${res.status}`));
+            if (btn) { btn.disabled = false; btn.textContent = '🧹 Limpiar viejas (+15 días)'; }
+        }
+    } catch (e) {
+        alert('Error de conexión al limpiar.');
+        if (btn) { btn.disabled = false; btn.textContent = '🧹 Limpiar viejas (+15 días)'; }
     }
 }
 
