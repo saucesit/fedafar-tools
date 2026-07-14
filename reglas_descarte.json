@@ -1,0 +1,6 @@
+{
+  "_comentario": "Palabras que, si aparecen en el TÍTULO/objeto de una licitación, la descartan automáticamente (se guarda como NO_APLICA, no llega a la bandeja). Match sin distinguir mayúsculas ni acentos. Agregá o sacá palabras de esta lista; los scrapers la leen en cada corrida. OJO: son productos que NUNCA cotizamos. No poner 'protesis' acá porque en IPS comparte plataforma con Dexcom.",
+  "palabras_descarte": [
+    "audifono"
+  ]
+}

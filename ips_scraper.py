@@ -13,6 +13,7 @@ if env_path.exists():
     load_dotenv(env_path)
 
 from supabase import create_client
+from filtro_descarte import motivo_descarte
 
 SUPABASE_URL = os.environ.get('SUPABASE_URL', '')
 SUPABASE_KEY = os.environ.get('SUPABASE_KEY', '')
@@ -191,7 +192,7 @@ def ya_existe(sb, numero):
     except:
         return False
 
-def guardar(sb, sol):
+def guardar(sb, sol, clasificacion='REVISAR', analisis=None):
     items = sol.get('items', [])
     nombres = [i['descripcion'] for i in items if i.get('descripcion')]
     record = {
@@ -200,8 +201,8 @@ def guardar(sb, sol):
         'organismo':           sol['organismo'],
         'fecha_apertura':      sol['fecha_apertura'][:50],
         'estado':              sol['estado'],
-        'clasificacion':       'REVISAR',
-        'analisis':            f"IPS — {sol['rubro']}",
+        'clasificacion':       clasificacion,
+        'analisis':            analisis if analisis is not None else f"IPS — {sol['rubro']}",
         'url':                 sol['url'][:500],
         'fecha_scraping':      datetime.now(timezone.utc).isoformat(),
         'notificado':          False,
@@ -277,11 +278,24 @@ def run_scraper():
     print(f'  Solicitudes abiertas encontradas: {len(solicitudes)}')
 
     guardadas = 0
+    descartadas = 0
     for sol in solicitudes:
         numero = sol['numero_proceso']
         if ya_existe(sb, numero):
             print(f'  [SKIP] {numero}')
             continue
+
+        # Filtro de descarte automático (audífonos, etc.): si el título matchea
+        # una regla, se guarda NO_APLICA sin entrar al pliego (ahorra tiempo).
+        motivo = motivo_descarte(sol['objeto'], sol.get('rubro', ''))
+        if motivo:
+            sol['items'] = []
+            guardar(sb, sol, clasificacion='NO_APLICA',
+                    analisis=f'Descartada automáticamente (regla: {motivo})')
+            print(f'  [–] {numero} — descartada por filtro «{motivo}»')
+            descartadas += 1
+            continue
+
         print(f'  [+] {numero} — {sol["objeto"][:60]}')
         items, no_encontrada = scrape_items(session, sol['url'])
         if no_encontrada:
@@ -296,7 +310,7 @@ def run_scraper():
     print('\n  Revisando licitaciones IPS ya guardadas (limpieza de cerradas)...')
     limpiar_cerradas(sb, session)
 
-    print(f'\n[OK] Guardadas nuevas: {guardadas}')
+    print(f'\n[OK] Guardadas nuevas: {guardadas} | Descartadas por filtro: {descartadas}')
     return guardadas
 
 
