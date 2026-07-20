@@ -2153,6 +2153,31 @@ def api_intercambios_crear():
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
+@app.route('/api/intercambios/voz', methods=['POST'])
+@login_required
+def api_intercambios_voz():
+    """Piloto (perfil jefe): recibe un audio, lo transcribe (Groq Whisper) e
+    interpreta (Claude) para PRE-LLENAR el formulario de Intercambios. No guarda
+    nada: devuelve lo interpretado para que el usuario revise y confirme."""
+    if current_user.tipo_precio not in ('jefe', 'admin'):
+        return jsonify({'error': 'Función en piloto (solo perfil jefe)'}), 403
+    audio = request.files.get('audio')
+    if not audio:
+        return jsonify({'error': 'No llegó el audio'}), 400
+    try:
+        from voz_intercambios import transcribir, interpretar
+        audio_bytes = audio.read()
+        if not audio_bytes:
+            return jsonify({'error': 'Audio vacío'}), 400
+        texto = transcribir(audio_bytes, audio.filename or 'audio.m4a')
+        if not texto:
+            return jsonify({'error': 'No se entendió el audio, probá de nuevo'}), 422
+        campos = interpretar(texto)
+        return jsonify({'ok': True, 'texto': texto, 'campos': campos})
+    except Exception as e:
+        print(f"[ERROR intercambios voz] {e}")
+        return jsonify({'error': 'No se pudo procesar el audio'}), 500
+
 @app.route('/api/intercambios/<id>/devolucion', methods=['POST'])
 @_jefe_o_admin_required
 def api_intercambios_devolucion(id):

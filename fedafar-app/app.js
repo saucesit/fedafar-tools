@@ -189,6 +189,10 @@ function showApp() {
         intercambiosBtn.classList.add('hidden');
     }
 
+    // Carga por voz (piloto): solo perfil jefe (y admin para pruebas)
+    const vozBtn = document.getElementById('intercambio-voz-btn');
+    if (vozBtn) vozBtn.classList.toggle('hidden', !(tipo === 'jefe' || tipo === 'admin'));
+
     // Faltantes: jefe_deposito, farmaceutico, jefe, admin
     if (tipo === 'jefe_deposito' || tipo === 'farmaceutico' || tipo === 'jefe' || tipo === 'admin') {
         faltantesBtn.classList.remove('hidden');
@@ -2107,6 +2111,78 @@ intercambioNuevoBtn.addEventListener('click', () => {
         intercambioNotasInp.value    = '';
         intercambioSubmitMsg.classList.add('hidden');
     }
+    _vozMsg('');
+});
+
+// ── Carga por voz (piloto perfil jefe) ──────────────────────────────────────
+let _vozRec = null, _vozChunks = [], _vozStream = null;
+
+function _vozMsg(txt, tipo) {
+    const el = document.getElementById('intercambio-voz-msg');
+    if (!el) return;
+    el.textContent = txt || '';
+    el.className = 'docs-msg' + (tipo ? ' ' + tipo : '') + (txt ? '' : ' hidden');
+}
+
+async function _vozIniciar() {
+    try {
+        _vozStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    } catch (e) {
+        _vozMsg('No pude acceder al micrófono. Revisá los permisos.', 'error');
+        return;
+    }
+    _vozChunks = [];
+    _vozRec = new MediaRecorder(_vozStream);
+    _vozRec.ondataavailable = (ev) => { if (ev.data.size) _vozChunks.push(ev.data); };
+    _vozRec.onstop = _vozProcesar;
+    _vozRec.start();
+    const btn = document.getElementById('intercambio-voz-btn');
+    if (btn) btn.textContent = '⏹ Detener';
+    _vozMsg('🔴 Grabando… contá el préstamo y tocá Detener.', '');
+}
+
+function _vozDetener() {
+    const btn = document.getElementById('intercambio-voz-btn');
+    if (btn) btn.textContent = '🎤 Dictar';
+    if (_vozRec && _vozRec.state !== 'inactive') _vozRec.stop();
+    if (_vozStream) { _vozStream.getTracks().forEach(t => t.stop()); _vozStream = null; }
+}
+
+async function _vozProcesar() {
+    _vozMsg('⏳ Procesando el audio…', '');
+    const tipoMime = (_vozChunks[0] && _vozChunks[0].type) || 'audio/mp4';
+    const ext = tipoMime.includes('webm') ? 'webm' : (tipoMime.includes('ogg') ? 'ogg' : 'm4a');
+    const blob = new Blob(_vozChunks, { type: tipoMime });
+    if (!blob.size) { _vozMsg('No se grabó audio, probá de nuevo.', 'error'); return; }
+    const fd = new FormData();
+    fd.append('audio', blob, 'dictado.' + ext);
+    try {
+        const res = await fetch(`${BASE_URL}/api/intercambios/voz`, {
+            method: 'POST', credentials: 'include', body: fd,
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) { _vozMsg('❌ ' + (data.error || `HTTP ${res.status}`), 'error'); return; }
+        // Abrir el formulario y pre-llenar con lo interpretado
+        if (intercambiosFormSect.classList.contains('hidden')) {
+            intercambiosFormSect.classList.remove('hidden');
+            intercambioNuevoBtn.textContent = '— Cancelar';
+        }
+        const c = data.campos || {};
+        if (c.tipo) intercambioTipoSel.value = c.tipo;
+        intercambioEntidadInp.value  = c.entidad  || '';
+        intercambioProductoInp.value = c.producto || '';
+        intercambioCantidadInp.value = (c.cantidad != null ? c.cantidad : '');
+        intercambioNotasInp.value    = c.notas || '';
+        _vozMsg('✅ Revisá los datos y tocá Registrar. (Dije: "' + (data.texto || '') + '")', 'success');
+    } catch (e) {
+        _vozMsg('Error de conexión al procesar el audio.', 'error');
+    }
+}
+
+const _vozBtn = document.getElementById('intercambio-voz-btn');
+if (_vozBtn) _vozBtn.addEventListener('click', () => {
+    if (_vozRec && _vozRec.state === 'recording') _vozDetener();
+    else _vozIniciar();
 });
 
 intercambioSubmitBtn.addEventListener('click', async () => {
