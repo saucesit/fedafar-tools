@@ -2111,7 +2111,10 @@ intercambioNuevoBtn.addEventListener('click', () => {
         intercambioNotasInp.value    = '';
         intercambioSubmitMsg.classList.add('hidden');
     }
+    _vozEditandoId = null;
+    intercambioSubmitBtn.textContent = 'Registrar';
     _vozMsg('');
+    if (typeof _vozLimpiarResultado === 'function') _vozLimpiarResultado();
 });
 
 // ── Carga por voz (piloto perfil jefe) ──────────────────────────────────────
@@ -2162,7 +2165,29 @@ async function _vozProcesar() {
         });
         const data = await res.json().catch(() => ({}));
         if (!res.ok) { _vozMsg('❌ ' + (data.error || `HTTP ${res.status}`), 'error'); return; }
-        // Abrir el formulario y pre-llenar con lo interpretado
+        _vozManejarResultado(data);
+    } catch (e) {
+        _vozMsg('Error de conexión al procesar el audio.', 'error');
+    }
+}
+
+// Guarda lo interpretado para las acciones sobre registros existentes
+let _vozData = null;
+let _vozEditandoId = null;   // si != null, el submit corrige ese registro (PATCH) en vez de crear
+
+function _vozLimpiarResultado() {
+    const cont = document.getElementById('voz-resultado');
+    if (cont) cont.innerHTML = '';
+}
+
+function _vozManejarResultado(data) {
+    _vozData = data;
+    _vozLimpiarResultado();
+    const dije = data.texto ? ' (Dije: "' + data.texto + '")' : '';
+    const accion = data.accion || 'crear';
+
+    if (accion === 'crear') {
+        // Pre-llenar el formulario de alta, como siempre
         if (intercambiosFormSect.classList.contains('hidden')) {
             intercambiosFormSect.classList.remove('hidden');
             intercambioNuevoBtn.textContent = '— Cancelar';
@@ -2173,9 +2198,91 @@ async function _vozProcesar() {
         intercambioProductoInp.value = c.producto || '';
         intercambioCantidadInp.value = (c.cantidad != null ? c.cantidad : '');
         intercambioNotasInp.value    = c.notas || '';
-        _vozMsg('✅ Revisá los datos y tocá Registrar. (Dije: "' + (data.texto || '') + '")', 'success');
+        _vozMsg('✅ Revisá los datos y tocá Registrar.' + dije, 'success');
+        return;
+    }
+
+    // devolver / corregir / borrar → mostrar candidatos para confirmar
+    const cands = data.candidatos || [];
+    const titulos = { devolver: '↩️ Registrar devolución', corregir: '✏️ Corregir carga', borrar: '🗑 Borrar registro' };
+    if (!cands.length) {
+        _vozMsg(`No encontré un préstamo que coincida con eso.${dije} Probá de nuevo diciendo la entidad y el producto.`, 'error');
+        return;
+    }
+    _vozMsg(`${titulos[accion]} — elegí el registro correcto:${dije}`, '');
+    const cont = document.getElementById('voz-resultado');
+    cont.innerHTML = cands.map((r, i) => {
+        const flecha = r.tipo === 'prestamos_a' ? '📤 Le prestamos a' : '📥 Nos prestaron';
+        const pend = accion === 'devolver' ? ` · pendiente: <b>${r.pendiente}</b>` : '';
+        return `
+        <div style="background:#fff;border:1px solid #e5e7eb;border-radius:8px;padding:10px 12px;margin-bottom:8px;">
+            <div style="font-size:.72rem;color:#6b7280;">${flecha}</div>
+            <div style="font-weight:700;font-size:.9rem;">${r.entidad || '—'}</div>
+            <div style="font-size:.82rem;color:#374151;">${r.producto || '—'} · cant: ${r.cantidad}${pend} · ${r.fecha || ''}</div>
+            <button onclick="_vozAccion('${accion}','${r.id}',${i})"
+                style="margin-top:8px;width:100%;border:none;border-radius:6px;padding:7px 0;font-size:.8rem;font-weight:700;cursor:pointer;
+                background:${accion === 'borrar' ? '#fee2e2' : '#dbeafe'};color:${accion === 'borrar' ? '#991b1b' : '#1e40af'};">
+                ${titulos[accion]}
+            </button>
+        </div>`;
+    }).join('');
+}
+
+async function _vozAccion(accion, id, idx) {
+    const c = (_vozData && _vozData.campos) || {};
+    if (accion === 'borrar') {
+        if (!confirm('¿Borrar definitivamente este registro?')) return;
+        await _vozFetch('DELETE', `/api/intercambios/${id}`, null, 'Registro borrado 🗑');
+        return;
+    }
+    if (accion === 'devolver') {
+        let cant = c.cantidad;
+        if (cant == null) {
+            const inp = prompt('¿Cuántas unidades se devolvieron?');
+            if (inp == null) return;
+            cant = parseFloat(inp);
+        }
+        if (!(cant > 0)) { _vozMsg('Cantidad de devolución inválida.', 'error'); return; }
+        await _vozFetch('POST', `/api/intercambios/${id}/devolucion`, { cantidad: cant, nota: 'Cargado por voz' }, 'Devolución registrada ✅');
+        return;
+    }
+    if (accion === 'corregir') {
+        // Cargar el registro en el formulario para editar y guardar los cambios
+        const r = (_vozData.candidatos || [])[idx] || {};
+        if (intercambiosFormSect.classList.contains('hidden')) {
+            intercambiosFormSect.classList.remove('hidden');
+            intercambioNuevoBtn.textContent = '— Cancelar';
+        }
+        intercambioTipoSel.value     = c.tipo || r.tipo || 'prestamos_a';
+        intercambioEntidadInp.value  = c.entidad  || r.entidad  || '';
+        intercambioProductoInp.value = c.producto || r.producto || '';
+        intercambioCantidadInp.value = (c.cantidad != null ? c.cantidad : r.cantidad);
+        intercambioNotasInp.value    = c.notas || r.notas || '';
+        _vozEditandoId = id;
+        intercambioSubmitBtn.textContent = 'Guardar corrección';
+        _vozLimpiarResultado();
+        _vozMsg('✏️ Ajustá lo que falte y tocá "Guardar corrección".', 'success');
+    }
+}
+
+async function _vozFetch(method, url, body, okMsg) {
+    try {
+        const res = await fetch(`${BASE_URL}${url}`, {
+            method, credentials: 'include',
+            headers: body ? { 'Content-Type': 'application/json' } : {},
+            body: body ? JSON.stringify(body) : undefined,
+        });
+        const d = await res.json().catch(() => ({}));
+        if (res.ok) {
+            _vozLimpiarResultado();
+            _vozMsg(okMsg, 'success');
+            loadIntercambios();
+            actualizarBadgeIntercambios();
+        } else {
+            _vozMsg('❌ ' + (d.error || `HTTP ${res.status}`), 'error');
+        }
     } catch (e) {
-        _vozMsg('Error de conexión al procesar el audio.', 'error');
+        _vozMsg('Error de conexión.', 'error');
     }
 }
 
@@ -2200,20 +2307,27 @@ intercambioSubmitBtn.addEventListener('click', async () => {
     }
 
     intercambioSubmitBtn.disabled = true;
-    const res = await fetch(`${BASE_URL}/api/intercambios`, {
-        method: 'POST', credentials: 'include',
+    // Si venimos de "corregir por voz", es un PATCH sobre el registro existente
+    const editando = _vozEditandoId;
+    const url    = editando ? `${BASE_URL}/api/intercambios/${editando}` : `${BASE_URL}/api/intercambios`;
+    const method = editando ? 'PATCH' : 'POST';
+    const res = await fetch(url, {
+        method, credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ tipo, entidad, producto, cantidad, notas }),
     });
 
     if (res.ok) {
-        intercambioSubmitMsg.textContent = '✅ Registrado';
+        intercambioSubmitMsg.textContent = editando ? '✅ Corregido' : '✅ Registrado';
         intercambioSubmitMsg.className   = 'docs-msg success';
         intercambioSubmitMsg.classList.remove('hidden');
         intercambioEntidadInp.value  = '';
         intercambioProductoInp.value = '';
         intercambioCantidadInp.value = '';
         intercambioNotasInp.value    = '';
+        _vozEditandoId = null;
+        intercambioSubmitBtn.textContent = 'Registrar';
+        _vozMsg('');
         loadIntercambios();
         actualizarBadgeIntercambios();
         setTimeout(() => { intercambioSubmitMsg.classList.add('hidden'); }, 2500);

@@ -36,9 +36,11 @@ def transcribir(audio_bytes, filename='audio.m4a'):
 
 _PROMPT = """Sos un asistente de una droguería. El usuario dictó por voz un
 préstamo o devolución de mercadería entre la droguería y otra farmacia/entidad.
-Extraé los datos del texto y devolvé SOLO un JSON (sin explicaciones) con:
+Primero detectá QUÉ quiere hacer (la acción), y después extraé los datos.
+Devolvé SOLO un JSON (sin explicaciones) con:
 
 {{
+  "accion": "crear" | "devolver" | "corregir" | "borrar",
   "tipo": "prestamos_a" | "nos_prestaron" | "",
   "entidad": "nombre de la farmacia/persona/entidad, o ''",
   "producto": "qué producto, texto libre, o ''",
@@ -46,12 +48,18 @@ Extraé los datos del texto y devolvé SOLO un JSON (sin explicaciones) con:
   "notas": "cualquier detalle extra relevante, o ''"
 }}
 
-Reglas:
-- "le prestamos / le dimos / le pasamos a X" => tipo "prestamos_a" (nosotros prestamos).
-- "nos prestó / nos dio / me prestaron / nos pasó X" => tipo "nos_prestaron".
-- Si no queda claro el tipo, dejá "tipo": "".
-- La cantidad es solo el número (ej: "10 cajas" => cantidad 10, y "cajas" puede ir en producto o notas).
-- No inventes datos: si algo no se dice, dejalo vacío o null.
+Cómo detectar la ACCIÓN:
+- "crear": anotar un préstamo o algo nuevo. Ej: "le presté 10 cajas a San Martín", "anotá que nos prestaron...".
+- "devolver": registrar una devolución sobre algo ya prestado. Ej: "San Bernardo me devolvió 3 amoxidal", "devolvimos las 2 cajas a...". Acá la cantidad es lo que se devolvió.
+- "corregir": arreglar un error de carga de un registro que ya existe. Ej: "corregí el préstamo de amoxicilina a San Martín, eran 15 no 10", "cambiá la cantidad de...". Poné en cantidad/producto/etc. el valor CORREGIDO.
+- "borrar": eliminar un registro cargado por error. Ej: "borrá el préstamo a San Martín", "eliminá lo de...".
+- Si no queda claro, usá "crear".
+
+Reglas de los datos:
+- entidad y producto sirven para IDENTIFICAR el registro (en devolver/corregir/borrar) o para el nuevo (en crear).
+- "le prestamos / le dimos / le pasamos a X" => tipo "prestamos_a". "nos prestó / me prestaron / nos dio" => "nos_prestaron". Si no está claro, "".
+- La cantidad es solo el número (ej: "10 cajas" => 10; "cajas" va en producto o notas).
+- No inventes datos: lo que no se dice va vacío o null.
 - Respondé en español.
 
 Texto dictado:
@@ -62,7 +70,7 @@ def interpretar(texto, key=None):
     """Texto -> dict con los campos del intercambio. Campos vacíos si no se dicen."""
     import anthropic
     key = key or os.environ.get('ANTHROPIC_API_KEY', '')
-    vacio = {'tipo': '', 'entidad': '', 'producto': '', 'cantidad': None, 'notas': ''}
+    vacio = {'accion': 'crear', 'tipo': '', 'entidad': '', 'producto': '', 'cantidad': None, 'notas': ''}
     if not key or not texto:
         return vacio
     try:
@@ -77,6 +85,7 @@ def interpretar(texto, key=None):
         data = json.loads(t)
         # Normalizar / validar
         out = dict(vacio)
+        out['accion'] = data.get('accion') if data.get('accion') in ('crear', 'devolver', 'corregir', 'borrar') else 'crear'
         if data.get('tipo') in ('prestamos_a', 'nos_prestaron'):
             out['tipo'] = data['tipo']
         out['entidad']  = str(data.get('entidad') or '').strip()
@@ -93,6 +102,68 @@ def interpretar(texto, key=None):
         return vacio
 
 
+def _norm(s):
+    import unicodedata
+    if not s:
+        return ''
+    t = unicodedata.normalize('NFKD', str(s))
+    t = ''.join(c for c in t if not unicodedata.combining(c))
+    return t.lower()
+
+
+def _tokens(s):
+    return [w for w in re.split(r'\W+', _norm(s)) if len(w) >= 3]
+
+
+def buscar_candidatos(sb, entidad, producto, solo_activos=False, limite=5):
+    """Busca en prestamos_externos los registros que mejor matchean con la
+    entidad y el producto dictados. Devuelve una lista ordenada por relevancia,
+    cada uno con 'pendiente' (cantidad - devoluciones). Para 'devolver' conviene
+    solo_activos=True (los que todavía tienen algo por devolver)."""
+    rows = sb.table('prestamos_externos').select('*').order('creado_en', desc=True).limit(200).execute().data or []
+    if not rows:
+        return []
+    # Devoluciones para calcular lo pendiente
+    ids = [r['id'] for r in rows]
+    devs = sb.table('intercambios_devoluciones').select('intercambio_id,cantidad').in_('intercambio_id', ids).execute().data or []
+    dev_por_id = {}
+    for d in devs:
+        dev_por_id[d['intercambio_id']] = dev_por_id.get(d['intercambio_id'], 0) + float(d['cantidad'] or 0)
+
+    te, tp = set(_tokens(entidad)), set(_tokens(producto))
+    scored = []
+    for r in rows:
+        se, sp = set(_tokens(r.get('entidad'))), set(_tokens(r.get('producto')))
+        # Puntaje: coincidencia de entidad pesa más que producto
+        score = 2 * len(te & se) + len(tp & sp)
+        # Si dijo entidad pero no matchea NADA de la entidad, descartar
+        if te and not (te & se):
+            continue
+        if score == 0:
+            continue
+        total = float(r.get('cantidad') or 0)
+        pend = total - dev_por_id.get(r['id'], 0)
+        if solo_activos and pend <= 0.001:
+            continue
+        scored.append((score, r, pend))
+    scored.sort(key=lambda x: x[0], reverse=True)
+
+    out = []
+    for score, r, pend in scored[:limite]:
+        out.append({
+            'id':        r['id'],
+            'tipo':      r.get('tipo'),
+            'entidad':   r.get('entidad'),
+            'producto':  r.get('producto'),
+            'cantidad':  float(r.get('cantidad') or 0),
+            'pendiente': pend,
+            'estado':    r.get('estado'),
+            'fecha':     r.get('fecha') or '',
+            'notas':     r.get('notas') or '',
+        })
+    return out
+
+
 if __name__ == '__main__':
     from dotenv import load_dotenv
     from pathlib import Path
@@ -100,8 +171,10 @@ if __name__ == '__main__':
     ejemplos = [
         'le presté diez cajas de amoxicilina a la farmacia San Martín',
         'nos prestaron 5 ampollas de dexametasona de la farmacia del centro',
-        'le dimos veinte comprimidos de ibuprofeno a Farmacia Nueva España',
-        'devolvimos las 3 cajas de amoxidal que nos había prestado San Bernardo',
+        'San Bernardo me devolvió 3 cajas de amoxidal',
+        'corregí el préstamo de amoxicilina a San Martín, eran quince cajas no diez',
+        'borrá el préstamo a la farmacia Nueva España',
+        'devolvimos las 2 cajas de ibuprofeno que le habíamos prestado a San Roque',
     ]
     for e in ejemplos:
         print(f'\n> {e}')

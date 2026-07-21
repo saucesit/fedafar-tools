@@ -2165,7 +2165,7 @@ def api_intercambios_voz():
     if not audio:
         return jsonify({'error': 'No llegó el audio'}), 400
     try:
-        from voz_intercambios import transcribir, interpretar
+        from voz_intercambios import transcribir, interpretar, buscar_candidatos
         audio_bytes = audio.read()
         if not audio_bytes:
             return jsonify({'error': 'Audio vacío'}), 400
@@ -2173,10 +2173,42 @@ def api_intercambios_voz():
         if not texto:
             return jsonify({'error': 'No se entendió el audio, probá de nuevo'}), 422
         campos = interpretar(texto)
-        return jsonify({'ok': True, 'texto': texto, 'campos': campos})
+        accion = campos.get('accion', 'crear')
+        resp = {'ok': True, 'texto': texto, 'accion': accion, 'campos': campos}
+        # Para devolver/corregir/borrar hay que ubicar el registro existente
+        if accion in ('devolver', 'corregir', 'borrar'):
+            resp['candidatos'] = buscar_candidatos(
+                get_sb(), campos.get('entidad', ''), campos.get('producto', ''),
+                solo_activos=(accion == 'devolver'))
+        return jsonify(resp)
     except Exception as e:
         print(f"[ERROR intercambios voz] {e}")
         return jsonify({'error': 'No se pudo procesar el audio'}), 500
+
+@app.route('/api/intercambios/<id>', methods=['PATCH'])
+@_jefe_o_admin_required
+def api_intercambios_editar(id):
+    """Corrige campos de un intercambio (errores de carga)."""
+    data = request.get_json() or {}
+    update = {}
+    if 'tipo' in data and data['tipo'] in ('prestamos_a', 'nos_prestaron'):
+        update['tipo'] = data['tipo']
+    for campo in ('entidad', 'producto', 'notas'):
+        if campo in data:
+            update[campo] = (data[campo] or '').strip() or None
+    if 'cantidad' in data:
+        try:
+            update['cantidad'] = float(data['cantidad'])
+        except (ValueError, TypeError):
+            return jsonify({'error': 'Cantidad inválida'}), 400
+    if not update:
+        return jsonify({'error': 'Sin cambios'}), 400
+    try:
+        sb = get_sb()
+        sb.table('prestamos_externos').update(update).eq('id', id).execute()
+        return jsonify({'ok': True})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
 
 @app.route('/api/intercambios/<id>/devolucion', methods=['POST'])
 @_jefe_o_admin_required
@@ -2233,10 +2265,12 @@ def api_intercambios_devolucion(id):
         return jsonify({'error': str(e)}), 500
 
 @app.route('/api/intercambios/<id>', methods=['DELETE'])
-@admin_required
+@_jefe_o_admin_required
 def api_intercambios_borrar(id):
     try:
         sb = get_sb()
+        # Borrar primero las devoluciones asociadas (integridad)
+        sb.table('intercambios_devoluciones').delete().eq('intercambio_id', id).execute()
         sb.table('prestamos_externos').delete().eq('id', id).execute()
         return jsonify({'ok': True})
     except Exception as e:
