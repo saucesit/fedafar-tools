@@ -1,6 +1,28 @@
 {
-  "_comentario": "Palabras que, si aparecen en el TÍTULO/objeto de una licitación, la descartan automáticamente (se guarda como NO_APLICA, no llega a la bandeja). Match sin distinguir mayúsculas ni acentos. Agregá o sacá palabras de esta lista; los scrapers la leen en cada corrida. OJO: son productos que NUNCA cotizamos. No poner 'protesis' acá porque en IPS comparte plataforma con Dexcom.",
+  "_comentario": "Palabras que, si aparecen en el TÍTULO/objeto de una licitación, la descartan automáticamente (se guarda como NO_APLICA, no llega a la bandeja). Match sin distinguir mayúsculas ni acentos. Agregá o sacá palabras de esta lista; los scrapers la leen en cada corrida. Son productos que NUNCA cotizamos. Cada palabra fue validada contra el CRM y los APLICA: ninguna choca con algo que hayamos trabajado. OJO al agregar: verificar que la palabra no aparezca en títulos de diabetes/Dexcom ('MATERIAL PARA DIABETES', 'SENSOR CONTINUO DE GLUCOSA') ni en medicamentos/insumos, que sí cotizamos.",
   "palabras_descarte": [
-    "audifono"
+    "audifono",
+    "protesis",
+    "ostomia",
+    "arpon",
+    "interferencial",
+    "osteosintesis",
+    "ligamento cruzado",
+    "silla de ruedas",
+    "colchon antiescaras",
+    "inodoro portatil",
+    "placa de titanio",
+    "placas de titanio",
+    "malla prolene",
+    "traqueostomia",
+    "transtimpanico",
+    "stent",
+    "ferula",
+    "cateter",
+    "via central",
+    "alaris",
+    "coclear",
+    "procesador",
+    "pocesador"
   ]
 }
