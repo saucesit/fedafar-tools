@@ -1409,6 +1409,48 @@ def api_docs_recibos_confirmar():
         print(f"[ERROR recibos confirmar] {e}")
         return jsonify({'error': 'No se pudo publicar el reparto'}), 500
 
+@app.route('/api/docs/recibos/export', methods=['GET'])
+@login_required
+def api_docs_recibos_export():
+    """Genera un PDF consolidado con todos los recibos de un período y la firma
+    de cada empleado estampada. Solo jefe/admin, y solo si TODOS firmaron."""
+    if current_user.tipo_precio not in ('jefe', 'admin'):
+        return jsonify({'error': 'No autorizado'}), 403
+    periodo = (request.args.get('periodo') or '').strip()
+    if not periodo:
+        return jsonify({'error': 'Falta el período'}), 400
+    try:
+        sb   = get_sb()
+        docs = sb.table('documentos_empleados').select('*') \
+                 .eq('tipo', 'recibo_sueldo').eq('periodo', periodo).execute().data or []
+        if not docs:
+            return jsonify({'error': 'No hay recibos de ese período'}), 404
+        pendientes = [d for d in docs if d.get('estado') != 'firmado']
+        if pendientes:
+            return jsonify({'error': f'Faltan {len(pendientes)} firmas. El export se habilita cuando firmaron todos.'}), 409
+
+        # Nombre por empleado para ordenar y rotular
+        nombres = {c['id']: c['nombre'] for c in
+                   (sb.table('clientes').select('id,nombre').execute().data or [])}
+        docs.sort(key=lambda d: nombres.get(d['empleado_id'], ''))
+
+        from recibos_export import estampar, combinar
+        hojas = []
+        for d in docs:
+            recibo = sb.storage.from_('documentos').download(d['storage_path'])
+            fecha  = (d.get('firma_timestamp') or '')[:16].replace('T', ' ')
+            nombre = d.get('firma_nombre') or nombres.get(d['empleado_id'], '')
+            hojas.append(estampar(recibo, d.get('firma_data', ''), nombre, fecha, d.get('firma_ip', '')))
+
+        pdf_bytes = combinar(hojas)
+        from flask import Response
+        fname = f"recibos_firmados_{periodo.replace('/', '-')}.pdf"
+        return Response(pdf_bytes, mimetype='application/pdf',
+                        headers={'Content-Disposition': f'attachment; filename="{fname}"'})
+    except Exception as e:
+        print(f"[ERROR recibos export] {e}")
+        return jsonify({'error': 'No se pudo generar el PDF'}), 500
+
 @app.route('/api/docs/firmar/<doc_id>', methods=['POST'])
 @login_required
 def api_docs_firmar(doc_id):

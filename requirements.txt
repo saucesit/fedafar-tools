@@ -11,6 +11,7 @@ python-dotenv
 python-docx
 pdfplumber
 pypdf
+Pillow
 supabase
 fpdf2
 anthropic

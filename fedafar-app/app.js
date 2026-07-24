@@ -1435,9 +1435,13 @@ function renderRecibos(docs) {
         // En vista de control (jefe/admin): contador de firmados
         if (esAdmin) {
             const firmados = lista.filter(d => d.estado === 'firmado').length;
-            const color = firmados === lista.length ? '#16a34a' : '#d97706';
+            const todos    = firmados === lista.length;
+            const color    = todos ? '#16a34a' : '#d97706';
+            const exportBtn = todos
+                ? ` · <span onclick="exportarRecibos('${periodo}')" style="cursor:pointer;text-decoration:underline;color:#1d4ed8;">⬇️ Exportar PDF firmado</span>`
+                : '';
             html += `<div class="doc-grupo-titulo">${periodo}
-                <span style="float:right;font-weight:700;color:${color};">Firmados ${firmados}/${lista.length}</span></div>`;
+                <span style="float:right;font-weight:700;color:${color};">Firmados ${firmados}/${lista.length}${exportBtn}</span></div>`;
         } else {
             html += `<div class="doc-grupo-titulo">${periodo}</div>`;
         }
@@ -1470,6 +1474,27 @@ function renderRecibos(docs) {
         });
     });
     return html;
+}
+
+// Exporta el PDF consolidado del período (todos los recibos + firmas)
+async function exportarRecibos(periodo) {
+    try {
+        const res = await fetch(`${BASE_URL}/api/docs/recibos/export?periodo=${encodeURIComponent(periodo)}`, { credentials: 'include' });
+        if (!res.ok) {
+            const d = await res.json().catch(() => ({}));
+            alert('Error: ' + (d.error || `HTTP ${res.status}`));
+            return;
+        }
+        const blob = await res.blob();
+        const url  = URL.createObjectURL(blob);
+        const a    = document.createElement('a');
+        a.href = url;
+        a.download = `recibos_firmados_${periodo.replace(/\//g, '-')}.pdf`;
+        document.body.appendChild(a); a.click(); document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+    } catch (e) {
+        alert('Error al exportar el PDF');
+    }
 }
 
 // Filtra las tarjetas de recibos por nombre/período/estado (buscador del control)
