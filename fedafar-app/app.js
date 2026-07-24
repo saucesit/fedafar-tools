@@ -1424,6 +1424,13 @@ function renderRecibos(docs) {
     });
 
     let html = '';
+    // Buscador (solo en vista de control): filtra por nombre de empleado o período
+    if (esAdmin) {
+        html += `<div style="position:sticky;top:0;background:#fff;z-index:2;padding:8px 12px 10px;">
+            <input id="recibos-buscar" oninput="filtrarRecibos(this.value)" placeholder="🔍 Buscar empleado o período..."
+                style="width:100%;padding:9px 11px;border:1px solid var(--border);border-radius:8px;font-size:.85rem;box-sizing:border-box;">
+        </div>`;
+    }
     Object.entries(grupos).forEach(([periodo, lista]) => {
         // En vista de control (jefe/admin): contador de firmados
         if (esAdmin) {
@@ -1441,8 +1448,9 @@ function renderRecibos(docs) {
             const esMio     = String(doc.empleado_id) === String(miId);
             // Título: en control mostramos el NOMBRE del empleado; si no, el archivo
             const titulo = esAdmin ? (doc.empleado_nombre || doc.nombre_archivo) : doc.nombre_archivo;
+            const busca = `${titulo} ${periodo} ${esFirmado ? 'firmado' : 'pendiente'}`.toLowerCase();
             html += `
-                <div class="doc-card">
+                <div class="doc-card" data-search="${busca.replace(/"/g, '')}">
                     <div class="doc-info">
                         <strong class="doc-nombre">${titulo}</strong>
                         ${esFirmado
@@ -1462,6 +1470,26 @@ function renderRecibos(docs) {
         });
     });
     return html;
+}
+
+// Filtra las tarjetas de recibos por nombre/período/estado (buscador del control)
+function filtrarRecibos(q) {
+    q = (q || '').toLowerCase().trim();
+    const panel = document.getElementById('docs-panel-recibos');
+    if (!panel) return;
+    panel.querySelectorAll('.doc-card').forEach(c => {
+        const t = c.getAttribute('data-search') || '';
+        c.style.display = (!q || t.includes(q)) ? '' : 'none';
+    });
+    // Ocultar el título de un período si no le quedó ninguna tarjeta visible
+    panel.querySelectorAll('.doc-grupo-titulo').forEach(h => {
+        let n = h.nextElementSibling, visible = false;
+        while (n && !n.classList.contains('doc-grupo-titulo')) {
+            if (n.classList.contains('doc-card') && n.style.display !== 'none') { visible = true; break; }
+            n = n.nextElementSibling;
+        }
+        h.style.display = (visible || !q) ? '' : 'none';
+    });
 }
 
 function renderDocumentacion(docs) {
