@@ -1198,13 +1198,20 @@ def api_get_docs():
                   .order('created_at', desc=True)
             if emp_id:
                 q = q.eq('empleado_id', emp_id)
+            docs = q.execute().data or []
+            # Adjuntar el nombre del empleado (para el panel de control del jefe)
+            nombres = {c['id']: c['nombre'] for c in
+                       (sb.table('clientes').select('id,nombre').execute().data or [])}
+            for d in docs:
+                d['empleado_nombre'] = nombres.get(d['empleado_id'], '(sin nombre)')
+            return jsonify(docs)
         else:
             q = sb.table('documentos_empleados') \
                   .select('id,tipo,nombre_archivo,periodo,estado,firma_timestamp,firma_nombre,created_at,empleado_id') \
                   .eq('empleado_id', current_user.id) \
                   .in_('tipo', tipos_filtro) \
                   .order('created_at', desc=True)
-        return jsonify(q.execute().data or [])
+            return jsonify(q.execute().data or [])
     except Exception as e:
         print(f"[ERROR] {e}")
         return jsonify({'error': 'Error interno del servidor'}), 500

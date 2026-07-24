@@ -1413,7 +1413,8 @@ async function loadDocs(categoria) {
 }
 
 function renderRecibos(docs) {
-    const miId = currentUser?.id;
+    const miId    = currentUser?.id;
+    const esAdmin = ['jefe', 'admin'].includes(currentUser?.tipo_precio);
     // Agrupar por período
     const grupos = {};
     docs.forEach(doc => {
@@ -1424,14 +1425,26 @@ function renderRecibos(docs) {
 
     let html = '';
     Object.entries(grupos).forEach(([periodo, lista]) => {
-        html += `<div class="doc-grupo-titulo">${periodo}</div>`;
+        // En vista de control (jefe/admin): contador de firmados
+        if (esAdmin) {
+            const firmados = lista.filter(d => d.estado === 'firmado').length;
+            const color = firmados === lista.length ? '#16a34a' : '#d97706';
+            html += `<div class="doc-grupo-titulo">${periodo}
+                <span style="float:right;font-weight:700;color:${color};">Firmados ${firmados}/${lista.length}</span></div>`;
+        } else {
+            html += `<div class="doc-grupo-titulo">${periodo}</div>`;
+        }
+        // En control, ordenar: primero los pendientes de firma
+        if (esAdmin) lista.sort((a, b) => (a.estado === 'firmado') - (b.estado === 'firmado'));
         lista.forEach(doc => {
             const esFirmado = doc.estado === 'firmado';
             const esMio     = String(doc.empleado_id) === String(miId);
+            // Título: en control mostramos el NOMBRE del empleado; si no, el archivo
+            const titulo = esAdmin ? (doc.empleado_nombre || doc.nombre_archivo) : doc.nombre_archivo;
             html += `
                 <div class="doc-card">
                     <div class="doc-info">
-                        <strong class="doc-nombre">${doc.nombre_archivo}</strong>
+                        <strong class="doc-nombre">${titulo}</strong>
                         ${esFirmado
                             ? `<span class="doc-estado estado-firmado">✅ Firmado el ${doc.firma_timestamp?.substring(0,10)} — ${doc.firma_nombre}</span>`
                             : `<span class="doc-estado estado-pendiente">⏳ Pendiente de firma</span>`}
@@ -1704,7 +1717,7 @@ async function submitFirma() {
             mostrarDocMsg(firmaMsgEl, '✅ ¡Documento firmado exitosamente!', 'ok');
             setTimeout(async () => {
                 firmaModal.classList.add('hidden');
-                await loadDocs();
+                await loadDocs(activeDocsTab);   // recargar la pestaña actual (recibos/documentacion)
             }, 2000);
         } else {
             mostrarDocMsg(firmaMsgEl, 'Error: ' + (data.error || 'desconocido'), 'error');
