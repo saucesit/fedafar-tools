@@ -1602,7 +1602,7 @@ function _recRenderPreview(data) {
 
     const puedePublicar = (r.asignados || 0) > 0;
     _recPreview.innerHTML = `
-        <div style="background:#f9fafb;border:1px solid var(--border);border-radius:10px;overflow:hidden;">
+        <div style="background:#f9fafb;border:1px solid var(--border);border-radius:10px;overflow-y:auto;-webkit-overflow-scrolling:touch;max-height:40vh;">
             ${filas}
         </div>
         <p style="font-size:.8rem;color:var(--text-muted);margin:8px 0;">
