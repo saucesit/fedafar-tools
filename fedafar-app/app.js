@@ -1552,6 +1552,95 @@ function mostrarDocMsg(el, texto, tipo) {
     el.classList.remove('hidden');
 }
 
+// ── Reparto de recibos por lote (un PDF con todos) ──────────────────────────
+let _recibosFile = null;
+
+const _recFileInput = document.getElementById('recibos-file-input');
+const _recFileName  = document.getElementById('recibos-file-name');
+const _recAnalizar  = document.getElementById('recibos-analizar-btn');
+const _recPreview   = document.getElementById('recibos-preview');
+const _recMsg       = document.getElementById('recibos-msg');
+
+if (_recFileInput) _recFileInput.addEventListener('change', () => {
+    _recibosFile = _recFileInput.files[0] || null;
+    _recFileName.textContent = _recibosFile ? _recibosFile.name : 'Ningún archivo seleccionado';
+    _recPreview.innerHTML = '';
+    _recMsg.classList.add('hidden');
+});
+
+if (_recAnalizar) _recAnalizar.addEventListener('click', async () => {
+    if (!_recibosFile) { mostrarDocMsg(_recMsg, 'Seleccioná el PDF de recibos', 'error'); return; }
+    _recMsg.classList.add('hidden');
+    _recAnalizar.disabled = true; _recAnalizar.textContent = 'Analizando...';
+    try {
+        const fd = new FormData(); fd.append('archivo', _recibosFile);
+        const res = await fetch(`${BASE_URL}/api/docs/recibos/preview`, { method: 'POST', credentials: 'include', body: fd });
+        const data = await res.json();
+        if (res.ok && data.ok) _recRenderPreview(data);
+        else mostrarDocMsg(_recMsg, 'Error: ' + (data.error || 'no se pudo analizar'), 'error');
+    } catch (e) {
+        mostrarDocMsg(_recMsg, 'Error al conectar con el servidor', 'error');
+    } finally {
+        _recAnalizar.disabled = false; _recAnalizar.textContent = 'Analizar reparto';
+    }
+});
+
+function _recRenderPreview(data) {
+    const r = data.resumen || {};
+    const filas = (data.plan || []).map(p => {
+        let estado, color;
+        if (!p.username)       { estado = '⏸️ Sin cuenta (no se publica)'; color = '#9ca3af'; }
+        else if (p.ya_existe)  { estado = '↩️ Ya cargado este período (se omite)'; color = '#d97706'; }
+        else if (p.empleado_id){ estado = '✅ → ' + p.empleado_nombre; color = '#16a34a'; }
+        else                   { estado = '⚠️ ' + (p.error || 'no identificado'); color = '#dc2626'; }
+        const nom = p.nombre_recibo || '(sin nombre)';
+        return `<div style="display:flex;justify-content:space-between;gap:8px;padding:6px 8px;border-bottom:1px solid var(--border);font-size:.8rem;">
+            <span>${nom}<br><span style="color:#9ca3af;font-size:.72rem;">CUIL ${p.cuil || '—'} · ${p.periodo || ''}</span></span>
+            <span style="color:${color};font-weight:600;text-align:right;white-space:nowrap;">${estado}</span>
+        </div>`;
+    }).join('');
+
+    const puedePublicar = (r.asignados || 0) > 0;
+    _recPreview.innerHTML = `
+        <div style="background:#f9fafb;border:1px solid var(--border);border-radius:10px;overflow:hidden;">
+            ${filas}
+        </div>
+        <p style="font-size:.8rem;color:var(--text-muted);margin:8px 0;">
+            <b>${r.asignados || 0}</b> se publicarán · ${r.sin_cuenta || 0} sin cuenta · ${r.ya_existian || 0} ya estaban
+        </p>
+        ${puedePublicar
+            ? `<button id="recibos-confirmar-btn" class="primary-btn">✅ Confirmar y publicar (${r.asignados})</button>`
+            : `<p style="font-size:.82rem;color:#dc2626;">No hay recibos nuevos para publicar.</p>`}
+    `;
+    const btn = document.getElementById('recibos-confirmar-btn');
+    if (btn) btn.addEventListener('click', _recConfirmar);
+}
+
+async function _recConfirmar() {
+    if (!_recibosFile) return;
+    const btn = document.getElementById('recibos-confirmar-btn');
+    if (!confirm('¿Publicar los recibos? Cada empleado con cuenta va a ver el suyo para firmarlo.')) return;
+    if (btn) { btn.disabled = true; btn.textContent = 'Publicando...'; }
+    try {
+        const fd = new FormData(); fd.append('archivo', _recibosFile);
+        const res = await fetch(`${BASE_URL}/api/docs/recibos/confirmar`, { method: 'POST', credentials: 'include', body: fd });
+        const data = await res.json();
+        if (res.ok && data.ok) {
+            _recPreview.innerHTML = '';
+            _recibosFile = null;
+            _recFileInput.value = '';
+            _recFileName.textContent = 'Ningún archivo seleccionado';
+            mostrarDocMsg(_recMsg, `✅ Publicados: ${data.publicados}. Omitidos sin cuenta: ${data.sin_cuenta}. Ya estaban: ${data.ya_existian}.`, 'ok');
+        } else {
+            mostrarDocMsg(_recMsg, 'Error: ' + (data.error || 'no se pudo publicar'), 'error');
+            if (btn) { btn.disabled = false; btn.textContent = '✅ Confirmar y publicar'; }
+        }
+    } catch (e) {
+        mostrarDocMsg(_recMsg, 'Error al conectar con el servidor', 'error');
+        if (btn) { btn.disabled = false; btn.textContent = '✅ Confirmar y publicar'; }
+    }
+}
+
 // ── Firma Digital ──────────────────────────────────────────────────────────────
 
 let signaturePad  = null;

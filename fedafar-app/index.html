@@ -289,6 +289,18 @@
 
             <!-- Tab: Subir (jefe / admin) -->
             <div id="docs-panel-subir" class="docs-panel hidden docs-upload-form">
+                <h3 class="docs-section-title">🧾 Repartir recibos (un solo PDF)</h3>
+                <p style="font-size:.78rem;color:var(--text-muted);margin:0 0 8px;">Subí el PDF con todos los recibos. El sistema lo divide y asigna cada uno por CUIL. Vas a poder revisar el reparto antes de publicar.</p>
+                <label class="docs-file-label">
+                    <i data-lucide="upload"></i> Seleccionar PDF de recibos
+                    <input type="file" id="recibos-file-input" accept=".pdf" class="hidden">
+                </label>
+                <span id="recibos-file-name" class="docs-file-name">Ningún archivo seleccionado</span>
+                <button id="recibos-analizar-btn" class="primary-btn" style="margin-top:4px;">Analizar reparto</button>
+                <div id="recibos-preview" style="margin-top:10px;"></div>
+                <p id="recibos-msg" class="docs-msg hidden"></p>
+                <hr style="margin:18px 0;border:none;border-top:1px solid var(--border);">
+
                 <h3 class="docs-section-title">📤 Subir Documento</h3>
                 <select id="docs-empleado-sel" class="docs-input">
                     <option value="">Seleccioná un empleado...</option>
@@ -449,7 +461,7 @@
         </div>
     </div>
 
-    <script src="app.js?v=20260721"></script>
+    <script src="app.js?v=20260721b"></script>
 
     <!-- ── Registro del Service Worker (PWA) ──────────────────── -->
     <script>

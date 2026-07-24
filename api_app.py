@@ -1286,6 +1286,122 @@ def api_docs_subir():
         print(f"[ERROR] {e}")
         return jsonify({'error': 'Error interno del servidor'}), 500
 
+def _cuentas_internas_por_username(sb):
+    """{username: cuenta} de los empleados internos activos."""
+    emp = sb.table('clientes').select('id,nombre,username,tipo_precio') \
+            .in_('tipo_precio', ['empleado', 'jefe', 'admin', 'farmaceutico', 'jefe_deposito']) \
+            .eq('activo', True).execute().data or []
+    return {e['username']: e for e in emp}
+
+def _plan_reparto_recibos(sb, pdf_bytes):
+    """Analiza el PDF y resuelve cada hoja a su cuenta (por CUIL). Devuelve la
+    lista enriquecida con empleado_id/empleado_nombre y si ya existe ese período."""
+    from recibos_split import analizar
+    plan = analizar(pdf_bytes)
+    cuentas = _cuentas_internas_por_username(sb)
+    for r in plan:
+        acc = cuentas.get(r.get('username')) if r.get('username') else None
+        r['empleado_id']     = acc['id'] if acc else None
+        r['empleado_nombre'] = acc['nombre'] if acc else None
+        r['ya_existe']       = False
+        if acc and r.get('periodo'):
+            ex = sb.table('documentos_empleados').select('id') \
+                   .eq('empleado_id', acc['id']).eq('tipo', 'recibo_sueldo') \
+                   .eq('periodo', r['periodo']).execute().data or []
+            r['ya_existe'] = bool(ex)
+    return plan
+
+@app.route('/api/docs/recibos/preview', methods=['POST'])
+@login_required
+def api_docs_recibos_preview():
+    """Jefe sube el PDF con todos los recibos. Devuelve el PLAN de reparto para
+    revisar. NO publica nada: solo muestra a quién iría cada recibo."""
+    if current_user.tipo_precio not in ('jefe', 'admin'):
+        return jsonify({'error': 'No autorizado'}), 403
+    archivo = request.files.get('archivo')
+    if not archivo:
+        return jsonify({'error': 'Falta el archivo'}), 400
+    nombre = secure_filename(archivo.filename or '')
+    if not nombre.lower().endswith('.pdf'):
+        return jsonify({'error': 'Solo se permiten archivos PDF'}), 400
+    try:
+        sb   = get_sb()
+        plan = _plan_reparto_recibos(sb, archivo.read())
+        asignados = [r for r in plan if r.get('empleado_id') and not r.get('ya_existe')]
+        return jsonify({
+            'ok': True,
+            'plan': plan,
+            'resumen': {
+                'total':        len(plan),
+                'asignados':    len(asignados),
+                'sin_cuenta':   len([r for r in plan if not r.get('username')]),
+                'ya_existian':  len([r for r in plan if r.get('ya_existe')]),
+            },
+        })
+    except Exception as e:
+        print(f"[ERROR recibos preview] {e}")
+        return jsonify({'error': 'No se pudo analizar el PDF'}), 500
+
+@app.route('/api/docs/recibos/confirmar', methods=['POST'])
+@login_required
+def api_docs_recibos_confirmar():
+    """Publica el reparto: parte el PDF y sube el recibo de cada empleado con
+    cuenta a su cuenta (estado 'pendiente', listo para firmar). Omite los que no
+    tienen cuenta y los que ya tenían ese período cargado."""
+    if current_user.tipo_precio not in ('jefe', 'admin'):
+        return jsonify({'error': 'No autorizado'}), 403
+    archivo = request.files.get('archivo')
+    if not archivo:
+        return jsonify({'error': 'Falta el archivo'}), 400
+    nombre = secure_filename(archivo.filename or '')
+    if not nombre.lower().endswith('.pdf'):
+        return jsonify({'error': 'Solo se permiten archivos PDF'}), 400
+    try:
+        from recibos_split import partir_pagina
+        pdf_bytes = archivo.read()
+        sb   = get_sb()
+        plan = _plan_reparto_recibos(sb, pdf_bytes)
+        publicados, omitidos, ya_existian = 0, 0, 0
+        for r in plan:
+            if not r.get('empleado_id'):
+                omitidos += 1
+                continue
+            if r.get('ya_existe'):
+                ya_existian += 1
+                continue
+            emp_id  = r['empleado_id']
+            periodo = r.get('periodo') or ''
+            safe_p  = periodo.replace('/', '-')
+            hoja    = partir_pagina(pdf_bytes, r['page_index'])
+            fname   = f'recibo_{safe_p}.pdf'
+            spath   = f'{emp_id}/recibo_sueldo/{fname}'
+            try:
+                sb.storage.from_('documentos').upload(
+                    path=spath, file=hoja,
+                    file_options={'content-type': 'application/pdf', 'upsert': 'true'})
+            except Exception as se:
+                if 'already exists' in str(se).lower() or '409' in str(se):
+                    sb.storage.from_('documentos').update(
+                        path=spath, file=hoja,
+                        file_options={'content-type': 'application/pdf'})
+                else:
+                    raise
+            sb.table('documentos_empleados').insert({
+                'empleado_id':    emp_id,
+                'tipo':           'recibo_sueldo',
+                'nombre_archivo': fname,
+                'periodo':        periodo or None,
+                'storage_path':   spath,
+                'estado':         'pendiente',
+                'subido_por':     current_user.id,
+            }).execute()
+            publicados += 1
+        return jsonify({'ok': True, 'publicados': publicados,
+                        'sin_cuenta': omitidos, 'ya_existian': ya_existian})
+    except Exception as e:
+        print(f"[ERROR recibos confirmar] {e}")
+        return jsonify({'error': 'No se pudo publicar el reparto'}), 500
+
 @app.route('/api/docs/firmar/<doc_id>', methods=['POST'])
 @login_required
 def api_docs_firmar(doc_id):

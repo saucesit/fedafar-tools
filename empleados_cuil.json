@@ -1,0 +1,12 @@
+{
+  "_comentario": "Mapa CUIL -> username de la cuenta en la app. Es la LLAVE del reparto de recibos: cada hoja del PDF se asigna al empleado por su CUIL (número único), nunca por nombre. Confirmado por Facundo (jul 2026). Para sumar un empleado nuevo: crear su cuenta en la app y agregar acá su CUIL -> username. Los CUIL que no estén en esta lista quedan SIN ASOCIAR (no se publican).",
+  "cuil_a_username": {
+    "20-26289423-2": "Miguel",
+    "20-22188183-5": "Pablo",
+    "20-25993860-1": "Fedeq",
+    "20-32347437-1": "Fede",
+    "20-32805722-1": "Pocha",
+    "20-28441140-5": "Lujan",
+    "20-35477501-9": "Facu"
+  }
+}
