@@ -8,5 +8,15 @@
     "20-32805722-1": "Pocha",
     "20-28441140-5": "Lujan",
     "20-35477501-9": "Facu"
+  },
+  "_comentario_legajo": "Respaldo por si un formato de recibo no trae el CUIL. El legajo es el número interno único del empleado (mismo en todos los recibos). Se matchea por CUIL primero y, si no hay, por legajo.",
+  "legajo_a_username": {
+    "1": "Miguel",
+    "3": "Pablo",
+    "5": "Fedeq",
+    "10": "Fede",
+    "11": "Pocha",
+    "12": "Lujan",
+    "14": "Facu"
   }
 }
