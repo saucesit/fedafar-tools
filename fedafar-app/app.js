@@ -201,6 +201,14 @@ function showApp() {
         faltantesBtn.classList.add('hidden');
     }
 
+    // Cámara de frío: roles internos
+    const camaraBtn = document.getElementById('camara-btn');
+    if (camaraBtn) {
+        const interno = ['empleado', 'jefe', 'jefe_deposito', 'farmaceutico', 'admin'].includes(tipo);
+        camaraBtn.classList.toggle('hidden', !interno);
+        if (interno) actualizarBadgeCamara();
+    }
+
     fetchProducts();
     lucide.createIcons();
 }
@@ -208,6 +216,80 @@ function showApp() {
 loginBtn.addEventListener('click', doLogin);
 loginPasswordEl.addEventListener('keydown', e => { if (e.key === 'Enter') doLogin(); });
 loginUsernameEl.addEventListener('keydown', e => { if (e.key === 'Enter') loginPasswordEl.focus(); });
+
+// ── Cámara de frío ──────────────────────────────────────────────────────────
+const camaraModal = document.getElementById('camara-modal');
+const _camaraBtn  = document.getElementById('camara-btn');
+if (_camaraBtn) _camaraBtn.addEventListener('click', () => { camaraModal.classList.remove('hidden'); loadCamara(); });
+const _closeCam = document.getElementById('close-camara');
+if (_closeCam) _closeCam.addEventListener('click', () => camaraModal.classList.add('hidden'));
+const _backCam = document.getElementById('back-from-camara');
+if (_backCam) _backCam.addEventListener('click', () => camaraModal.classList.add('hidden'));
+const _refreshCam = document.getElementById('camara-refresh');
+if (_refreshCam) _refreshCam.addEventListener('click', loadCamara);
+
+function _setCamaraBadge(hayProblema) {
+    const b = document.getElementById('camara-badge');
+    if (b) b.classList.toggle('hidden', !hayProblema);
+}
+
+// Chequeo liviano al entrar: marca el ícono si hay equipos caídos o alertas
+async function actualizarBadgeCamara() {
+    try {
+        const res = await fetch(`${BASE_URL}/api/camara-frio`, { credentials: 'include' });
+        if (!res.ok) return;
+        const data = await res.json();
+        const caidos = (data.equipos || []).filter(e => !e.reportando).length;
+        _setCamaraBadge(caidos > 0 || (data.alertas || 0) > 0);
+    } catch (e) {}
+}
+
+async function loadCamara() {
+    const body = document.getElementById('camara-body');
+    body.innerHTML = '<p style="text-align:center;color:var(--text-muted);padding:16px;">Consultando sensores…</p>';
+    try {
+        const res  = await fetch(`${BASE_URL}/api/camara-frio`, { credentials: 'include' });
+        const data = await res.json();
+        if (!res.ok) { body.innerHTML = `<p style="text-align:center;color:#dc2626;padding:16px;">${data.error || 'Error al consultar'}</p>`; return; }
+        renderCamara(data);
+    } catch (e) {
+        body.innerHTML = '<p style="text-align:center;color:#dc2626;padding:16px;">No se pudo conectar con los sensores.</p>';
+    }
+}
+
+function renderCamara(data) {
+    const body = document.getElementById('camara-body');
+    const upd  = document.getElementById('camara-updated');
+    if (upd) upd.textContent = 'Actualizado: ' + new Date().toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' });
+
+    const caidos = (data.equipos || []).filter(e => !e.reportando).length;
+    _setCamaraBadge(caidos > 0 || (data.alertas || 0) > 0);
+
+    const html = (data.equipos || []).map(e => {
+        const off = !e.reportando;
+        const sensores = (e.sensores || []).filter(s => !s.sin_uso).map(s => {
+            let color = '#16a34a', bg = '#f0fdf4';
+            if (!s.reporta)      { color = '#9ca3af'; bg = '#f3f4f6'; }
+            else if (s.alerta)   { color = '#dc2626'; bg = '#fee2e2'; }
+            const t = (s.temp != null) ? `${s.temp}°C` : '—';
+            return `<div style="flex:1;min-width:88px;background:${bg};border-radius:8px;padding:8px 10px;text-align:center;">
+                <div style="font-size:.68rem;color:#6b7280;line-height:1.2;min-height:2.2em;">${s.nombre}</div>
+                <div style="font-size:1.2rem;font-weight:800;color:${color};">${t}</div>
+            </div>`;
+        }).join('');
+        const tag = off
+            ? '<span style="background:#fee2e2;color:#991b1b;font-size:.68rem;font-weight:700;padding:2px 8px;border-radius:10px;">⚠️ SIN DATOS</span>'
+            : '<span style="background:#d1fae5;color:#065f46;font-size:.68rem;font-weight:700;padding:2px 8px;border-radius:10px;">● En línea</span>';
+        return `<div style="border:1px solid ${off ? '#fca5a5' : '#e5e7eb'};border-radius:12px;padding:12px;margin-bottom:10px;">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;gap:8px;">
+                <strong style="font-size:.9rem;">${e.nombre || 'Equipo'}</strong>${tag}
+            </div>
+            <div style="display:flex;gap:6px;flex-wrap:wrap;">${sensores || '<span style="font-size:.78rem;color:#9ca3af;">Sin sensores en uso</span>'}</div>
+            ${off ? '<p style="font-size:.72rem;color:#991b1b;margin:8px 0 0;">No está reportando (¿apagado o sin WiFi?).</p>' : ''}
+        </div>`;
+    }).join('');
+    body.innerHTML = html || '<p style="text-align:center;color:#9ca3af;">Sin equipos.</p>';
+}
 
 async function doLogin() {
     const username = loginUsernameEl.value.trim();

@@ -1641,6 +1641,20 @@ def api_faltantes_delete(faltante_id):
         print(f"[ERROR] {e}")
         return jsonify({'error': 'Error interno del servidor'}), 500
 
+# ── Cámara de frío (ESPDesign) ─────────────────────────────────────────────────
+
+@app.route('/api/camara-frio', methods=['GET'])
+@login_required
+def api_camara_frio():
+    if not _es_empleado_interno():
+        return jsonify({'error': 'No autorizado'}), 403
+    try:
+        from espdesign import estado_actual
+        return jsonify(estado_actual())
+    except Exception as e:
+        print(f"[ERROR camara-frio] {e}")
+        return jsonify({'error': 'No se pudo consultar la cámara de frío'}), 502
+
 # ── Balance de Stock ───────────────────────────────────────────────────────────
 
 BALANCE_ROLES = ('empleado', 'jefe', 'jefe_deposito', 'admin')

@@ -77,6 +77,10 @@
                 <button id="balance-btn" class="icon-btn hidden" title="Balance de Stock">
                     <i data-lucide="scale"></i>
                 </button>
+                <button id="camara-btn" class="icon-btn hidden" title="Cámara de frío">
+                    <i data-lucide="thermometer-snowflake"></i>
+                    <span id="camara-badge" class="prestamos-badge hidden">!</span>
+                </button>
                 <button id="intercambios-btn" class="icon-btn hidden" title="Intercambios de mercadería">
                     <i data-lucide="arrow-left-right"></i>
                     <span id="intercambios-count" class="prestamos-badge hidden">0</span>
@@ -258,6 +262,26 @@
                 <textarea id="pago-nota-input" class="docs-input prestamo-textarea" placeholder="Nota (opcional)..." rows="2"></textarea>
                 <button id="pago-submit-btn" class="primary-btn">Confirmar Pago</button>
                 <p id="pago-msg" class="docs-msg hidden"></p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal Cámara de frío ─────────────────────────────────────── -->
+    <div id="camara-modal" class="cart-modal hidden">
+        <div class="cart-content">
+            <div class="cart-header">
+                <h2>🌡️ Cámara de frío</h2>
+                <button id="close-camara" class="icon-btn"><i data-lucide="x"></i></button>
+            </div>
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+                <span id="camara-updated" style="font-size:.75rem;color:var(--text-muted);"></span>
+                <button id="camara-refresh" class="secondary-btn" style="font-size:.8rem;padding:5px 12px;">↻ Actualizar</button>
+            </div>
+            <div id="camara-body" class="cuenta-body">
+                <p style="text-align:center;color:var(--text-muted);">Cargando...</p>
+            </div>
+            <div class="cart-footer">
+                <button id="back-from-camara" class="secondary-btn" style="width:100%;">← Volver</button>
             </div>
         </div>
     </div>
@@ -461,7 +485,7 @@
         </div>
     </div>
 
-    <script src="app.js?v=20260721g"></script>
+    <script src="app.js?v=20260803"></script>
 
     <!-- ── Registro del Service Worker (PWA) ──────────────────── -->
     <script>
