@@ -1652,8 +1652,10 @@ def api_camara_frio():
         from espdesign import estado_actual
         return jsonify(estado_actual())
     except Exception as e:
-        print(f"[ERROR camara-frio] {e}")
-        return jsonify({'error': 'No se pudo consultar la cámara de frío'}), 502
+        import traceback; traceback.print_exc()
+        # Detalle visible para diagnosticar (endpoint solo interno)
+        return jsonify({'error': 'No se pudo consultar la cámara de frío',
+                        'detalle': f'{type(e).__name__}: {str(e)[:180]}'}), 502
 
 # ── Balance de Stock ───────────────────────────────────────────────────────────
 

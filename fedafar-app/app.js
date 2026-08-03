@@ -250,7 +250,10 @@ async function loadCamara() {
     try {
         const res  = await fetch(`${BASE_URL}/api/camara-frio`, { credentials: 'include' });
         const data = await res.json();
-        if (!res.ok) { body.innerHTML = `<p style="text-align:center;color:#dc2626;padding:16px;">${data.error || 'Error al consultar'}</p>`; return; }
+        if (!res.ok) {
+            body.innerHTML = `<p style="text-align:center;color:#dc2626;padding:16px;">${data.error || 'Error al consultar'}<br><span style="font-size:.7rem;color:#9ca3af;">${data.detalle || ''}</span></p>`;
+            return;
+        }
         renderCamara(data);
     } catch (e) {
         body.innerHTML = '<p style="text-align:center;color:#dc2626;padding:16px;">No se pudo conectar con los sensores.</p>';
