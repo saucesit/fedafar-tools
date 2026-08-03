@@ -86,6 +86,22 @@ def estado_actual():
     return {'equipos': equipos, 'alertas': len(rep.get('alertas', []) or [])}
 
 
+def machines():
+    """Lista de equipos (getMachines). Cada uno: {_id, uid, nombre, ...}."""
+    return _llamar('getMachines').get('data') or []
+
+
+def historico(desde_iso, hasta_iso, machine):
+    """Trae lecturas entre desde y hasta. OJO de la API de ESP: `machine` es
+    OBLIGATORIO (sin él tira 500) aunque NO filtra (devuelve todos los equipos),
+    y hay un tope de ~3000 filas por respuesta (las más recientes hasta `hasta`).
+    Por eso el backfill se hace paginando hacia atrás con `hasta`.
+    Cada fila: {id, fecha, dispositivo, nombre, sensor, valor}."""
+    d = _llamar('getHistoryData', {'filter': {'desde': desde_iso, 'hasta': hasta_iso,
+                                              'machine': machine}})
+    return d.get('data') or []
+
+
 if __name__ == '__main__':
     import sys
     if hasattr(sys.stdout, 'reconfigure'):

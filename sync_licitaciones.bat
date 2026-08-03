@@ -16,8 +16,11 @@ echo [3/5] Descargando pliegos SaltaCompra y extrayendo items... >> sync_licitac
 echo [4/5] Ingesta de licitaciones por email (15 remitentes)... >> sync_licitaciones_log.txt
 "C:\Users\FEDAFAR\AppData\Local\Programs\Python\Python312\python.exe" email_scraper.py >> sync_licitaciones_log.txt 2>&1
 
-echo [5/5] Limpieza de descartadas viejas (+15 dias)... >> sync_licitaciones_log.txt
+echo [5/6] Limpieza de descartadas viejas (+15 dias)... >> sync_licitaciones_log.txt
 "C:\Users\FEDAFAR\AppData\Local\Programs\Python\Python312\python.exe" limpiar_descartadas.py >> sync_licitaciones_log.txt 2>&1
+
+echo [6/6] Captura de temperaturas cadena de frio (ESPDesign)... >> sync_licitaciones_log.txt
+"C:\Users\FEDAFAR\AppData\Local\Programs\Python\Python312\python.exe" camara_captura.py >> sync_licitaciones_log.txt 2>&1
 
 echo === Fin licitaciones === >> sync_licitaciones_log.txt
 echo. >> sync_licitaciones_log.txt
