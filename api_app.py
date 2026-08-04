@@ -1664,7 +1664,8 @@ def _reporte_camara_filas(desde, hasta):
         'p_desde': f'{desde} 00:00:00',
         'p_hasta': f'{hasta} 23:59:59',
     }).execute()
-    return res.data or []
+    # Ocultar sensores sin uso (ej: "temp3 SIN USO")
+    return [f for f in (res.data or []) if 'SIN USO' not in (f.get('sensor_nombre') or '').upper()]
 
 @app.route('/api/camara-frio/reporte', methods=['GET'])
 @login_required
