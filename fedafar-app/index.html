@@ -19,6 +19,7 @@
     <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600&display=swap" rel="stylesheet">
     <script src="https://unpkg.com/lucide@latest"></script>
     <script src="https://cdn.jsdelivr.net/npm/signature_pad@4.1.5/dist/signature_pad.umd.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 </head>
 <body>
 
@@ -291,6 +292,16 @@
                 </div>
                 <div id="camara-rep-out" style="margin-top:8px;"></div>
             </div>
+            <div style="border-top:1px solid var(--border);padding-top:10px;margin-top:10px;">
+                <div style="font-size:.82rem;font-weight:700;color:var(--primary);margin-bottom:6px;">📈 Gráfico del día</div>
+                <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;">
+                    <label style="font-size:.72rem;color:var(--text-muted);">Día <input type="date" id="camara-graf-fecha" style="font-size:.8rem;padding:4px;border:1px solid var(--border);border-radius:6px;"></label>
+                    <button id="camara-graf-ver" class="secondary-btn" style="font-size:.78rem;padding:5px 10px;">Ver gráfico</button>
+                    <button id="camara-graf-img" class="primary-btn" style="font-size:.78rem;padding:5px 10px;">⬇️ Imagen</button>
+                </div>
+                <div style="margin-top:8px;height:240px;position:relative;"><canvas id="camara-graf-canvas"></canvas></div>
+                <div id="camara-graf-msg" style="font-size:.75rem;color:var(--text-muted);"></div>
+            </div>
             <div class="cart-footer">
                 <button id="back-from-camara" class="secondary-btn" style="width:100%;">← Volver</button>
             </div>
@@ -496,7 +507,7 @@
         </div>
     </div>
 
-    <script src="app.js?v=20260804b"></script>
+    <script src="app.js?v=20260804c"></script>
 
     <!-- ── Registro del Service Worker (PWA) ──────────────────── -->
     <script>

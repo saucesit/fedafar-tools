@@ -1719,6 +1719,40 @@ def _camara_rows_rango(desde, hasta):
         page += 1
     return rows
 
+@app.route('/api/camara-frio/grafico', methods=['GET'])
+@login_required
+def api_camara_grafico():
+    """Serie de temperaturas de un día, por sensor (misma info que el gráfico de
+    ESP): {series: {'Equipo / Sensor': [{x:'HH:MM', y:temp}, ...]}}."""
+    if not _es_empleado_interno():
+        return jsonify({'error': 'No autorizado'}), 403
+    fecha = (request.args.get('fecha') or '').strip()
+    if not fecha:
+        return jsonify({'error': 'Falta la fecha'}), 400
+    try:
+        sb = get_sb()
+        filas, page, PAGE = [], 0, 5000
+        while True:
+            res = sb.table('camara_lecturas').select('fecha,dispositivo,sensor_nombre,valor') \
+                    .gte('fecha', f'{fecha} 00:00:00').lte('fecha', f'{fecha} 23:59:59') \
+                    .order('fecha', desc=False).range(page * PAGE, page * PAGE + PAGE - 1).execute()
+            data = res.data or []
+            filas.extend(data)
+            if len(data) < PAGE or page >= 50:
+                break
+            page += 1
+        series = {}
+        for r in filas:
+            if r.get('valor') is None:
+                continue
+            label = f"{r.get('dispositivo','')} / {r.get('sensor_nombre','')}"
+            hora = str(r.get('fecha') or '')[11:16]  # HH:MM
+            series.setdefault(label, []).append({'x': hora, 'y': r['valor']})
+        return jsonify({'fecha': fecha, 'series': series})
+    except Exception as e:
+        print(f"[ERROR camara grafico] {e}")
+        return jsonify({'error': 'No se pudo generar el gráfico'}), 500
+
 @app.route('/api/camara-frio/export-excel', methods=['GET'])
 @login_required
 def api_camara_export_excel():

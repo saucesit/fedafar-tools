@@ -220,7 +220,7 @@ loginUsernameEl.addEventListener('keydown', e => { if (e.key === 'Enter') loginP
 // ── Cámara de frío ──────────────────────────────────────────────────────────
 const camaraModal = document.getElementById('camara-modal');
 const _camaraBtn  = document.getElementById('camara-btn');
-if (_camaraBtn) _camaraBtn.addEventListener('click', () => { camaraModal.classList.remove('hidden'); loadCamara(); _camaraInitFechas(); });
+if (_camaraBtn) _camaraBtn.addEventListener('click', () => { camaraModal.classList.remove('hidden'); loadCamara(); _camaraInitFechas(); _camaraInitFechaGraf(); });
 const _closeCam = document.getElementById('close-camara');
 if (_closeCam) _closeCam.addEventListener('click', () => camaraModal.classList.add('hidden'));
 const _backCam = document.getElementById('back-from-camara');
@@ -368,6 +368,90 @@ async function excelReporteCamara() {
     if (ver) ver.addEventListener('click', verReporteCamara);
     if (pdf) pdf.addEventListener('click', pdfReporteCamara);
     if (xls) xls.addEventListener('click', excelReporteCamara);
+})();
+
+// ── Gráfico del día ─────────────────────────────────────────────────────────
+let _camaraChart = null;
+const _cf_pal = ['#2563eb', '#16a34a', '#dc2626', '#d97706', '#7c3aed', '#0891b2', '#db2777', '#65a30d'];
+const _cf_bandaPlugin = {
+    id: 'bandaCamara',
+    beforeDatasetsDraw(chart) {
+        const { ctx, chartArea, scales } = chart; const y = scales.y;
+        if (!y || !chartArea) return;
+        const y8 = y.getPixelForValue(8), y2 = y.getPixelForValue(2);
+        ctx.save();
+        ctx.fillStyle = 'rgba(22,163,74,0.10)';
+        ctx.fillRect(chartArea.left, y8, chartArea.right - chartArea.left, y2 - y8);
+        ctx.restore();
+    }
+};
+function _hhmmToMin(s) { const p = (s || '0:0').split(':'); return (+p[0]) * 60 + (+p[1]); }
+function _minToHHMM(v) { const h = Math.floor(v / 60), m = Math.round(v % 60); return `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}`; }
+
+function _camaraInitFechaGraf() {
+    const g = document.getElementById('camara-graf-fecha');
+    if (g && !g.value) g.value = _camaraFechaISO(new Date());
+}
+
+async function verGraficoCamara() {
+    const fecha = (document.getElementById('camara-graf-fecha') || {}).value;
+    if (!fecha) { alert('Elegí un día.'); return; }
+    const msg = document.getElementById('camara-graf-msg');
+    msg.textContent = 'Cargando…';
+    try {
+        const res  = await fetch(`${BASE_URL}/api/camara-frio/grafico?fecha=${fecha}`, { credentials: 'include' });
+        const data = await res.json();
+        if (!res.ok) { msg.textContent = data.error || 'Error'; return; }
+        const series = data.series || {};
+        const labels = Object.keys(series);
+        if (_camaraChart) { _camaraChart.destroy(); _camaraChart = null; }
+        if (!labels.length) { msg.textContent = 'Sin datos para ese día.'; return; }
+        const datasets = labels.map((lab, i) => {
+            const esCam = lab.toLowerCase().includes('mara');
+            return {
+                label: lab,
+                data: series[lab].map(p => ({ x: _hhmmToMin(p.x), y: p.y })),
+                borderColor: _cf_pal[i % _cf_pal.length],
+                backgroundColor: _cf_pal[i % _cf_pal.length],
+                borderWidth: esCam ? 2.5 : 1.1,
+                pointRadius: 0, tension: 0.25,
+            };
+        });
+        _camaraChart = new Chart(document.getElementById('camara-graf-canvas'), {
+            type: 'line',
+            data: { datasets },
+            options: {
+                responsive: true, maintainAspectRatio: false, animation: false,
+                interaction: { mode: 'nearest', intersect: false },
+                plugins: {
+                    legend: { labels: { boxWidth: 12, font: { size: 9 } } },
+                    title: { display: true, text: 'Temperaturas ' + fecha, font: { size: 11 } },
+                },
+                scales: {
+                    x: { type: 'linear', min: 0, max: 1440, ticks: { stepSize: 180, callback: v => _minToHHMM(v), font: { size: 9 } } },
+                    y: { title: { display: true, text: '°C' }, ticks: { font: { size: 9 } } },
+                },
+            },
+            plugins: [_cf_bandaPlugin],
+        });
+        msg.textContent = 'Banda verde = rango de cámara (2–8°C).';
+    } catch (e) { msg.textContent = 'Error de conexión.'; }
+}
+
+function imgGraficoCamara() {
+    if (!_camaraChart) { alert('Primero generá el gráfico con "Ver gráfico".'); return; }
+    const fecha = (document.getElementById('camara-graf-fecha') || {}).value;
+    const a = document.createElement('a');
+    a.href = _camaraChart.toBase64Image('image/png', 1);
+    a.download = `grafico_cadena_frio_${fecha}.png`;
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+}
+
+(function _wireCamaraGrafico() {
+    const ver = document.getElementById('camara-graf-ver');
+    const img = document.getElementById('camara-graf-img');
+    if (ver) ver.addEventListener('click', verGraficoCamara);
+    if (img) img.addEventListener('click', imgGraficoCamara);
 })();
 
 async function doLogin() {
