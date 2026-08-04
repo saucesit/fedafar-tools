@@ -333,25 +333,41 @@ async function verReporteCamara() {
     } catch (e) { out.innerHTML = '<p style="font-size:.8rem;color:#dc2626;">Error de conexión.</p>'; }
 }
 
-async function pdfReporteCamara() {
-    const f = _camaraRepFechas(); if (!f) return;
+async function _camaraDescarga(url, filename, errMsg) {
     try {
-        const res = await fetch(`${BASE_URL}/api/camara-frio/reporte/pdf?desde=${f.desde}&hasta=${f.hasta}`, { credentials: 'include' });
+        const res = await fetch(url, { credentials: 'include' });
         if (!res.ok) { const d = await res.json().catch(() => ({})); alert('Error: ' + (d.error || res.status)); return; }
         const blob = await res.blob();
-        const url  = URL.createObjectURL(blob);
-        const a    = document.createElement('a');
-        a.href = url; a.download = `reporte_cadena_frio_${f.desde}_a_${f.hasta}.pdf`;
+        const u = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = u; a.download = filename;
         document.body.appendChild(a); a.click(); document.body.removeChild(a);
-        URL.revokeObjectURL(url);
-    } catch (e) { alert('Error al generar el PDF'); }
+        URL.revokeObjectURL(u);
+    } catch (e) { alert(errMsg); }
+}
+
+async function pdfReporteCamara() {
+    const f = _camaraRepFechas(); if (!f) return;
+    await _camaraDescarga(`${BASE_URL}/api/camara-frio/reporte/pdf?desde=${f.desde}&hasta=${f.hasta}`,
+        `reporte_cadena_frio_${f.desde}_a_${f.hasta}.pdf`, 'Error al generar el PDF');
+}
+
+async function excelReporteCamara() {
+    const f = _camaraRepFechas(); if (!f) return;
+    const btn = document.getElementById('camara-rep-excel');
+    if (btn) { btn.disabled = true; btn.textContent = 'Generando…'; }
+    await _camaraDescarga(`${BASE_URL}/api/camara-frio/export-excel?desde=${f.desde}&hasta=${f.hasta}`,
+        `cadena_frio_${f.desde}_a_${f.hasta}.xlsx`, 'Error al generar el Excel');
+    if (btn) { btn.disabled = false; btn.textContent = '⬇️ Excel (ANMAT)'; }
 }
 
 (function _wireCamaraReporte() {
     const ver = document.getElementById('camara-rep-ver');
     const pdf = document.getElementById('camara-rep-pdf');
+    const xls = document.getElementById('camara-rep-excel');
     if (ver) ver.addEventListener('click', verReporteCamara);
     if (pdf) pdf.addEventListener('click', pdfReporteCamara);
+    if (xls) xls.addEventListener('click', excelReporteCamara);
 })();
 
 async function doLogin() {

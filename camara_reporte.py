@@ -11,6 +11,27 @@ from datetime import datetime
 from fpdf import FPDF
 
 
+def generar_excel(rows):
+    """Genera la planilla Excel con el MISMO formato que exporta ESPDesign
+    (hoja 'Datos', columnas Fecha/Dispositivo/Sensor/Valor/Unidad), la que se
+    presenta a ANMAT. `rows`: lista de dicts con fecha, dispositivo,
+    sensor_nombre, valor (ya ordenados como se quieran mostrar). Bytes .xlsx."""
+    from openpyxl import Workbook
+    wb = Workbook()
+    ws = wb.active
+    ws.title = 'Datos'
+    ws.append(['Fecha', 'Dispositivo', 'Sensor', 'Valor', 'Unidad'])
+    for r in rows:
+        val = r.get('valor')
+        val_txt = ('%g' % val) if val is not None else ''
+        fecha = str(r.get('fecha') or '').replace('T', ' ')[:19]
+        ws.append([fecha, r.get('dispositivo') or '', r.get('sensor_nombre') or '',
+                   val_txt, ' °C'])
+    out = io.BytesIO()
+    wb.save(out)
+    return out.getvalue()
+
+
 def _norm(s):
     t = unicodedata.normalize('NFKD', str(s or ''))
     return ''.join(c for c in t if not unicodedata.combining(c)).lower()

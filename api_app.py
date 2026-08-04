@@ -1704,6 +1704,42 @@ def api_camara_reporte_pdf():
         print(f"[ERROR camara reporte pdf] {e}")
         return jsonify({'error': 'No se pudo generar el PDF'}), 500
 
+def _camara_rows_rango(desde, hasta):
+    """Trae TODAS las lecturas crudas del rango (paginado), más nuevas primero."""
+    sb = get_sb()
+    rows, page, PAGE = [], 0, 5000
+    while True:
+        res = sb.table('camara_lecturas').select('fecha,dispositivo,sensor_nombre,valor') \
+                .gte('fecha', f'{desde} 00:00:00').lte('fecha', f'{hasta} 23:59:59') \
+                .order('fecha', desc=True).range(page * PAGE, page * PAGE + PAGE - 1).execute()
+        data = res.data or []
+        rows.extend(data)
+        if len(data) < PAGE or page >= 400:
+            break
+        page += 1
+    return rows
+
+@app.route('/api/camara-frio/export-excel', methods=['GET'])
+@login_required
+def api_camara_export_excel():
+    if not _es_empleado_interno():
+        return jsonify({'error': 'No autorizado'}), 403
+    desde = (request.args.get('desde') or '').strip()
+    hasta = (request.args.get('hasta') or '').strip()
+    if not desde or not hasta:
+        return jsonify({'error': 'Faltan las fechas desde/hasta'}), 400
+    try:
+        from camara_reporte import generar_excel
+        from flask import Response
+        xlsx = generar_excel(_camara_rows_rango(desde, hasta))
+        fname = f'cadena_frio_{desde}_a_{hasta}.xlsx'
+        return Response(xlsx,
+                        mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                        headers={'Content-Disposition': f'attachment; filename="{fname}"'})
+    except Exception as e:
+        print(f"[ERROR camara excel] {e}")
+        return jsonify({'error': 'No se pudo generar el Excel'}), 500
+
 # ── Balance de Stock ───────────────────────────────────────────────────────────
 
 BALANCE_ROLES = ('empleado', 'jefe', 'jefe_deposito', 'admin')
