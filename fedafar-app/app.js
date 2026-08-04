@@ -220,7 +220,7 @@ loginUsernameEl.addEventListener('keydown', e => { if (e.key === 'Enter') loginP
 // ── Cámara de frío ──────────────────────────────────────────────────────────
 const camaraModal = document.getElementById('camara-modal');
 const _camaraBtn  = document.getElementById('camara-btn');
-if (_camaraBtn) _camaraBtn.addEventListener('click', () => { camaraModal.classList.remove('hidden'); loadCamara(); });
+if (_camaraBtn) _camaraBtn.addEventListener('click', () => { camaraModal.classList.remove('hidden'); loadCamara(); _camaraInitFechas(); });
 const _closeCam = document.getElementById('close-camara');
 if (_closeCam) _closeCam.addEventListener('click', () => camaraModal.classList.add('hidden'));
 const _backCam = document.getElementById('back-from-camara');
@@ -293,6 +293,66 @@ function renderCamara(data) {
     }).join('');
     body.innerHTML = html || '<p style="text-align:center;color:#9ca3af;">Sin equipos.</p>';
 }
+
+// ── Reporte de auditoría de cámara de frío ──────────────────────────────────
+function _camaraFechaISO(d) { return d.toISOString().slice(0, 10); }
+
+function _camaraInitFechas() {
+    const dd = document.getElementById('camara-rep-desde');
+    const hh = document.getElementById('camara-rep-hasta');
+    if (dd && !dd.value) { const x = new Date(); x.setDate(x.getDate() - 7); dd.value = _camaraFechaISO(x); }
+    if (hh && !hh.value) hh.value = _camaraFechaISO(new Date());
+}
+
+function _camaraRepFechas() {
+    const desde = (document.getElementById('camara-rep-desde') || {}).value;
+    const hasta = (document.getElementById('camara-rep-hasta') || {}).value;
+    if (!desde || !hasta) { alert('Elegí las fechas Desde y Hasta.'); return null; }
+    return { desde, hasta };
+}
+
+async function verReporteCamara() {
+    const f = _camaraRepFechas(); if (!f) return;
+    const out = document.getElementById('camara-rep-out');
+    out.innerHTML = '<p style="font-size:.8rem;color:var(--text-muted);">Calculando…</p>';
+    try {
+        const res  = await fetch(`${BASE_URL}/api/camara-frio/reporte?desde=${f.desde}&hasta=${f.hasta}`, { credentials: 'include' });
+        const data = await res.json();
+        if (!res.ok) { out.innerHTML = `<p style="font-size:.8rem;color:#dc2626;">${data.error || 'Error'}</p>`; return; }
+        const filas = data.filas || [];
+        if (!filas.length) { out.innerHTML = '<p style="font-size:.8rem;color:#9ca3af;">Sin registros en ese período.</p>'; return; }
+        out.innerHTML = filas.map(r => {
+            const cam = (r.sensor_nombre || '').toLowerCase().includes('mara');
+            const desvio = cam && (r.minimo < 2 || r.maximo > 8);
+            const col = desvio ? '#dc2626' : (cam ? '#16a34a' : '#374151');
+            return `<div style="display:flex;justify-content:space-between;gap:8px;padding:5px 8px;border-bottom:1px solid var(--border);font-size:.78rem;">
+                <span>${r.dispositivo}<br><b style="color:${col};">${r.sensor_nombre}</b> ${cam ? (desvio ? '⚠️' : '✓') : ''}</span>
+                <span style="text-align:right;white-space:nowrap;">mín <b>${r.minimo}</b> · máx <b>${r.maximo}</b> · prom ${r.promedio}<br><span style="color:#9ca3af;font-size:.7rem;">${r.lecturas} lecturas</span></span>
+            </div>`;
+        }).join('');
+    } catch (e) { out.innerHTML = '<p style="font-size:.8rem;color:#dc2626;">Error de conexión.</p>'; }
+}
+
+async function pdfReporteCamara() {
+    const f = _camaraRepFechas(); if (!f) return;
+    try {
+        const res = await fetch(`${BASE_URL}/api/camara-frio/reporte/pdf?desde=${f.desde}&hasta=${f.hasta}`, { credentials: 'include' });
+        if (!res.ok) { const d = await res.json().catch(() => ({})); alert('Error: ' + (d.error || res.status)); return; }
+        const blob = await res.blob();
+        const url  = URL.createObjectURL(blob);
+        const a    = document.createElement('a');
+        a.href = url; a.download = `reporte_cadena_frio_${f.desde}_a_${f.hasta}.pdf`;
+        document.body.appendChild(a); a.click(); document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+    } catch (e) { alert('Error al generar el PDF'); }
+}
+
+(function _wireCamaraReporte() {
+    const ver = document.getElementById('camara-rep-ver');
+    const pdf = document.getElementById('camara-rep-pdf');
+    if (ver) ver.addEventListener('click', verReporteCamara);
+    if (pdf) pdf.addEventListener('click', pdfReporteCamara);
+})();
 
 async function doLogin() {
     const username = loginUsernameEl.value.trim();

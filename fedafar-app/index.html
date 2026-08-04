@@ -280,6 +280,16 @@
             <div id="camara-body" class="cuenta-body">
                 <p style="text-align:center;color:var(--text-muted);">Cargando...</p>
             </div>
+            <div style="border-top:1px solid var(--border);padding-top:10px;margin-top:4px;">
+                <div style="font-size:.82rem;font-weight:700;color:var(--primary);margin-bottom:6px;">📊 Reporte de auditoría</div>
+                <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;">
+                    <label style="font-size:.72rem;color:var(--text-muted);">Desde <input type="date" id="camara-rep-desde" style="font-size:.8rem;padding:4px;border:1px solid var(--border);border-radius:6px;"></label>
+                    <label style="font-size:.72rem;color:var(--text-muted);">Hasta <input type="date" id="camara-rep-hasta" style="font-size:.8rem;padding:4px;border:1px solid var(--border);border-radius:6px;"></label>
+                    <button id="camara-rep-ver" class="secondary-btn" style="font-size:.78rem;padding:5px 10px;">Ver</button>
+                    <button id="camara-rep-pdf" class="primary-btn" style="font-size:.78rem;padding:5px 10px;">⬇️ PDF</button>
+                </div>
+                <div id="camara-rep-out" style="margin-top:8px;"></div>
+            </div>
             <div class="cart-footer">
                 <button id="back-from-camara" class="secondary-btn" style="width:100%;">← Volver</button>
             </div>
@@ -485,7 +495,7 @@
         </div>
     </div>
 
-    <script src="app.js?v=20260803b"></script>
+    <script src="app.js?v=20260804"></script>
 
     <!-- ── Registro del Service Worker (PWA) ──────────────────── -->
     <script>

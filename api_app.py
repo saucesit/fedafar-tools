@@ -1657,6 +1657,52 @@ def api_camara_frio():
         return jsonify({'error': 'No se pudo consultar la cámara de frío',
                         'detalle': f'{type(e).__name__}: {str(e)[:180]}'}), 502
 
+def _reporte_camara_filas(desde, hasta):
+    """Llama a la función SQL reporte_camara y devuelve las filas del resumen."""
+    sb = get_sb()
+    res = sb.rpc('reporte_camara', {
+        'p_desde': f'{desde} 00:00:00',
+        'p_hasta': f'{hasta} 23:59:59',
+    }).execute()
+    return res.data or []
+
+@app.route('/api/camara-frio/reporte', methods=['GET'])
+@login_required
+def api_camara_reporte():
+    if not _es_empleado_interno():
+        return jsonify({'error': 'No autorizado'}), 403
+    desde = (request.args.get('desde') or '').strip()
+    hasta = (request.args.get('hasta') or '').strip()
+    if not desde or not hasta:
+        return jsonify({'error': 'Faltan las fechas desde/hasta'}), 400
+    try:
+        return jsonify({'desde': desde, 'hasta': hasta,
+                        'filas': _reporte_camara_filas(desde, hasta)})
+    except Exception as e:
+        print(f"[ERROR camara reporte] {e}")
+        return jsonify({'error': 'No se pudo generar el resumen',
+                        'detalle': str(e)[:180]}), 500
+
+@app.route('/api/camara-frio/reporte/pdf', methods=['GET'])
+@login_required
+def api_camara_reporte_pdf():
+    if not _es_empleado_interno():
+        return jsonify({'error': 'No autorizado'}), 403
+    desde = (request.args.get('desde') or '').strip()
+    hasta = (request.args.get('hasta') or '').strip()
+    if not desde or not hasta:
+        return jsonify({'error': 'Faltan las fechas desde/hasta'}), 400
+    try:
+        from camara_reporte import generar_pdf
+        from flask import Response
+        pdf = generar_pdf(desde, hasta, _reporte_camara_filas(desde, hasta))
+        fname = f'reporte_cadena_frio_{desde}_a_{hasta}.pdf'
+        return Response(pdf, mimetype='application/pdf',
+                        headers={'Content-Disposition': f'attachment; filename="{fname}"'})
+    except Exception as e:
+        print(f"[ERROR camara reporte pdf] {e}")
+        return jsonify({'error': 'No se pudo generar el PDF'}), 500
+
 # ── Balance de Stock ───────────────────────────────────────────────────────────
 
 BALANCE_ROLES = ('empleado', 'jefe', 'jefe_deposito', 'admin')
