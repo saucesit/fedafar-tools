@@ -1,0 +1,19 @@
+{
+  "_comentario": "Lista blanca: rubros/palabras que SÍ nos interesan aunque NO matcheen el catálogo de precios (ej: Dexcom, diabetes). Una licitación queda en la bandeja si matchea el catálogo O si su título/items contienen alguna de estas palabras. El resto (ni catálogo ni esto, y sin ser lista negra) se descarta como 'sin coincidencia'. Match sin distinguir mayúsculas ni acentos. Editá esta lista según el negocio.",
+  "palabras_interes": [
+    "diabetes",
+    "glucosa",
+    "glucemia",
+    "insulina",
+    "dexcom",
+    "medicamento",
+    "medicamentos",
+    "medios de contraste",
+    "medio de contraste",
+    "suero",
+    "solucion fisiologica",
+    "fisiologica",
+    "antibiotico",
+    "antibioticos"
+  ]
+}
