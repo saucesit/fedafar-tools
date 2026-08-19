@@ -81,9 +81,11 @@ def clasificar(sb=None):
         except Exception:
             items = []
         objeto = r.get('objeto') or ''
+        items_txt = [i.get('descripcion', '') for i in items if isinstance(i, dict)]
 
-        # Lista negra primero (rubros que nunca cotizamos)
-        mot = motivo_descarte(objeto)
+        # Lista negra primero (rubros que nunca cotizamos) — mira título Y items,
+        # porque cosas como "aguja trucut" vienen en los items, no en el título.
+        mot = motivo_descarte(objeto, *items_txt)
         if mot:
             razon = f'Descartada automáticamente (regla: {mot})'
         elif es_relevante(objeto, items, terminos, interes):
