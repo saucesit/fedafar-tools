@@ -33,6 +33,12 @@ from playwright.sync_api import sync_playwright, Page, TimeoutError as PWTimeout
 
 load_dotenv()
 
+BASE_DIR_EARLY = os.path.dirname(os.path.abspath(__file__))
+# Reuso EXACTO del buscador de artículos del agente de pedidos (misma búsqueda,
+# mismo autosuggest de Genexus): tokens_clave / score_match / autosuggest.
+sys.path.insert(0, os.path.join(BASE_DIR_EARLY, "pedidos"))
+import cargar_genexus as cg   # noqa: E402
+
 BASE_URL     = "http://192.168.0.35/fedafar"
 FEDAFAR_USER = os.getenv("FEDAFAR_USER")
 FEDAFAR_PASS = os.getenv("FEDAFAR_PASS")
@@ -251,37 +257,91 @@ def _snapshot_fila(page: Page, s: str, titulo: str):
         print(f"       {c['id']}  [{c['tag']}]  value='{c['value']}'{extra}")
 
 
+# ── Buscar/seleccionar el artículo en la fila (reusa el matching de pedidos) ────
+def buscar_articulo_fila(page: Page, s: str, nombre: str, codigo=None) -> dict:
+    """Carga el artículo en el campo #vARTICULOID{s} usando el MISMO buscador que
+    el agente de pedidos (autosuggest de Genexus). Si viene `codigo`, lo usa como
+    atajo; si no (o no resuelve), busca por nombre con tokens_clave + score."""
+    campo = page.locator(f"#vARTICULOID{s}")
+    sug = page.locator("#gxAutosuggestElement div:visible")
+
+    # Atajo por código
+    if codigo:
+        cg.escribir_en_autosuggest(page, campo, str(codigo))
+        page.wait_for_timeout(1000)
+        valor = campo.input_value()
+        if cg._RE_RESUELTO_ARTICULO.search(valor):
+            campo.press("Tab"); page.wait_for_load_state("networkidle")
+            return {"ok": True, "matcheado": valor, "score": 1.0, "termino": f"#{codigo}"}
+        if sug.count() == 1:
+            sug.first.click(); page.wait_for_load_state("networkidle")
+            return {"ok": True, "matcheado": campo.input_value(), "score": 1.0, "termino": f"#{codigo}"}
+        print(f"    (código {codigo} no resolvió, caigo a búsqueda por nombre)")
+
+    # Búsqueda por nombre: 2 tokens y fallback a 1
+    terminos = list(dict.fromkeys([cg.tokens_clave(nombre, 2), cg.primer_token_clave(nombre)]))
+    opciones = []
+    for termino in terminos:
+        cg.escribir_en_autosuggest(page, campo, termino)
+        valor = campo.input_value()
+        if cg._RE_RESUELTO_ARTICULO.search(valor):     # autocompletó directo (1 resultado)
+            campo.press("Tab"); page.wait_for_load_state("networkidle")
+            return {"ok": True, "matcheado": valor, "score": 1.0, "termino": termino}
+        n = sug.count()
+        for espera in (1500, 2500):
+            if n > 0:
+                break
+            page.wait_for_timeout(espera); n = sug.count()
+        if n == 0:
+            continue                                    # probar con menos tokens
+        opciones = [(cg.score_match(nombre, sug.nth(k).inner_text()), sug.nth(k).inner_text(), k)
+                    for k in range(n)]
+        opciones.sort(key=lambda x: -x[0])
+        mejor, segundo = opciones[0][0], (opciones[1][0] if len(opciones) > 1 else -1)
+        if mejor == 0:
+            continue
+        if mejor == segundo:
+            return {"ok": False, "motivo": "match ambiguo (empate)", "termino": termino,
+                    "opciones": [o[1] for o in opciones]}
+        sug.nth(opciones[0][2]).click()
+        page.wait_for_load_state("networkidle")
+        return {"ok": True, "matcheado": opciones[0][1], "score": mejor, "termino": termino}
+
+    return {"ok": False, "motivo": "sin resultados", "termino": terminos[-1] if terminos else nombre}
+
+
 # ── Cargar un renglón de detalle (Paso 7 — a validar en vivo) ───────────────────
-def cargar_renglon(page: Page, i: int, articulo_id, cantidad, lote=None) -> bool:
+def cargar_renglon(page: Page, i: int, nombre, cantidad, codigo=None, lote=None) -> bool:
     s = f"_{i:04d}"
-    print(f"  Renglón {i}: artículo={articulo_id}, cantidad={cantidad}")
+    print(f"  Renglón {i}: '{nombre}' (código={codigo}), cantidad={cantidad}")
 
     # Snapshot ANTES: para ver los IDs reales de la fila vacía.
     _snapshot_fila(page, s, "ANTES de cargar")
 
-    try:
-        page.focus(f"#vARTICULOID{s}")
-        page.fill(f"#vARTICULOID{s}", str(articulo_id))
-    except Exception as e:
-        print(f"    ⚠ No se encontró #vARTICULOID{s}: {e}")
+    res = buscar_articulo_fila(page, s, str(nombre), codigo)
+    print(f"    búsqueda artículo: {res}")
+    if not res.get("ok"):
+        print(f"    ⚠ No se cargó el artículo: {res.get('motivo')}")
         return False
-    page.keyboard.press("Tab")                       # postback: valida artículo + puebla lote
-    page.wait_for_load_state("networkidle")
 
     # Snapshot DESPUÉS: qué resolvió el artículo, existencia, vencimiento, lotes.
-    _snapshot_fila(page, s, "DESPUÉS de Tab")
+    _snapshot_fila(page, s, "DESPUÉS de resolver")
 
+    # NOTA: los IDs de lote/cantidad se confirman con el snapshot de arriba.
+    # Por ahora, intento no-fatal para no cortar el diagnóstico.
     if lote is not None:
         try:
             page.select_option(f"#ARTICULODEPOSITOSTOCKID{s}", str(lote))
             page.wait_for_load_state("networkidle")
         except Exception as e:
-            print(f"    ⚠ No se pudo elegir lote {lote}: {e}")
-
-    page.fill(f"#MOVSTOCKDETCANTIDAD{s}", str(cantidad))
-    page.keyboard.press("Tab")
-    page.wait_for_load_state("networkidle")
-    print(f"    cantidad seteada: {page.input_value(f'#MOVSTOCKDETCANTIDAD{s}')}")
+            print(f"    (lote: no pude setear {lote}: {e})")
+    try:
+        page.fill(f"#MOVSTOCKDETCANTIDAD{s}", str(cantidad))
+        page.keyboard.press("Tab")
+        page.wait_for_load_state("networkidle")
+        print(f"    cantidad seteada: {page.input_value(f'#MOVSTOCKDETCANTIDAD{s}')}")
+    except Exception as e:
+        print(f"    (cantidad: no pude setear todavía: {e})")
     return True
 
 
@@ -309,7 +369,8 @@ def finalizar(page: Page) -> bool:
 # ── Main ────────────────────────────────────────────────────────────────────────
 def main():
     ap = argparse.ArgumentParser(description="Registrar EGRESO de stock en Genexus (VENTA INF).")
-    ap.add_argument("--test-articulo", help="ID de artículo para probar el circuito (renglón único).")
+    ap.add_argument("--test-nombre", help="Nombre del artículo a buscar (usa el mismo buscador que pedidos).")
+    ap.add_argument("--test-articulo", help="Código de artículo (atajo directo, sin buscar por nombre).")
     ap.add_argument("--cantidad", default="1", help="Cantidad para el artículo de prueba.")
     ap.add_argument("--lote", default=None, help="Value del select de lote (si hay que elegirlo).")
     ap.add_argument("--detalle", default=DETALLE_DEFAULT, help="Texto del detalle del movimiento.")
@@ -320,9 +381,8 @@ def main():
 
     if not FEDAFAR_USER or not FEDAFAR_PASS:
         print("ERROR: faltan FEDAFAR_USER / FEDAFAR_PASS en .env"); sys.exit(1)
-    if not args.test_articulo:
-        print("Por ahora usá --test-articulo <ID> --cantidad <N> para probar el circuito.")
-        print("(La carga automática desde ventas_inf se agrega cuando validemos el Paso 7.)")
+    if not args.test_nombre and not args.test_articulo:
+        print("Usá --test-nombre \"ALGODON 500 GR\" (busca por nombre) y/o --test-articulo <código>.")
         sys.exit(1)
 
     print(f"=== Ajuste de Stock (DRY_RUN={'ON' if DRY_RUN else 'OFF'}) ===")
@@ -334,7 +394,9 @@ def main():
             if not abrir_alta(page):                     return
             if not cargar_cabecera(page, args.detalle):  return
             if args.cargar:
-                cargar_renglon(page, 1, args.test_articulo, args.cantidad, args.lote)
+                nombre = args.test_nombre or args.test_articulo
+                cargar_renglon(page, 1, nombre, args.cantidad,
+                               codigo=args.test_articulo, lote=args.lote)
                 finalizar(page)
             else:
                 print("  ✋ FRENO ACÁ: cabecera completa, foco en la primera fila de artículo.")
