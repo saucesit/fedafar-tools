@@ -2119,6 +2119,40 @@ def api_venta_inf_reporte():
     return Response(pdf, mimetype='application/pdf',
                     headers={'Content-Disposition': f'attachment; filename="venta_inf_{dia.isoformat()}.pdf"'})
 
+@app.route('/api/venta-inf/pendientes', methods=['GET'])
+@login_required
+def api_venta_inf_pendientes():
+    """Productos que quedaron pendientes de impactar en stock (no había stock
+    suficiente en los lotes al egresar). Se alertan en la sección VENTA INF."""
+    if not _es_empleado_interno():
+        return jsonify({'error': 'No autorizado'}), 403
+    try:
+        sb = get_sb()
+        filas = sb.table('stock_pendiente').select('*') \
+            .eq('resuelto', False).order('fecha', desc=True).execute().data or []
+        return jsonify({'pendientes': filas, 'total': len(filas)})
+    except Exception as e:
+        print(f"[ERROR venta-inf pendientes] {e}")
+        return jsonify({'error': 'No se pudo consultar'}), 500
+
+@app.route('/api/venta-inf/pendientes/<id>/resolver', methods=['POST'])
+@login_required
+def api_venta_inf_pendiente_resolver(id):
+    """Marca un pendiente como resuelto (ya se egresó a mano o se repuso stock)."""
+    if not _es_empleado_interno():
+        return jsonify({'error': 'No autorizado'}), 403
+    try:
+        sb = get_sb()
+        sb.table('stock_pendiente').update({
+            'resuelto':     True,
+            'resuelto_en':  datetime.now(timezone.utc).isoformat(),
+            'resuelto_por': current_user.nombre,
+        }).eq('id', id).execute()
+        return jsonify({'ok': True})
+    except Exception as e:
+        print(f"[ERROR resolver pendiente] {e}")
+        return jsonify({'error': 'No se pudo actualizar'}), 500
+
 # ── Licitaciones ──────────────────────────────────────────────────────────────
 
 @app.route('/api/admin/licitaciones', methods=['GET'])

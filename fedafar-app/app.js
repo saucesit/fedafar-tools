@@ -249,7 +249,37 @@ async function abrirVentaInf() {
     if (!_viProductos.length) {
         try { const r = await fetch(`${BASE_URL}/api/venta-inf/productos`, { credentials: 'include' }); if (r.ok) _viProductos = await r.json(); } catch (e) {}
     }
+    _viCargarPendientes();
 }
+
+// Alerta de productos que quedaron pendientes de impactar en stock (no alcanzó
+// el stock en los lotes al egresar en Genexus).
+async function _viCargarPendientes() {
+    const cont = document.getElementById('vi-pendientes');
+    if (!cont) return;
+    try {
+        const r = await fetch(`${BASE_URL}/api/venta-inf/pendientes`, { credentials: 'include' });
+        const d = await r.json();
+        if (!r.ok || !d.pendientes || !d.pendientes.length) { cont.classList.add('hidden'); return; }
+        let h = `<div style="font-weight:700;color:#b91c1c;margin-bottom:6px;">⚠ Pendiente de impactar en stock (${d.total})</div>`;
+        d.pendientes.forEach(p => {
+            h += `<div style="display:flex;justify-content:space-between;align-items:center;gap:6px;padding:4px 0;border-bottom:1px solid #fecaca;">
+                <span>${p.articulo_nombre} · <b>${Number(p.cantidad)}</b> un. <span style="color:#9ca3af;">(${p.fecha})</span></span>
+                <button onclick="_viResolverPendiente('${p.id}')" style="border:1px solid #b91c1c;background:#fff;color:#b91c1c;border-radius:5px;font-size:.7rem;padding:3px 7px;cursor:pointer;">Resuelto</button>
+            </div>`;
+        });
+        cont.innerHTML = h;
+        cont.classList.remove('hidden');
+    } catch (e) { cont.classList.add('hidden'); }
+}
+async function _viResolverPendiente(id) {
+    if (!confirm('¿Marcar este pendiente como resuelto? (ya lo egresaste a mano o repusiste stock)')) return;
+    try {
+        const r = await fetch(`${BASE_URL}/api/venta-inf/pendientes/${id}/resolver`, { method: 'POST', credentials: 'include' });
+        if (r.ok) _viCargarPendientes();
+    } catch (e) {}
+}
+window._viResolverPendiente = _viResolverPendiente;
 // En modo venta el precio se redondea hacia arriba al proximo multiplo de 50
 // (sin centavos). En consumo se deja el costo tal cual. Igual que el backend.
 function _viRedondear(n) { n = Number(n) || 0; return n <= 0 ? 0 : Math.ceil(n / 50) * 50; }
