@@ -283,17 +283,23 @@ function _viAdd(name) {
 }
 function _viDel(name) { _viCart = _viCart.filter(i => i.name !== name); _viRenderCart(); }
 function _viQty(name, v) { const it = _viCart.find(i => i.name === name); if (it) it.cantidad = Math.max(0, parseFloat(v) || 0); _viRenderCart(); }
+function _viInc(name, d) { const it = _viCart.find(i => i.name === name); if (it) { it.cantidad = Math.max(0, (parseFloat(it.cantidad) || 0) + d); _viRenderCart(); } }
+window._viAdd = _viAdd; window._viDel = _viDel; window._viQty = _viQty; window._viInc = _viInc;
 
 function _viRenderCart() {
     const el = document.getElementById('vi-cart'); if (!el) return;
     let total = 0;
     el.innerHTML = _viCart.map(i => {
         const pu = _viPrecio(i), sub = pu * i.cantidad; total += sub;
+        const nm = i.name.replace(/'/g, "\\'");
+        const btn = 'width:28px;height:28px;border:1px solid var(--border);border-radius:6px;background:#fff;font-size:1rem;font-weight:700;cursor:pointer;line-height:1;';
         return `<div style="display:flex;gap:6px;align-items:center;padding:5px 0;border-bottom:1px solid var(--border);font-size:.8rem;">
             <span style="flex:1;">${i.name}<br><span style="color:#9ca3af;font-size:.7rem;">$${pu.toLocaleString('es-AR')} c/u</span></span>
-            <input type="number" min="0" value="${i.cantidad}" onchange="_viQty('${i.name.replace(/'/g, "\\'")}',this.value)" style="width:52px;padding:3px;border:1px solid var(--border);border-radius:5px;font-size:.8rem;">
+            <button onclick="_viInc('${nm}',-1)" style="${btn}">−</button>
+            <input type="number" min="0" value="${i.cantidad}" onchange="_viQty('${nm}',this.value)" style="width:46px;padding:3px;border:1px solid var(--border);border-radius:5px;font-size:.8rem;text-align:center;">
+            <button onclick="_viInc('${nm}',1)" style="${btn}">+</button>
             <span style="width:72px;text-align:right;font-weight:600;">$${sub.toLocaleString('es-AR')}</span>
-            <button onclick="_viDel('${i.name.replace(/'/g, "\\'")}')" style="border:none;background:none;color:#dc2626;cursor:pointer;">✕</button>
+            <button onclick="_viDel('${nm}')" style="border:none;background:none;color:#dc2626;cursor:pointer;">✕</button>
         </div>`;
     }).join('') || '<p style="font-size:.8rem;color:#9ca3af;text-align:center;padding:10px;">Agregá productos con el buscador.</p>';
     document.getElementById('vi-total').textContent = '$ ' + total.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
