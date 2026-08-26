@@ -777,7 +777,8 @@ def parse_price_list(tipo='contado', incluir_costo=False):
             "JERINGA", "AGUJA", "APOSI", "BAJALENGUA", "BARBIJO",
             "CATETER", "GASA", "GUANTE", "CUBRECAMILLA", "RECOLECT",
             "SONDA", "MICROPORE", "TELA ADHESIVA", "TERMOMETRO",
-            "TUBO ENDOT", "TIRAS REAC", "ALCOHOL AL 70"
+            "TUBO ENDOT", "TIRAS REAC", "ALCOHOL AL 70",
+            "ALGODON", "VENDA", "HISOPO", "GUATA", "LANCETA"
         ]):
             category = "Descartables"
 
