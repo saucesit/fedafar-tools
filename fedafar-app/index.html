@@ -90,6 +90,9 @@
                     <i data-lucide="package-x"></i>
                     <span id="faltantes-count" class="prestamos-badge hidden">0</span>
                 </button>
+                <button id="ventainf-btn" class="icon-btn hidden" title="Venta Inf">
+                    <i data-lucide="receipt"></i>
+                </button>
                 <button id="modo-btn" class="icon-btn" title="Modo Escritorio">
                     <i data-lucide="monitor"></i>
                 </button>
@@ -263,6 +266,32 @@
                 <textarea id="pago-nota-input" class="docs-input prestamo-textarea" placeholder="Nota (opcional)..." rows="2"></textarea>
                 <button id="pago-submit-btn" class="primary-btn">Confirmar Pago</button>
                 <p id="pago-msg" class="docs-msg hidden"></p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal VENTA INF ──────────────────────────────────────────── -->
+    <div id="ventainf-modal" class="cart-modal hidden">
+        <div class="cart-content">
+            <div class="cart-header">
+                <h2>🧾 Venta Inf</h2>
+                <button id="close-ventainf" class="icon-btn"><i data-lucide="x"></i></button>
+            </div>
+            <div style="display:flex;gap:8px;margin-bottom:10px;">
+                <button id="vi-modo-venta" class="primary-btn" style="flex:1;font-size:.85rem;">🛒 Venta</button>
+                <button id="vi-modo-consumo" class="secondary-btn" style="flex:1;font-size:.85rem;">👤 Consumo personal</button>
+            </div>
+            <p id="vi-modo-info" style="font-size:.72rem;color:var(--text-muted);margin:0 0 8px;">Venta a cliente — precio de venta (contado).</p>
+            <input type="text" id="vi-search" class="docs-input" placeholder="🔍 Buscar producto para agregar..." autocomplete="off">
+            <div id="vi-search-results" style="max-height:150px;overflow-y:auto;"></div>
+            <div id="vi-cart" class="cuenta-body" style="margin-top:6px;"></div>
+            <div class="cart-footer">
+                <div class="cart-total"><span>Total:</span><span id="vi-total">$ 0,00</span></div>
+                <div class="cart-actions">
+                    <button id="back-from-ventainf" class="secondary-btn">Volver</button>
+                    <button id="vi-guardar" class="primary-btn">Guardar y generar hoja</button>
+                </div>
+                <p id="vi-msg" class="docs-msg hidden" style="margin-top:6px;"></p>
             </div>
         </div>
     </div>
@@ -507,7 +536,7 @@
         </div>
     </div>
 
-    <script src="app.js?v=20260804c"></script>
+    <script src="app.js?v=20260805"></script>
 
     <!-- ── Registro del Service Worker (PWA) ──────────────────── -->
     <script>

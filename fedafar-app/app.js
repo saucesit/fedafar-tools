@@ -209,6 +209,13 @@ function showApp() {
         if (interno) actualizarBadgeCamara();
     }
 
+    // Venta Inf: todo el personal interno
+    const ventainfBtn = document.getElementById('ventainf-btn');
+    if (ventainfBtn) {
+        const interno = ['empleado', 'jefe', 'jefe_deposito', 'farmaceutico', 'admin'].includes(tipo);
+        ventainfBtn.classList.toggle('hidden', !interno);
+    }
+
     fetchProducts();
     lucide.createIcons();
 }
@@ -227,6 +234,89 @@ const _backCam = document.getElementById('back-from-camara');
 if (_backCam) _backCam.addEventListener('click', () => camaraModal.classList.add('hidden'));
 const _refreshCam = document.getElementById('camara-refresh');
 if (_refreshCam) _refreshCam.addEventListener('click', loadCamara);
+
+// ── VENTA INF (ventas informales + consumo personal) ────────────────────────
+let _viProductos = [], _viCart = [], _viModo = 'venta';
+const ventainfModal = document.getElementById('ventainf-modal');
+const _viBtn = document.getElementById('ventainf-btn');
+if (_viBtn) _viBtn.addEventListener('click', abrirVentaInf);
+['close-ventainf', 'back-from-ventainf'].forEach(id => { const b = document.getElementById(id); if (b) b.addEventListener('click', () => ventainfModal.classList.add('hidden')); });
+
+async function abrirVentaInf() {
+    ventainfModal.classList.remove('hidden');
+    _viCart = []; _viRenderCart(); _viMsg('');
+    document.getElementById('vi-search').value = ''; document.getElementById('vi-search-results').innerHTML = '';
+    if (!_viProductos.length) {
+        try { const r = await fetch(`${BASE_URL}/api/venta-inf/productos`, { credentials: 'include' }); if (r.ok) _viProductos = await r.json(); } catch (e) {}
+    }
+}
+function _viPrecio(p) { return _viModo === 'consumo' ? (p.costo || 0) : (p.contado || 0); }
+function _viSetModo(m) {
+    _viModo = m;
+    document.getElementById('vi-modo-venta').className   = (m === 'venta'   ? 'primary-btn' : 'secondary-btn');
+    document.getElementById('vi-modo-consumo').className = (m === 'consumo' ? 'primary-btn' : 'secondary-btn');
+    ['vi-modo-venta', 'vi-modo-consumo'].forEach(id => { const b = document.getElementById(id); b.style.flex = '1'; b.style.fontSize = '.85rem'; });
+    document.getElementById('vi-modo-info').textContent = m === 'venta'
+        ? 'Venta a cliente — precio de venta (contado).' : 'Consumo personal — precio de costo.';
+    _viRenderCart();
+}
+const _viMv = document.getElementById('vi-modo-venta');   if (_viMv) _viMv.addEventListener('click', () => _viSetModo('venta'));
+const _viMc = document.getElementById('vi-modo-consumo'); if (_viMc) _viMc.addEventListener('click', () => _viSetModo('consumo'));
+
+const _viSearchEl = document.getElementById('vi-search');
+if (_viSearchEl) _viSearchEl.addEventListener('input', () => {
+    const q = _viSearchEl.value.trim().toLowerCase();
+    const out = document.getElementById('vi-search-results');
+    if (q.length < 2) { out.innerHTML = ''; return; }
+    const res = _viProductos.filter(p => p.name.toLowerCase().includes(q)).slice(0, 12);
+    out.innerHTML = res.map(p => `<div onclick="_viAdd('${p.name.replace(/'/g, "\\'")}')" style="padding:6px 8px;border-bottom:1px solid var(--border);cursor:pointer;font-size:.8rem;">
+        ${p.name} <span style="color:#9ca3af;">· $${(_viPrecio(p)).toLocaleString('es-AR')}${p.stock != null ? ` · stock ${p.stock}` : ''}</span></div>`).join('')
+        || '<p style="font-size:.78rem;color:#9ca3af;padding:6px;">Sin resultados</p>';
+});
+
+function _viAdd(name) {
+    const p = _viProductos.find(x => x.name === name); if (!p) return;
+    const ex = _viCart.find(i => i.name === name);
+    if (ex) ex.cantidad += 1; else _viCart.push({ ...p, cantidad: 1 });
+    document.getElementById('vi-search').value = ''; document.getElementById('vi-search-results').innerHTML = '';
+    _viRenderCart();
+}
+function _viDel(name) { _viCart = _viCart.filter(i => i.name !== name); _viRenderCart(); }
+function _viQty(name, v) { const it = _viCart.find(i => i.name === name); if (it) it.cantidad = Math.max(0, parseFloat(v) || 0); _viRenderCart(); }
+
+function _viRenderCart() {
+    const el = document.getElementById('vi-cart'); if (!el) return;
+    let total = 0;
+    el.innerHTML = _viCart.map(i => {
+        const pu = _viPrecio(i), sub = pu * i.cantidad; total += sub;
+        return `<div style="display:flex;gap:6px;align-items:center;padding:5px 0;border-bottom:1px solid var(--border);font-size:.8rem;">
+            <span style="flex:1;">${i.name}<br><span style="color:#9ca3af;font-size:.7rem;">$${pu.toLocaleString('es-AR')} c/u</span></span>
+            <input type="number" min="0" value="${i.cantidad}" onchange="_viQty('${i.name.replace(/'/g, "\\'")}',this.value)" style="width:52px;padding:3px;border:1px solid var(--border);border-radius:5px;font-size:.8rem;">
+            <span style="width:72px;text-align:right;font-weight:600;">$${sub.toLocaleString('es-AR')}</span>
+            <button onclick="_viDel('${i.name.replace(/'/g, "\\'")}')" style="border:none;background:none;color:#dc2626;cursor:pointer;">✕</button>
+        </div>`;
+    }).join('') || '<p style="font-size:.8rem;color:#9ca3af;text-align:center;padding:10px;">Agregá productos con el buscador.</p>';
+    document.getElementById('vi-total').textContent = '$ ' + total.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+function _viMsg(t, tipo) { const e = document.getElementById('vi-msg'); if (!e) return; e.textContent = t || ''; e.className = 'docs-msg' + (tipo ? ' ' + tipo : '') + (t ? '' : ' hidden'); }
+
+const _viGuardar = document.getElementById('vi-guardar');
+if (_viGuardar) _viGuardar.addEventListener('click', async () => {
+    const items = _viCart.filter(i => i.cantidad > 0).map(i => ({ name: i.name, cantidad: i.cantidad }));
+    if (!items.length) { _viMsg('Agregá al menos un producto.', 'error'); return; }
+    _viGuardar.disabled = true; _viGuardar.textContent = 'Guardando...';
+    try {
+        const r = await fetch(`${BASE_URL}/api/venta-inf`, { method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tipo: _viModo, items }) });
+        const d = await r.json();
+        if (r.ok && d.ok) {
+            _viMsg('✅ Guardado. Descargando hoja…', 'success');
+            await _camaraDescarga(`${BASE_URL}/api/venta-inf/${d.id}/hoja`, `venta_${d.id}.pdf`, 'No se pudo generar la hoja');
+            _viCart = []; _viRenderCart();
+            setTimeout(() => _viMsg(''), 2500);
+        } else { _viMsg('Error: ' + (d.error || r.status), 'error'); }
+    } catch (e) { _viMsg('Error de conexión.', 'error'); }
+    _viGuardar.disabled = false; _viGuardar.textContent = 'Guardar y generar hoja';
+});
 
 function _setCamaraBadge(hayProblema) {
     const b = document.getElementById('camara-badge');

@@ -703,11 +703,12 @@ _CACHE_TTL = 900          # 15 minutos
 def invalidar_cache_productos():
     _price_cache.clear()
 
-def parse_price_list(tipo='contado'):
+def parse_price_list(tipo='contado', incluir_costo=False):
     import time
     now = time.time()
-    if tipo in _price_cache:
-        ts, cached = _price_cache[tipo]
+    ckey = (tipo, incluir_costo)
+    if ckey in _price_cache:
+        ts, cached = _price_cache[ckey]
         if now - ts < _CACHE_TTL:
             return cached
 
@@ -814,12 +815,14 @@ def parse_price_list(tipo='contado'):
         if es_empleado:
             producto["price_contado"] = price_contado
             producto["price_ctacte"]  = price_ctacte
+        if incluir_costo:
+            producto["costo"] = round(costo, 2)
         if tipo in ('jefe', 'admin') and stock_val is not None:
             producto["stock"] = int(stock_val)
 
         products.append(producto)
 
-    _price_cache[tipo] = (now, products)
+    _price_cache[ckey] = (now, products)
     return products
 
 # ── Préstamos internos ────────────────────────────────────────────────────────
@@ -1951,6 +1954,93 @@ def get_productos():
     tipo = current_user.tipo_precio
     prods = parse_price_list(tipo)
     return jsonify(prods)
+
+# ── VENTA INF (ventas informales + consumo personal) ───────────────────────────
+
+def _productos_venta_inf():
+    """{name: {name, lab, contado, costo, stock}} de los productos con stock."""
+    prods = parse_price_list('jefe', incluir_costo=True)
+    return {p['name']: {
+        'name':    p['name'],
+        'lab':     p.get('lab', ''),
+        'contado': p.get('price_contado', p.get('price')),
+        'costo':   p.get('costo'),
+        'stock':   p.get('stock'),
+    } for p in prods}
+
+@app.route('/api/venta-inf/productos', methods=['GET'])
+@login_required
+def api_venta_inf_productos():
+    if not _es_empleado_interno():
+        return jsonify({'error': 'No autorizado'}), 403
+    return jsonify(list(_productos_venta_inf().values()))
+
+@app.route('/api/venta-inf', methods=['POST'])
+@login_required
+def api_venta_inf_crear():
+    if not _es_empleado_interno():
+        return jsonify({'error': 'No autorizado'}), 403
+    data = request.get_json() or {}
+    tipo = data.get('tipo')  # 'venta' | 'consumo'
+    if tipo not in ('venta', 'consumo'):
+        return jsonify({'error': 'Tipo inválido'}), 400
+    pedidos = data.get('items') or []
+    if not pedidos:
+        return jsonify({'error': 'Sin productos'}), 400
+
+    cat = _productos_venta_inf()
+    items, total = [], 0.0
+    for it in pedidos:
+        nombre = (it.get('name') or '').strip()
+        try:
+            cant = float(it.get('cantidad') or 0)
+        except (ValueError, TypeError):
+            cant = 0
+        if not nombre or cant <= 0 or nombre not in cat:
+            continue
+        # Consumo = precio de costo; Venta = precio contado
+        precio = cat[nombre]['costo'] if tipo == 'consumo' else cat[nombre]['contado']
+        precio = float(precio or 0)
+        sub = round(precio * cant, 2)
+        total += sub
+        items.append({'name': nombre, 'lab': cat[nombre]['lab'],
+                      'cantidad': cant, 'precio_unit': precio, 'subtotal': sub})
+    if not items:
+        return jsonify({'error': 'Ningún producto válido'}), 400
+
+    try:
+        sb = get_sb()
+        res = sb.table('ventas_inf').insert({
+            'tipo':            tipo,
+            'empleado_id':     current_user.id,
+            'empleado_nombre': current_user.nombre,
+            'items':           items,
+            'total':           round(total, 2),
+            'creado_en':       datetime.now(timezone.utc).isoformat(),
+        }).execute()
+        return jsonify({'ok': True, 'id': res.data[0]['id'], 'total': round(total, 2)}), 201
+    except Exception as e:
+        print(f"[ERROR venta-inf] {e}")
+        return jsonify({'error': 'No se pudo guardar'}), 500
+
+@app.route('/api/venta-inf/<id>/hoja', methods=['GET'])
+@login_required
+def api_venta_inf_hoja(id):
+    if not _es_empleado_interno():
+        return jsonify({'error': 'No autorizado'}), 403
+    try:
+        sb  = get_sb()
+        v   = sb.table('ventas_inf').select('*').eq('id', id).single().execute().data
+        if not v:
+            return jsonify({'error': 'No encontrada'}), 404
+        from venta_inf_reporte import generar_hoja
+        from flask import Response
+        pdf = generar_hoja(v)
+        return Response(pdf, mimetype='application/pdf',
+                        headers={'Content-Disposition': f'attachment; filename="venta_{id}.pdf"'})
+    except Exception as e:
+        print(f"[ERROR venta-inf hoja] {e}")
+        return jsonify({'error': 'No se pudo generar la hoja'}), 500
 
 # ── Licitaciones ──────────────────────────────────────────────────────────────
 
