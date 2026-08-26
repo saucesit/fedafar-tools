@@ -318,6 +318,53 @@ if (_viGuardar) _viGuardar.addEventListener('click', async () => {
     _viGuardar.disabled = false; _viGuardar.textContent = 'Guardar y generar hoja';
 });
 
+// ── Reporte diario de VENTA INF ──────────────────────────────
+function _viFmt(n) { return '$ ' + Number(n || 0).toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
+async function _viCargarReporte() {
+    const cont = document.getElementById('vi-reporte-resumen');
+    const fecha = document.getElementById('vi-reporte-fecha').value;
+    if (!cont) return;
+    cont.innerHTML = '<span style="color:var(--text-muted);">Cargando…</span>';
+    try {
+        const r = await fetch(`${BASE_URL}/api/venta-inf/reporte?fmt=json&fecha=${fecha}`, { credentials: 'include' });
+        const d = await r.json();
+        if (!r.ok) { cont.innerHTML = '<span style="color:#c00;">' + (d.error || 'Error') + '</span>'; return; }
+        let h = `<div style="display:flex;gap:8px;margin-bottom:6px;">
+            <div style="flex:1;text-align:center;background:#fff;border-radius:6px;padding:6px;">🛒 Ventas: <b>${d.venta.cant}</b><br>${_viFmt(d.venta.total)}</div>
+            <div style="flex:1;text-align:center;background:#fff;border-radius:6px;padding:6px;">👤 Consumo: <b>${d.consumo.cant}</b><br>${_viFmt(d.consumo.total)}</div>
+        </div>
+        <div style="text-align:right;font-weight:600;margin-bottom:6px;">Total día: ${_viFmt(d.total)}</div>`;
+        if (d.items.length) {
+            h += '<div style="max-height:140px;overflow-y:auto;">';
+            d.items.forEach(it => {
+                const ic = it.tipo === 'consumo' ? '👤' : '🛒';
+                h += `<div style="display:flex;justify-content:space-between;padding:3px 0;border-bottom:1px solid #eee;font-size:.75rem;">
+                    <span>${ic} ${it.hora} · ${it.empleado || ''}</span><span>${_viFmt(it.total)}</span></div>`;
+            });
+            h += '</div>';
+        } else { h += '<span style="color:var(--text-muted);">Sin movimientos este día.</span>'; }
+        cont.innerHTML = h;
+    } catch (e) { cont.innerHTML = '<span style="color:#c00;">Error de conexión.</span>'; }
+}
+const _viRepBtn = document.getElementById('vi-reporte-btn');
+if (_viRepBtn) _viRepBtn.addEventListener('click', () => {
+    const panel = document.getElementById('vi-reporte-panel');
+    if (!panel) return;
+    panel.classList.toggle('hidden');
+    if (!panel.classList.contains('hidden')) {
+        const f = document.getElementById('vi-reporte-fecha');
+        if (!f.value) f.value = new Date().toLocaleDateString('en-CA');  // YYYY-MM-DD local
+        _viCargarReporte();
+    }
+});
+const _viRepFecha = document.getElementById('vi-reporte-fecha');
+if (_viRepFecha) _viRepFecha.addEventListener('change', _viCargarReporte);
+const _viRepPdf = document.getElementById('vi-reporte-pdf');
+if (_viRepPdf) _viRepPdf.addEventListener('click', () => {
+    const fecha = document.getElementById('vi-reporte-fecha').value;
+    _camaraDescarga(`${BASE_URL}/api/venta-inf/reporte?fecha=${fecha}`, `venta_inf_${fecha}.pdf`, 'No se pudo generar el reporte');
+});
+
 function _setCamaraBadge(hayProblema) {
     const b = document.getElementById('camara-badge');
     if (b) b.classList.toggle('hidden', !hayProblema);

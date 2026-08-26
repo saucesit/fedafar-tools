@@ -275,7 +275,17 @@
         <div class="cart-content">
             <div class="cart-header">
                 <h2>🧾 Venta Inf</h2>
-                <button id="close-ventainf" class="icon-btn"><i data-lucide="x"></i></button>
+                <div style="display:flex;gap:4px;align-items:center;">
+                    <button id="vi-reporte-btn" class="secondary-btn" style="font-size:.72rem;padding:5px 9px;">📊 Reporte del día</button>
+                    <button id="close-ventainf" class="icon-btn"><i data-lucide="x"></i></button>
+                </div>
+            </div>
+            <div id="vi-reporte-panel" class="hidden" style="background:var(--bg-subtle,#f5f6f8);border-radius:8px;padding:10px;margin-bottom:10px;font-size:.8rem;">
+                <div style="display:flex;gap:6px;align-items:center;margin-bottom:8px;">
+                    <input type="date" id="vi-reporte-fecha" class="docs-input" style="flex:1;">
+                    <button id="vi-reporte-pdf" class="primary-btn" style="font-size:.72rem;padding:6px 10px;">Descargar PDF</button>
+                </div>
+                <div id="vi-reporte-resumen"></div>
             </div>
             <div style="display:flex;gap:8px;margin-bottom:10px;">
                 <button id="vi-modo-venta" class="primary-btn" style="flex:1;font-size:.85rem;">🛒 Venta</button>
@@ -536,7 +546,7 @@
         </div>
     </div>
 
-    <script src="app.js?v=20260805"></script>
+    <script src="app.js?v=20260805b"></script>
 
     <!-- ── Registro del Service Worker (PWA) ──────────────────── -->
     <script>

@@ -2042,6 +2042,61 @@ def api_venta_inf_hoja(id):
         print(f"[ERROR venta-inf hoja] {e}")
         return jsonify({'error': 'No se pudo generar la hoja'}), 500
 
+@app.route('/api/venta-inf/reporte', methods=['GET'])
+@login_required
+def api_venta_inf_reporte():
+    """Reporte diario de VENTA INF. ?fecha=YYYY-MM-DD (default hoy, hora AR).
+    ?fmt=json para el resumen en pantalla; sin fmt devuelve el PDF."""
+    if not _es_empleado_interno():
+        return jsonify({'error': 'No autorizado'}), 403
+    from datetime import timedelta
+    ar = timezone(timedelta(hours=-3))  # Argentina, sin horario de verano
+    fecha_str = (request.args.get('fecha') or '').strip()
+    try:
+        dia = datetime.strptime(fecha_str, '%Y-%m-%d').date() if fecha_str \
+            else datetime.now(ar).date()
+    except ValueError:
+        return jsonify({'error': 'Fecha inválida'}), 400
+    # Rango del día en hora AR, convertido a UTC para la consulta
+    desde = datetime.combine(dia, datetime.min.time(), tzinfo=ar).astimezone(timezone.utc)
+    hasta = desde + timedelta(days=1)
+    try:
+        sb = get_sb()
+        ventas = sb.table('ventas_inf').select('*') \
+            .gte('creado_en', desde.isoformat()) \
+            .lt('creado_en', hasta.isoformat()) \
+            .order('creado_en').execute().data or []
+    except Exception as e:
+        print(f"[ERROR venta-inf reporte] {e}")
+        return jsonify({'error': 'No se pudo consultar'}), 500
+
+    # Pasar creado_en a hora AR para que las horas mostradas sean locales
+    for v in ventas:
+        try:
+            dt = datetime.fromisoformat(str(v['creado_en']).replace('Z', '+00:00'))
+            v['creado_en'] = dt.astimezone(ar).isoformat()
+        except Exception:
+            pass
+
+    if request.args.get('fmt') == 'json':
+        def _sum(t):
+            g = [v for v in ventas if v.get('tipo') == t]
+            return {'cant': len(g), 'total': round(sum(float(v.get('total') or 0) for v in g), 2)}
+        return jsonify({
+            'fecha': dia.isoformat(),
+            'venta': _sum('venta'),
+            'consumo': _sum('consumo'),
+            'total': round(sum(float(v.get('total') or 0) for v in ventas), 2),
+            'items': [{'id': v['id'], 'tipo': v['tipo'], 'hora': str(v.get('creado_en') or '')[11:16],
+                       'empleado': v.get('empleado_nombre', ''), 'total': v.get('total')} for v in ventas],
+        })
+
+    from venta_inf_reporte import generar_reporte_dia
+    from flask import Response
+    pdf = generar_reporte_dia(dia.isoformat(), ventas)
+    return Response(pdf, mimetype='application/pdf',
+                    headers={'Content-Disposition': f'attachment; filename="venta_inf_{dia.isoformat()}.pdf"'})
+
 # ── Licitaciones ──────────────────────────────────────────────────────────────
 
 @app.route('/api/admin/licitaciones', methods=['GET'])
