@@ -253,14 +253,20 @@ async function abrirVentaInf() {
 // En modo venta el precio se redondea hacia arriba al proximo multiplo de 50
 // (sin centavos). En consumo se deja el costo tal cual. Igual que el backend.
 function _viRedondear(n) { n = Number(n) || 0; return n <= 0 ? 0 : Math.ceil(n / 50) * 50; }
-function _viPrecio(p) { return _viModo === 'consumo' ? (p.costo || 0) : _viRedondear(p.contado || 0); }
+function _viPrecioBase(p) { return _viModo === 'consumo' ? (p.costo || 0) : _viRedondear(p.contado || 0); }
+// Precio efectivo: el editado a mano si existe, si no el base segun el modo.
+function _viPrecio(i) { return (i.precioManual != null && i.precioManual !== '') ? Number(i.precioManual) : _viPrecioBase(i); }
+function _viSetPrecio(name, v) { const it = _viCart.find(i => i.name === name); if (it) { it.precioManual = (v === '' ? null : Math.max(0, parseFloat(v) || 0)); _viRenderCart(); } }
 function _viSetModo(m) {
     _viModo = m;
     document.getElementById('vi-modo-venta').className   = (m === 'venta'   ? 'primary-btn' : 'secondary-btn');
     document.getElementById('vi-modo-consumo').className = (m === 'consumo' ? 'primary-btn' : 'secondary-btn');
     ['vi-modo-venta', 'vi-modo-consumo'].forEach(id => { const b = document.getElementById(id); b.style.flex = '1'; b.style.fontSize = '.85rem'; });
     document.getElementById('vi-modo-info').textContent = m === 'venta'
-        ? 'Venta a cliente — precio de venta (contado).' : 'Consumo personal — precio de costo.';
+        ? 'Venta a cliente — precio de venta (contado). Podés editar cada precio.'
+        : 'Consumo personal — precio de costo. Podés editar cada precio.';
+    // Al cambiar de modo, se descartan los precios editados a mano (vuelven al base).
+    _viCart.forEach(i => { i.precioManual = null; });
     _viRenderCart();
 }
 const _viMv = document.getElementById('vi-modo-venta');   if (_viMv) _viMv.addEventListener('click', () => _viSetModo('venta'));
@@ -287,7 +293,7 @@ function _viAdd(name) {
 function _viDel(name) { _viCart = _viCart.filter(i => i.name !== name); _viRenderCart(); }
 function _viQty(name, v) { const it = _viCart.find(i => i.name === name); if (it) it.cantidad = Math.max(0, parseFloat(v) || 0); _viRenderCart(); }
 function _viInc(name, d) { const it = _viCart.find(i => i.name === name); if (it) { it.cantidad = Math.max(0, (parseFloat(it.cantidad) || 0) + d); _viRenderCart(); } }
-window._viAdd = _viAdd; window._viDel = _viDel; window._viQty = _viQty; window._viInc = _viInc;
+window._viAdd = _viAdd; window._viDel = _viDel; window._viQty = _viQty; window._viInc = _viInc; window._viSetPrecio = _viSetPrecio;
 
 function _viRenderCart() {
     const el = document.getElementById('vi-cart'); if (!el) return;
@@ -296,12 +302,19 @@ function _viRenderCart() {
         const pu = _viPrecio(i), sub = pu * i.cantidad; total += sub;
         const nm = i.name.replace(/'/g, "\\'");
         const btn = 'width:28px;height:28px;border:1px solid var(--border);border-radius:6px;background:#fff;font-size:1rem;font-weight:700;cursor:pointer;line-height:1;';
-        return `<div style="display:flex;gap:6px;align-items:center;padding:5px 0;border-bottom:1px solid var(--border);font-size:.8rem;">
-            <span style="flex:1;">${i.name}<br><span style="color:#9ca3af;font-size:.7rem;">$${pu.toLocaleString('es-AR')} c/u</span></span>
+        const edit = i.precioManual != null && i.precioManual !== '';
+        return `<div style="display:flex;gap:6px;align-items:center;padding:6px 0;border-bottom:1px solid var(--border);font-size:.8rem;flex-wrap:wrap;">
+            <span style="flex:1 1 100%;">${i.name}</span>
+            <div style="display:flex;gap:2px;align-items:center;">
+                <span style="color:#9ca3af;font-size:.72rem;">$</span>
+                <input type="number" min="0" step="0.01" value="${_viPrecio(i)}" onchange="_viSetPrecio('${nm}',this.value)" title="Precio unitario (editable)"
+                    style="width:70px;padding:3px;border:1px solid ${edit ? '#2563eb' : 'var(--border)'};border-radius:5px;font-size:.78rem;text-align:right;${edit ? 'color:#2563eb;font-weight:600;' : ''}">
+                <span style="color:#9ca3af;font-size:.7rem;">c/u</span>
+            </div>
             <button onclick="_viInc('${nm}',-1)" style="${btn}">−</button>
             <input type="number" min="0" value="${i.cantidad}" onchange="_viQty('${nm}',this.value)" style="width:46px;padding:3px;border:1px solid var(--border);border-radius:5px;font-size:.8rem;text-align:center;">
             <button onclick="_viInc('${nm}',1)" style="${btn}">+</button>
-            <span style="width:72px;text-align:right;font-weight:600;">$${sub.toLocaleString('es-AR')}</span>
+            <span style="flex:1;text-align:right;font-weight:600;">$${sub.toLocaleString('es-AR')}</span>
             <button onclick="_viDel('${nm}')" style="border:none;background:none;color:#dc2626;cursor:pointer;">✕</button>
         </div>`;
     }).join('') || '<p style="font-size:.8rem;color:#9ca3af;text-align:center;padding:10px;">Agregá productos con el buscador.</p>';
@@ -311,7 +324,7 @@ function _viMsg(t, tipo) { const e = document.getElementById('vi-msg'); if (!e) 
 
 const _viGuardar = document.getElementById('vi-guardar');
 if (_viGuardar) _viGuardar.addEventListener('click', async () => {
-    const items = _viCart.filter(i => i.cantidad > 0).map(i => ({ name: i.name, cantidad: i.cantidad }));
+    const items = _viCart.filter(i => i.cantidad > 0).map(i => ({ name: i.name, cantidad: i.cantidad, precio_unit: _viPrecio(i) }));
     if (!items.length) { _viMsg('Agregá al menos un producto.', 'error'); return; }
     _viGuardar.disabled = true; _viGuardar.textContent = 'Guardando...';
     try {

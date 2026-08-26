@@ -2008,9 +2008,17 @@ def api_venta_inf_crear():
             cant = 0
         if not nombre or cant <= 0 or nombre not in cat:
             continue
-        # Consumo = precio de costo; Venta = precio contado redondeado hacia
-        # arriba al proximo multiplo de 50 (pedido de Facundo: sin centavos).
-        if tipo == 'consumo':
+        # Precio: si el usuario lo edito a mano (precio_unit valido) se respeta;
+        # si no, se calcula del catalogo. Consumo = costo; Venta = contado
+        # redondeado hacia arriba al proximo multiplo de 50 (sin centavos).
+        precio_manual = it.get('precio_unit')
+        try:
+            precio_manual = float(precio_manual)
+        except (ValueError, TypeError):
+            precio_manual = None
+        if precio_manual is not None and precio_manual > 0:
+            precio = precio_manual
+        elif tipo == 'consumo':
             precio = float(cat[nombre]['costo'] or 0)
         else:
             precio = _redondear_venta_inf(float(cat[nombre]['contado'] or 0))
