@@ -48,6 +48,38 @@ MAX_RENGLONES   = 5                   # el form tiene 5 slots (_0001.._0005)
 DRY_RUN = os.getenv("DRY_RUN", "1") != "0"
 
 
+# ── Asignación FEFO de lotes (lote más viejo primero) ──────────────────────────
+def _parse_venc(v):
+    """Convierte 'dd/mm/aaaa' a una tupla ordenable (aaaa, mm, dd). Sin fecha → +inf."""
+    try:
+        d, m, a = str(v).strip().split("/")
+        return (int(a), int(m), int(d))
+    except Exception:
+        return (9999, 99, 99)   # sin vencimiento válido → va al final
+
+
+def asignar_lotes(necesita, lotes):
+    """Reparte `necesita` unidades entre `lotes`, usando el más viejo (menor
+    vencimiento) primero, solo lotes con existencia > 0.
+    `lotes`: [{'lote':str, 'venc':'dd/mm/aaaa', 'existencia':float}]
+    Devuelve (asignaciones, faltante):
+        asignaciones = [{'lote', 'venc', 'cantidad'}]  en orden de consumo
+        faltante     = unidades que NO se pudieron cubrir (0 si alcanzó)."""
+    disponibles = [l for l in lotes if float(l.get('existencia') or 0) > 0]
+    disponibles.sort(key=lambda l: _parse_venc(l.get('venc')))
+    asign, resto = [], float(necesita)
+    for l in disponibles:
+        if resto <= 0:
+            break
+        toma = min(resto, float(l['existencia']))
+        if toma <= 0:
+            continue
+        asign.append({'lote': l['lote'], 'venc': l.get('venc'),
+                      'cantidad': int(toma) if toma == int(toma) else toma})
+        resto -= toma
+    return asign, (int(resto) if resto == int(resto) else resto)
+
+
 # ── Login ──────────────────────────────────────────────────────────────────────
 def do_login(page: Page) -> bool:
     print("  Abriendo página de login...")
@@ -70,43 +102,124 @@ def do_login(page: Page) -> bool:
 
 
 # ── Abrir el alta (modo INS) ───────────────────────────────────────────────────
+INS_URL = f"{BASE_URL}/alm_movimientosstock.aspx?INS,0"
+
+def _form_alta_listo(page: Page) -> bool:
+    try:
+        page.wait_for_selector("#MOVSTOCKFECHA", state="visible", timeout=8000)
+        return True
+    except PWTimeout:
+        return False
+
 def abrir_alta(page: Page) -> bool:
-    print("  Navegando a Movimientos de Stock...")
+    # 1) Intento directo por URL en modo INS (lo más confiable en GeneXus)
+    print(f"  Abriendo alta directo: {INS_URL}")
+    try:
+        page.goto(INS_URL, timeout=15000)
+        page.wait_for_load_state("networkidle", timeout=15000)
+    except PWTimeout:
+        pass
+    if "alm_movimientosstock.aspx" in page.url and _form_alta_listo(page):
+        print(f"  Formulario de alta abierto (directo): {page.url}")
+        return True
+
+    # 2) Fallback: entrar por el Work With y clickear Agregar
+    print("  (directo no anduvo) Navegando a Movimientos de Stock y clickeando Agregar...")
     page.goto(WW_URL, timeout=15000)
     page.wait_for_load_state("networkidle", timeout=15000)
-    print("  Click en Agregar...")
     try:
         with page.expect_navigation(wait_until="networkidle", timeout=15000):
             page.click("#BTNINSERT")
     except PWTimeout:
-        # algunos GX no navegan; puede ser postback en la misma URL
         page.wait_for_load_state("networkidle", timeout=15000)
-    if "alm_movimientosstock.aspx" not in page.url:
-        print(f"  ⚠ URL inesperada tras Agregar: {page.url}")
-        return False
-    page.wait_for_selector("#MOVSTOCKFECHA", state="visible", timeout=10000)
-    print(f"  Formulario de alta abierto: {page.url}")
-    return True
+    if "alm_movimientosstock.aspx" in page.url and _form_alta_listo(page):
+        print(f"  Formulario de alta abierto (botón): {page.url}")
+        return True
+
+    # 3) Diagnóstico: listar botones/enlaces reales del Work With
+    print(f"  ⚠ No se pudo abrir el alta. URL actual: {page.url}")
+    ctrls = page.evaluate("""
+        () => Array.from(document.querySelectorAll('input[type=button],input[type=submit],button,a'))
+            .filter(b => b.offsetParent !== null)
+            .map(b => ({ tag:b.tagName, id:b.id, val:(b.value||b.textContent||'').trim().slice(0,40), href:b.getAttribute('href')||'' }))
+            .filter(b => b.id || b.val || b.href)
+    """)
+    print("  Controles visibles en la pantalla:")
+    for c in ctrls:
+        print("   ", c)
+    return False
 
 
-# ── Cabecera por TAB (Paso 6 de la guía) ───────────────────────────────────────
+# ── Cabecera (Paso 6) — foco explícito por ID, robusto a los postbacks de GX ────
 def cargar_cabecera(page: Page, detalle: str, tipo_mov: str = TIPO_MOV_EGRESO) -> bool:
     print("  Cargando cabecera (EGRESO)...")
-    page.focus("#MOVSTOCKFECHA")
-    page.keyboard.press("Tab")                       # -> Tipo Movimiento
-    page.select_option("#TIPOMOVSTOCKID", tipo_mov)
-    page.keyboard.press("Tab")                       # commit -> autocompleta "Tipo"
+
+    # 1) Tipo Movimiento = EGRESO. Elijo por TEXTO (el value cambia según el ambiente).
+    opciones = page.evaluate(
+        """() => { const e = document.querySelector('#TIPOMOVSTOCKID');
+            return e ? Array.from(e.options).map(o => ({v:o.value, t:(o.text||'').trim()})) : null; }""")
+    print(f"    opciones Tipo Movimiento: {opciones}")
+    # Busco el value cuyo texto contenga EGRESO
+    val_egreso = None
+    for o in (opciones or []):
+        if "EGRESO" in o["t"].upper():
+            val_egreso = o["v"]; break
+    if not val_egreso:
+        print("  ⚠ No encontré una opción 'EGRESO' en el select. Abortando cabecera.")
+        return False
+    page.focus("#TIPOMOVSTOCKID")
+    page.select_option("#TIPOMOVSTOCKID", val_egreso)
     page.wait_for_load_state("networkidle")
+    # El autocompletado de "Tipo" viene por el postback del onchange: esperamos a que
+    # efectivamente pase a 'E' (no leemos antes de tiempo). Si no, probamos con Tab.
+    def _tipo_ok():
+        try:
+            return page.input_value("#TIPOMOVSTOCKTIPO") == "E"
+        except Exception:
+            return False
+    try:
+        page.wait_for_function(
+            "() => { const e=document.querySelector('#TIPOMOVSTOCKTIPO'); return e && e.value==='E'; }",
+            timeout=8000)
+    except PWTimeout:
+        # Fallback: forzar el commit con Tab desde el select
+        page.focus("#TIPOMOVSTOCKID")
+        page.keyboard.press("Tab")
+        page.wait_for_load_state("networkidle")
     tipo = page.input_value("#TIPOMOVSTOCKTIPO")
+    print(f"    Tipo Movimiento value={val_egreso} (EGRESO) → Tipo='{tipo}'")
     if tipo != "E":
         print(f"  ⚠ El 'Tipo' no se autocompletó a E (quedó '{tipo}').")
         return False
-    page.keyboard.press("Tab")                       # Depósito -> Detalle
-    page.keyboard.type(detalle)
-    page.keyboard.press("Tab")                       # commit -> foco a fila 1
+
+    # 2) Depósito: debe quedar en DEPOSITO (value 1). Solo lo toco si no está seteado.
+    try:
+        dep = page.input_value("#DEPOSITOID")
+        if dep not in ("1",):
+            print(f"    Depósito estaba en '{dep}', lo seteo a 1 (DEPOSITO).")
+            page.focus("#DEPOSITOID")
+            page.select_option("#DEPOSITOID", "1")
+            page.keyboard.press("Tab")
+            page.wait_for_load_state("networkidle")
+    except Exception as e:
+        print(f"    (no pude leer/setear Depósito: {e})")
+
+    # 3) Detalle: enfoco el campo directo (NO por cadena de TAB, que el postback rompe),
+    #    escribo y Tab para commitear.
+    page.focus("#MOVSTOCKDETALLE")
+    page.fill("#MOVSTOCKDETALLE", detalle)
+    page.keyboard.press("Tab")
     page.wait_for_load_state("networkidle")
-    foco = page.evaluate("() => document.activeElement && document.activeElement.id")
-    print(f"  Cabecera OK. Tipo={tipo}, Detalle='{detalle}', foco quedó en '{foco}'.")
+    det = page.input_value("#MOVSTOCKDETALLE")
+    if det != detalle:
+        print(f"  ⚠ El Detalle no quedó bien (esperado '{detalle}', quedó '{det}').")
+
+    # 4) Dejo el foco en la primera fila de artículo, listo para cargar.
+    try:
+        page.focus("#vARTICULOID_0001")
+    except Exception:
+        pass
+    print(f"  Cabecera OK. Tipo={tipo}, Detalle='{det}'.")
     return True
 
 
@@ -119,11 +232,35 @@ def _dump_lote_select(page: Page, s: str):
     print(f"    lote select ARTICULODEPOSITOSTOCKID{s}: {opts}")
 
 
+def _snapshot_fila(page: Page, s: str, titulo: str):
+    """Lista TODOS los inputs/selects de la fila (id que termina en el sufijo s),
+    con su value/texto y opciones — para descubrir la estructura real de la grilla."""
+    campos = page.evaluate(
+        """(suf) => Array.from(document.querySelectorAll('input,select,textarea'))
+            .filter(e => e.id && e.id.endsWith(suf))
+            .map(e => ({
+                id: e.id,
+                tag: e.tagName.toLowerCase(),
+                value: (e.value || '').slice(0, 60),
+                opts: e.tagName === 'SELECT' ? Array.from(e.options).map(o => o.value + '=' + o.text.slice(0,30)) : undefined
+            }))""",
+        s)
+    print(f"    ── {titulo} (fila {s}) ──")
+    for c in campos:
+        extra = f"  opts={c['opts']}" if c.get('opts') is not None else ""
+        print(f"       {c['id']}  [{c['tag']}]  value='{c['value']}'{extra}")
+
+
 # ── Cargar un renglón de detalle (Paso 7 — a validar en vivo) ───────────────────
 def cargar_renglon(page: Page, i: int, articulo_id, cantidad, lote=None) -> bool:
     s = f"_{i:04d}"
     print(f"  Renglón {i}: artículo={articulo_id}, cantidad={cantidad}")
+
+    # Snapshot ANTES: para ver los IDs reales de la fila vacía.
+    _snapshot_fila(page, s, "ANTES de cargar")
+
     try:
+        page.focus(f"#vARTICULOID{s}")
         page.fill(f"#vARTICULOID{s}", str(articulo_id))
     except Exception as e:
         print(f"    ⚠ No se encontró #vARTICULOID{s}: {e}")
@@ -131,13 +268,8 @@ def cargar_renglon(page: Page, i: int, articulo_id, cantidad, lote=None) -> bool
     page.keyboard.press("Tab")                       # postback: valida artículo + puebla lote
     page.wait_for_load_state("networkidle")
 
-    # Diagnóstico: ¿qué artículo resolvió? ¿qué lotes aparecieron?
-    desc = page.evaluate(
-        """(s) => { const cand = ['vARTICULODESCRIPCION'+s,'ARTICULODESCRIPCION'+s,'vARTICULOID'+s+'_description'];
-            for (const id of cand){ const e=document.getElementById(id); if(e) return {id, val:(e.value||e.textContent||'').trim()}; }
-            return null; }""", s)
-    print(f"    artículo resuelto: {desc}")
-    _dump_lote_select(page, s)
+    # Snapshot DESPUÉS: qué resolvió el artículo, existencia, vencimiento, lotes.
+    _snapshot_fila(page, s, "DESPUÉS de Tab")
 
     if lote is not None:
         try:
@@ -182,6 +314,8 @@ def main():
     ap.add_argument("--lote", default=None, help="Value del select de lote (si hay que elegirlo).")
     ap.add_argument("--detalle", default=DETALLE_DEFAULT, help="Texto del detalle del movimiento.")
     ap.add_argument("--headed", action="store_true", help="Mostrar el navegador (no headless).")
+    ap.add_argument("--cargar", action="store_true",
+                    help="Además de la cabecera, intentar cargar el artículo (Paso 7, en desarrollo).")
     args = ap.parse_args()
 
     if not FEDAFAR_USER or not FEDAFAR_PASS:
@@ -199,8 +333,15 @@ def main():
             if not do_login(page):                       return
             if not abrir_alta(page):                     return
             if not cargar_cabecera(page, args.detalle):  return
-            cargar_renglon(page, 1, args.test_articulo, args.cantidad, args.lote)
-            finalizar(page)
+            if args.cargar:
+                cargar_renglon(page, 1, args.test_articulo, args.cantidad, args.lote)
+                finalizar(page)
+            else:
+                print("  ✋ FRENO ACÁ: cabecera completa, foco en la primera fila de artículo.")
+                print("     (Para probar la carga del artículo, agregá --cargar cuando lo trabajemos.)")
+                shot = os.path.join(BASE_DIR, "ajuste_debug.png")
+                page.screenshot(path=shot, full_page=True)
+                print(f"     Screenshot: {shot}")
             print("=== Fin del circuito de prueba ===")
         finally:
             if args.headed:
