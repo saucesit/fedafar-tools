@@ -278,8 +278,15 @@ def buscar_articulo_fila(page: Page, s: str, nombre: str, codigo=None) -> dict:
             return {"ok": True, "matcheado": campo.input_value(), "score": 1.0, "termino": f"#{codigo}"}
         print(f"    (código {codigo} no resolvió, caigo a búsqueda por nombre)")
 
-    # Búsqueda por nombre: 2 tokens y fallback a 1
-    terminos = list(dict.fromkeys([cg.tokens_clave(nombre, 2), cg.primer_token_clave(nombre)]))
+    # Búsqueda por nombre. En VENTA INF el nombre es EXACTO al del catálogo/Genexus,
+    # así que probamos PRIMERO el nombre completo (resuelve a un único artículo) y
+    # solo si no encuentra, caemos a menos palabras.
+    terminos = list(dict.fromkeys([
+        nombre.strip(),
+        cg.tokens_clave(nombre, 3),
+        cg.tokens_clave(nombre, 2),
+        cg.primer_token_clave(nombre),
+    ]))
     opciones = []
     for termino in terminos:
         cg.escribir_en_autosuggest(page, campo, termino)
@@ -293,7 +300,8 @@ def buscar_articulo_fila(page: Page, s: str, nombre: str, codigo=None) -> dict:
                 break
             page.wait_for_timeout(espera); n = sug.count()
         if n == 0:
-            continue                                    # probar con menos tokens
+            _diag_autosuggest(page, termino)            # ¿otro contenedor de sugerencias?
+            continue                                    # probar con menos palabras
         opciones = [(cg.score_match(nombre, sug.nth(k).inner_text()), sug.nth(k).inner_text(), k)
                     for k in range(n)]
         opciones.sort(key=lambda x: -x[0])
@@ -308,6 +316,22 @@ def buscar_articulo_fila(page: Page, s: str, nombre: str, codigo=None) -> dict:
         return {"ok": True, "matcheado": opciones[0][1], "score": mejor, "termino": termino}
 
     return {"ok": False, "motivo": "sin resultados", "termino": terminos[-1] if terminos else nombre}
+
+
+def _diag_autosuggest(page: Page, termino: str):
+    """Si no aparecieron sugerencias en #gxAutosuggestElement, muestra qué
+    contenedores de autosuggest existen en la página (para hallar el correcto)."""
+    info = page.evaluate("""() => {
+        const out = [];
+        document.querySelectorAll("[id*='utosuggest'],[class*='utosuggest'],[role='listbox']").forEach(e => {
+            const vis = e.offsetParent !== null;
+            out.push({ id:e.id, cls:e.className, role:e.getAttribute('role'), visible:vis,
+                       hijos:e.querySelectorAll('div,li,option').length,
+                       muestra:(e.innerText||'').replace(/\\s+/g,' ').slice(0,80) });
+        });
+        return out;
+    }""")
+    print(f"    [diag autosuggest] término='{termino}' → contenedores: {info}")
 
 
 # ── Cargar un renglón de detalle (Paso 7 — a validar en vivo) ───────────────────
