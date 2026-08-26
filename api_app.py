@@ -1957,6 +1957,16 @@ def get_productos():
 
 # ── VENTA INF (ventas informales + consumo personal) ───────────────────────────
 
+import math
+
+def _redondear_venta_inf(precio):
+    """Redondea hacia arriba al proximo multiplo de 50 (solo modo venta).
+    589 -> 600, 230 -> 250, 250 -> 250, 601 -> 650."""
+    p = float(precio or 0)
+    if p <= 0:
+        return 0.0
+    return float(math.ceil(p / 50.0) * 50)
+
 def _productos_venta_inf():
     """{name: {name, lab, contado, costo, stock}} de los productos con stock."""
     prods = parse_price_list('jefe', incluir_costo=True)
@@ -1998,9 +2008,12 @@ def api_venta_inf_crear():
             cant = 0
         if not nombre or cant <= 0 or nombre not in cat:
             continue
-        # Consumo = precio de costo; Venta = precio contado
-        precio = cat[nombre]['costo'] if tipo == 'consumo' else cat[nombre]['contado']
-        precio = float(precio or 0)
+        # Consumo = precio de costo; Venta = precio contado redondeado hacia
+        # arriba al proximo multiplo de 50 (pedido de Facundo: sin centavos).
+        if tipo == 'consumo':
+            precio = float(cat[nombre]['costo'] or 0)
+        else:
+            precio = _redondear_venta_inf(float(cat[nombre]['contado'] or 0))
         sub = round(precio * cant, 2)
         total += sub
         items.append({'name': nombre, 'lab': cat[nombre]['lab'],

@@ -250,7 +250,10 @@ async function abrirVentaInf() {
         try { const r = await fetch(`${BASE_URL}/api/venta-inf/productos`, { credentials: 'include' }); if (r.ok) _viProductos = await r.json(); } catch (e) {}
     }
 }
-function _viPrecio(p) { return _viModo === 'consumo' ? (p.costo || 0) : (p.contado || 0); }
+// En modo venta el precio se redondea hacia arriba al proximo multiplo de 50
+// (sin centavos). En consumo se deja el costo tal cual. Igual que el backend.
+function _viRedondear(n) { n = Number(n) || 0; return n <= 0 ? 0 : Math.ceil(n / 50) * 50; }
+function _viPrecio(p) { return _viModo === 'consumo' ? (p.costo || 0) : _viRedondear(p.contado || 0); }
 function _viSetModo(m) {
     _viModo = m;
     document.getElementById('vi-modo-venta').className   = (m === 'venta'   ? 'primary-btn' : 'secondary-btn');
