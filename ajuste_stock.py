@@ -28,6 +28,7 @@ Debe correr en una máquina dentro de la red (IP 192.168.0.35 es LAN).
 import os
 import sys
 import argparse
+from datetime import datetime, timezone, timedelta
 from dotenv import load_dotenv
 from playwright.sync_api import sync_playwright, Page, TimeoutError as PWTimeout
 
@@ -641,6 +642,90 @@ def finalizar(page: Page) -> bool:
     return ok
 
 
+# ── Integración con VENTA INF (impactar ventas del día) ────────────────────────
+def _sb_local():
+    from supabase import create_client
+    key = os.getenv("SUPABASE_SERVICE_KEY") or os.getenv("SUPABASE_KEY")
+    return create_client(os.getenv("SUPABASE_URL"), key)
+
+
+def leer_ventas_pendientes(sb, fecha=None):
+    """Ventas/consumos de VENTA INF con impactado_stock=false. Si `fecha`
+    (YYYY-MM-DD), filtra por ese día en hora AR (UTC-3)."""
+    filas = sb.table('ventas_inf').select('*').eq('impactado_stock', False) \
+        .order('creado_en').execute().data or []
+    if fecha:
+        ar = timezone(timedelta(hours=-3))
+        d = datetime.strptime(fecha, '%Y-%m-%d').date()
+        desde = datetime.combine(d, datetime.min.time(), tzinfo=ar).astimezone(timezone.utc)
+        hasta = desde + timedelta(days=1)
+        def _en_dia(v):
+            try:
+                dt = datetime.fromisoformat(str(v['creado_en']).replace('Z', '+00:00'))
+                return desde <= dt < hasta
+            except Exception:
+                return False
+        filas = [v for v in filas if _en_dia(v)]
+    return filas
+
+
+def impactar_ventas_inf(page, fecha=None):
+    """Lee las ventas pendientes, las agrega por producto y las egresa en un único
+    movimiento de EGRESO. En DRY_RUN cancela. Solo con DRY_RUN=0 confirma, registra
+    los pendientes en stock_pendiente y marca las ventas como impactadas."""
+    from venta_inf_reporte import agregar_items
+    sb = _sb_local()
+    ventas = leer_ventas_pendientes(sb, fecha)
+    if not ventas:
+        print("  No hay ventas/consumos pendientes de impactar."); return
+
+    ag = agregar_items(ventas)                       # {nombre: {cantidad, lab}} (venta+consumo)
+    items = [{"nombre": n, "cantidad": ag[n]["cantidad"]} for n in sorted(ag)]
+    print(f"  Ventas a impactar: {len(ventas)} · productos: {len(items)}")
+    for it in items:
+        print(f"    - {it['nombre']}  x{it['cantidad']:g}")
+
+    if not cargar_cabecera(page, DETALLE_DEFAULT):
+        print("  ⚠ No se pudo cargar la cabecera. Aborto."); return
+    r = cargar_movimiento(page, items)
+    print(f"  Renglones cargados: {len(r['detalle'])} · pendientes: {len(r['pendientes'])}")
+    for p in r["pendientes"]:
+        print(f"    ⚠ pendiente: {p['nombre']} x{p['cantidad']:g} ({p['motivo']})")
+
+    hoy = fecha or datetime.now(timezone(timedelta(hours=-3))).date().isoformat()
+
+    if DRY_RUN:
+        print("  DRY_RUN → NO se confirma ni se marca nada. (screenshot + cancel)")
+        finalizar(page)
+        return
+
+    if not r["detalle"]:
+        print("  Nada para egresar (sin stock en lotes). No se confirma el movimiento.")
+    else:
+        ok = finalizar(page)                         # confirma (BTNTRN_ENTER)
+        if not ok:
+            print("  ⚠ El movimiento NO se confirmó. No marco las ventas."); return
+
+    # Registrar pendientes en Supabase (alerta de la app)
+    for p in r["pendientes"]:
+        try:
+            sb.table('stock_pendiente').insert({
+                'articulo_nombre': p['nombre'], 'cantidad': p['cantidad'],
+                'fecha': hoy, 'motivo': p['motivo'],
+            }).execute()
+        except Exception as e:
+            print(f"    (no pude registrar pendiente {p['nombre']}: {e})")
+
+    # Marcar las ventas como impactadas
+    ids = [v['id'] for v in ventas]
+    try:
+        for vid in ids:
+            sb.table('ventas_inf').update({'impactado_stock': True}).eq('id', vid).execute()
+        print(f"  ✅ {len(ids)} ventas marcadas como impactadas.")
+    except Exception as e:
+        print(f"  ⚠ No pude marcar todas las ventas como impactadas: {e}")
+
+
 # ── Main ────────────────────────────────────────────────────────────────────────
 def main():
     ap = argparse.ArgumentParser(description="Registrar EGRESO de stock en Genexus (VENTA INF).")
@@ -654,12 +739,15 @@ def main():
                     help="Además de la cabecera, intentar cargar el artículo (Paso 7, en desarrollo).")
     ap.add_argument("--repetir", type=int, default=1,
                     help="TEST: carga el artículo en N filas separadas, 1 unidad c/u (prueba 'Nueva fila').")
+    ap.add_argument("--impactar", action="store_true",
+                    help="Impacta en stock las ventas/consumos pendientes de VENTA INF (Supabase).")
+    ap.add_argument("--fecha", default=None, help="Con --impactar: limitar a ese día (YYYY-MM-DD, hora AR).")
     args = ap.parse_args()
 
     if not FEDAFAR_USER or not FEDAFAR_PASS:
         print("ERROR: faltan FEDAFAR_USER / FEDAFAR_PASS en .env"); sys.exit(1)
-    if not args.test_nombre and not args.test_articulo:
-        print("Usá --test-nombre \"ALGODON 500 GR\" (busca por nombre) y/o --test-articulo <código>.")
+    if not args.impactar and not args.test_nombre and not args.test_articulo:
+        print("Usá --impactar (ventas de VENTA INF) o --test-nombre \"...\" para probar un artículo.")
         sys.exit(1)
 
     print(f"=== Ajuste de Stock (DRY_RUN={'ON' if DRY_RUN else 'OFF'}) ===")
@@ -667,7 +755,12 @@ def main():
         browser = p.chromium.launch(headless=not args.headed)
         page = browser.new_context().new_page()
         try:
-            if not do_login(page):                       return
+            if not do_login(page):   return
+            if args.impactar:
+                if not abrir_alta(page): return
+                impactar_ventas_inf(page, fecha=args.fecha)
+                print("=== Fin ===")
+                return
             if not abrir_alta(page):                     return
             if not cargar_cabecera(page, args.detalle):  return
             if args.cargar:
