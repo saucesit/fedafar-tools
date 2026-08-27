@@ -387,7 +387,7 @@ async function _viCargarReporte() {
         </div>
         <div style="text-align:right;font-weight:600;margin-bottom:6px;">Total día: ${_viFmt(d.total)}</div>`;
         if (d.items.length) {
-            h += '<div style="max-height:140px;overflow-y:auto;">';
+            h += '<div style="max-height:120px;overflow-y:auto;">';
             d.items.forEach(it => {
                 const ic = it.tipo === 'consumo' ? '👤' : '🛒';
                 h += `<div style="display:flex;justify-content:space-between;padding:3px 0;border-bottom:1px solid #eee;font-size:.75rem;">
@@ -395,6 +395,22 @@ async function _viCargarReporte() {
             });
             h += '</div>';
         } else { h += '<span style="color:var(--text-muted);">Sin movimientos este día.</span>'; }
+        // Totales por producto (lo que se descuenta de stock)
+        if (d.agregado && d.agregado.length) {
+            const fc = n => { n = Number(n) || 0; return n === Math.trunc(n) ? String(n) : n.toLocaleString('es-AR'); };
+            h += `<div style="margin-top:10px;font-weight:700;">📦 Totales por producto (a descontar de stock)</div>
+                <div style="max-height:160px;overflow-y:auto;margin-top:4px;">
+                <div style="display:flex;font-size:.7rem;color:#6b7280;font-weight:600;border-bottom:1px solid #ddd;padding-bottom:3px;">
+                    <span style="flex:1;">Producto</span><span style="width:42px;text-align:right;">Venta</span><span style="width:52px;text-align:right;">Consumo</span><span style="width:42px;text-align:right;">TOTAL</span></div>`;
+            d.agregado.forEach(p => {
+                h += `<div style="display:flex;font-size:.72rem;padding:3px 0;border-bottom:1px solid #f0f0f0;">
+                    <span style="flex:1;">${p.name}</span>
+                    <span style="width:42px;text-align:right;">${fc(p.venta)}</span>
+                    <span style="width:52px;text-align:right;">${fc(p.consumo)}</span>
+                    <span style="width:42px;text-align:right;font-weight:700;">${fc(p.total)}</span></div>`;
+            });
+            h += '</div>';
+        }
         cont.innerHTML = h;
     } catch (e) { cont.innerHTML = '<span style="color:#c00;">Error de conexión.</span>'; }
 }

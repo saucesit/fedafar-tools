@@ -61,6 +61,33 @@ def generar_hoja(venta):
     return bytes(pdf.output())
 
 
+def agregar_items(ventas, tipos=None):
+    """Suma las cantidades por producto en las ventas dadas.
+    `tipos`: None = todas; ('venta',) o ('consumo',) para filtrar.
+    Devuelve {nombre: {'cantidad': n, 'lab': str}} ordenable."""
+    acc = {}
+    for v in ventas:
+        if tipos and v.get('tipo') not in tipos:
+            continue
+        for it in (v.get('items') or []):
+            nombre = it.get('name', '')
+            if not nombre:
+                continue
+            try:
+                c = float(it.get('cantidad') or 0)
+            except (ValueError, TypeError):
+                c = 0
+            if nombre not in acc:
+                acc[nombre] = {'cantidad': 0.0, 'lab': it.get('lab', '')}
+            acc[nombre]['cantidad'] += c
+    return acc
+
+
+def _fmt_cant(n):
+    n = float(n or 0)
+    return str(int(n)) if n == int(n) else _fmt(n)
+
+
 def generar_reporte_dia(fecha, ventas):
     """PDF del reporte diario: todas las ventas + consumos del día, agrupado por
     tipo y empleado, con totales. `ventas`: lista de filas de ventas_inf."""
@@ -93,4 +120,33 @@ def generar_reporte_dia(fecha, ventas):
     pdf.set_font('Helvetica', 'B', 12)
     pdf.set_text_color(0, 0, 0)
     pdf.cell(0, 8, f'TOTAL DEL DIA: $ {_fmt(total_gral)}', ln=1)
+
+    # ── Totales por producto (para la gestión de stock) ──
+    venta_ag   = agregar_items(ventas, ('venta',))
+    consumo_ag = agregar_items(ventas, ('consumo',))
+    total_ag   = agregar_items(ventas)           # venta + consumo por producto
+    if total_ag:
+        pdf.ln(6)
+        pdf.set_font('Helvetica', 'B', 11)
+        pdf.set_text_color(0, 74, 153)
+        pdf.cell(0, 7, 'Totales por producto (a descontar de stock)', ln=1)
+        # Encabezado
+        cols = [('Producto', 108), ('Venta', 24), ('Consumo', 26), ('TOTAL', 26)]
+        pdf.set_font('Helvetica', 'B', 8.5)
+        pdf.set_text_color(20, 20, 20)
+        for t, w in cols:
+            pdf.cell(w, 6, t, border='B', align=('L' if t == 'Producto' else 'R'))
+        pdf.ln()
+        pdf.set_font('Helvetica', '', 8.5)
+        for nombre in sorted(total_ag):
+            qv = venta_ag.get(nombre, {}).get('cantidad', 0)
+            qc = consumo_ag.get(nombre, {}).get('cantidad', 0)
+            qt = total_ag[nombre]['cantidad']
+            pdf.cell(cols[0][1], 5.5, str(nombre)[:64], border='B')
+            pdf.cell(cols[1][1], 5.5, _fmt_cant(qv), border='B', align='R')
+            pdf.cell(cols[2][1], 5.5, _fmt_cant(qc), border='B', align='R')
+            pdf.set_font('Helvetica', 'B', 8.5)
+            pdf.cell(cols[3][1], 5.5, _fmt_cant(qt), border='B', align='R')
+            pdf.set_font('Helvetica', '', 8.5)
+            pdf.ln()
     return bytes(pdf.output())

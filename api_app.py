@@ -2101,6 +2101,15 @@ def api_venta_inf_reporte():
             pass
 
     if request.args.get('fmt') == 'json':
+        from venta_inf_reporte import agregar_items
+        va, ca, ta = agregar_items(ventas, ('venta',)), agregar_items(ventas, ('consumo',)), agregar_items(ventas)
+        agregado = [{
+            'name': nombre,
+            'venta': round(va.get(nombre, {}).get('cantidad', 0), 2),
+            'consumo': round(ca.get(nombre, {}).get('cantidad', 0), 2),
+            'total': round(ta[nombre]['cantidad'], 2),
+        } for nombre in sorted(ta)]
+
         def _sum(t):
             g = [v for v in ventas if v.get('tipo') == t]
             return {'cant': len(g), 'total': round(sum(float(v.get('total') or 0) for v in g), 2)}
@@ -2111,6 +2120,7 @@ def api_venta_inf_reporte():
             'total': round(sum(float(v.get('total') or 0) for v in ventas), 2),
             'items': [{'id': v['id'], 'tipo': v['tipo'], 'hora': str(v.get('creado_en') or '')[11:16],
                        'empleado': v.get('empleado_nombre', ''), 'total': v.get('total')} for v in ventas],
+            'agregado': agregado,
         })
 
     from venta_inf_reporte import generar_reporte_dia
