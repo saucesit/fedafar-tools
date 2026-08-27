@@ -299,3 +299,23 @@ def cargar_cabecera(page, tipo_mov="2"):      # "2" = EGRESO
 ---
 
 ## PASO 7 — (pendiente): carga de artículo + lote + cantidad en la fila
+
+---
+
+## PASO 7 — RESUELTO: IDs reales de la fila de detalle (relevado en vivo)
+
+Sufijo por fila: `_0001` … `_0005`.
+
+| Dato | Selector | Tipo | Notas |
+|---|---|---|---|
+| Artículo (búsqueda) | `#vARTICULOID_0001` | input autosuggest | Escribir el **nombre completo** (exacto del catálogo) resuelve a artículo único (score 1.0). Tras resolver, **TAB** dispara el postback que puebla los lotes. |
+| Lote | `#ARTICULODEPOSITOSTOCKID_0001` | select | option = {value: id interno, text: nro de lote}. Orden del dropdown = FEFO (arriba = más viejo). |
+| Existencia del lote | `#span_ARTICULODEPOSITOSTOCKCANTIDAD_0001` | span (read-only) | Stock disponible del lote seleccionado. |
+| Vencimiento del lote | `#span_ARTICULODEPOSITOSTOCKFECHAVCTO_0001` | span (read-only) | dd/mm/aaaa del lote seleccionado. |
+| Cantidad a egresar | `#MOVSTOCKDETCANTIDAD_0001` | input | Lo que se descuenta de ese lote (≤ existencia). |
+| Item (nro renglón) | `#span_MOVSTOCKDETITEM_0001` | span | 0 vacío, 1+ cargado. |
+
+FEFO: recorrer los lotes en orden del dropdown; parar en el primer lote con
+existencia > 0; egresar min(necesita, existencia); si falta, nueva fila con el
+MISMO artículo y el SIGUIENTE lote con stock. Máx 5 filas por movimiento.
+Lo que no alcance → tabla `stock_pendiente` (alerta en la app).
