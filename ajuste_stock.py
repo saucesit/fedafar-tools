@@ -634,6 +634,8 @@ def main():
     ap.add_argument("--headed", action="store_true", help="Mostrar el navegador (no headless).")
     ap.add_argument("--cargar", action="store_true",
                     help="Además de la cabecera, intentar cargar el artículo (Paso 7, en desarrollo).")
+    ap.add_argument("--repetir", type=int, default=1,
+                    help="TEST: carga el artículo en N filas separadas, 1 unidad c/u (prueba 'Nueva fila').")
     args = ap.parse_args()
 
     if not FEDAFAR_USER or not FEDAFAR_PASS:
@@ -652,10 +654,19 @@ def main():
             if not cargar_cabecera(page, args.detalle):  return
             if args.cargar:
                 nombre = args.test_nombre or args.test_articulo
-                r = cargar_articulo(page, 1, nombre, float(args.cantidad), codigo=args.test_articulo)
-                print(f"  RESULTADO: {r}")
-                if r.get("pendiente", 0) > 0:
-                    print(f"  ⚠ Quedaron {r['pendiente']} un. PENDIENTES de impactar (iría a la alerta de la app).")
+                if args.repetir > 1:
+                    # TEST 'Nueva fila': el mismo artículo en N filas, 1 unidad c/u.
+                    items = [{"nombre": nombre, "codigo": args.test_articulo, "cantidad": 1}
+                             for _ in range(args.repetir)]
+                    r = cargar_movimiento(page, items)
+                    print(f"  RESULTADO: filas usadas={len(r['detalle'])}, pendientes={r['pendientes']}")
+                    for d in r["detalle"]:
+                        print(f"    fila {d['fila']}: lote '{d['lote']}' vto {d['venc']} → {d['cantidad']}")
+                else:
+                    r = cargar_articulo(page, 1, nombre, float(args.cantidad), codigo=args.test_articulo)
+                    print(f"  RESULTADO: {r}")
+                    if r.get("pendiente", 0) > 0:
+                        print(f"  ⚠ Quedaron {r['pendiente']} un. PENDIENTES de impactar (iría a la alerta de la app).")
                 finalizar(page)
             else:
                 print("  ✋ FRENO ACÁ: cabecera completa, foco en la primera fila de artículo.")
