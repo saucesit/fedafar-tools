@@ -291,6 +291,42 @@ def explorar_lotes(page: Page, s: str, maximo: int = 25):
         print(f"       lote v={o['v']} '{o['t']}' → {datos}")
 
 
+def explorar_lotes_teclado(page: Page, s: str, pasos: int = 14):
+    """Navega el select de lote con FLECHAS (como el uso manual) leyendo la
+    existencia y el vencimiento que aparecen en cada lote. La existencia solo se
+    revela al 'pararse' en el lote con el teclado, no con select_option."""
+    sel  = f"#ARTICULODEPOSITOSTOCKID{s}"
+    ex   = f"#span_ARTICULODEPOSITOSTOCKCANTIDAD{s}"
+    vc   = f"#span_ARTICULODEPOSITOSTOCKFECHAVCTO{s}"
+    print(f"    ── Explorando lotes por TECLADO (fila {s}) ──")
+    try:
+        page.focus(sel)
+        page.keyboard.press("ArrowDown"); page.wait_for_timeout(600)
+        page.keyboard.press("ArrowUp");   page.wait_for_timeout(600)   # vuelve al 1° y revela cantidad
+    except Exception as e:
+        print(f"       (no pude enfocar el select: {e})"); return
+    visto = set()
+    for _ in range(pasos):
+        try:
+            val = page.eval_on_selector(sel, "e => e.value")
+            existencia = (page.inner_text(ex) or "").strip()
+            venc = (page.inner_text(vc) or "").strip()
+        except Exception as e:
+            print(f"       (error leyendo: {e})"); break
+        clave = str(val)
+        if clave not in visto:
+            print(f"       lote='{val}'  existencia='{existencia}'  vto='{venc}'")
+            visto.add(clave)
+        page.keyboard.press("ArrowDown")
+        page.wait_for_timeout(700)
+        # si tras la flecha se perdió el foco (postback), re-enfoco
+        try:
+            if page.evaluate("() => document.activeElement && document.activeElement.id") != sel.lstrip("#"):
+                page.focus(sel)
+        except Exception:
+            pass
+
+
 # ── Buscar/seleccionar el artículo en la fila (reusa el matching de pedidos) ────
 def buscar_articulo_fila(page: Page, s: str, nombre: str, codigo=None) -> dict:
     """Carga el artículo en el campo #vARTICULOID{s} usando el MISMO buscador que
@@ -368,7 +404,97 @@ def _diag_autosuggest(page: Page, termino: str):
     print(f"    [diag autosuggest] término='{termino}' → contenedores: {info}")
 
 
-# ── Cargar un renglón de detalle (Paso 7 — a validar en vivo) ───────────────────
+# ── Carga FEFO real ─────────────────────────────────────────────────────────────
+def _reset_lote_top(page: Page, sel: str):
+    """Deja el select de lote parado en el primer lote (más viejo) y revela su
+    existencia — replica el 'abajo y arriba' del uso manual."""
+    page.focus(sel)
+    page.keyboard.press("ArrowDown"); page.wait_for_timeout(600)
+    page.keyboard.press("ArrowUp");   page.wait_for_timeout(600)
+
+
+def escanear_lotes(page: Page, s: str) -> list:
+    """Navega los lotes con teclado (única forma de que aparezca la existencia) y
+    devuelve [{idx, value, existencia, venc}] en el orden del dropdown (más viejo
+    arriba = orden FEFO)."""
+    sel = f"#ARTICULODEPOSITOSTOCKID{s}"
+    ex  = f"#span_ARTICULODEPOSITOSTOCKCANTIDAD{s}"
+    vc  = f"#span_ARTICULODEPOSITOSTOCKFECHAVCTO{s}"
+    _reset_lote_top(page, sel)
+    n = page.eval_on_selector(sel, "e => e.options.length")
+    lotes = []
+    for i in range(n):
+        val = page.eval_on_selector(sel, "e => e.value")
+        existencia = cg._num(page.inner_text(ex))
+        venc = (page.inner_text(vc) or "").strip()
+        lotes.append({"idx": i, "value": val, "existencia": existencia, "venc": venc})
+        page.keyboard.press("ArrowDown"); page.wait_for_timeout(650)
+    return lotes
+
+
+def _ir_a_lote(page: Page, s: str, idx: int):
+    """Deja el select parado en el lote de índice `idx` (0 = más viejo)."""
+    sel = f"#ARTICULODEPOSITOSTOCKID{s}"
+    _reset_lote_top(page, sel)
+    for _ in range(idx):
+        page.keyboard.press("ArrowDown"); page.wait_for_timeout(450)
+
+
+def _tab_poblar_lotes(page: Page, s: str):
+    page.focus(f"#vARTICULOID{s}")
+    page.keyboard.press("Tab")
+    page.wait_for_load_state("networkidle")
+    try:
+        page.wait_for_function(
+            "(sel)=>{const e=document.querySelector(sel); return e && e.options.length>0;}",
+            arg=f"#ARTICULODEPOSITOSTOCKID{s}", timeout=6000)
+    except PWTimeout:
+        pass
+
+
+def cargar_articulo(page: Page, fila_base: int, nombre: str, necesita, codigo=None, max_fila=5) -> dict:
+    """Carga un artículo en el movimiento repartiendo `necesita` unidades entre los
+    lotes con stock (FEFO, más viejo primero). Usa una fila por lote. Devuelve
+    {ok, egresado, pendiente, filas_usadas, detalle:[{fila,lote,venc,cantidad}]}.
+    Lo que no se pueda cubrir (sin stock, o se acaban las filas) queda en `pendiente`."""
+    s = f"_{fila_base:04d}"
+    res = buscar_articulo_fila(page, s, nombre, codigo)
+    if not res.get("ok"):
+        return {"ok": False, "motivo": res.get("motivo"), "egresado": 0, "pendiente": float(necesita),
+                "filas_usadas": 0, "detalle": []}
+    _tab_poblar_lotes(page, s)
+    lotes = escanear_lotes(page, s)
+    con_stock = [l for l in lotes if l["existencia"] > 0]
+
+    resto = float(necesita)
+    detalle, fila = [], fila_base
+    for l in con_stock:
+        if resto <= 0 or fila > max_fila:
+            break
+        toma = min(resto, l["existencia"])
+        sk = f"_{fila:04d}"
+        # La primera fila ya tiene el artículo; las siguientes hay que cargarlo de nuevo.
+        if fila != fila_base:
+            r2 = buscar_articulo_fila(page, sk, nombre, codigo)
+            if not r2.get("ok"):
+                break
+            _tab_poblar_lotes(page, sk)
+        _ir_a_lote(page, sk, l["idx"])
+        cant = int(toma) if float(toma) == int(toma) else toma
+        page.fill(f"#MOVSTOCKDETCANTIDAD{sk}", str(cant))
+        page.keyboard.press("Tab")
+        page.wait_for_load_state("networkidle")
+        detalle.append({"fila": fila, "lote": l["value"], "venc": l["venc"], "cantidad": cant})
+        print(f"    fila {fila}: lote '{l['value']}' (vto {l['venc']}, exist {l['existencia']}) → egreso {cant}")
+        resto -= toma
+        fila += 1
+
+    egresado = float(necesita) - resto
+    return {"ok": True, "egresado": egresado, "pendiente": resto,
+            "filas_usadas": fila - fila_base, "detalle": detalle}
+
+
+# ── Cargar un renglón de detalle (diagnóstico — Paso 7) ─────────────────────────
 def cargar_renglon(page: Page, i: int, nombre, cantidad, codigo=None, lote=None) -> bool:
     s = f"_{i:04d}"
     print(f"  Renglón {i}: '{nombre}' (código={codigo}), cantidad={cantidad}")
@@ -397,7 +523,7 @@ def cargar_renglon(page: Page, i: int, nombre, cantidad, codigo=None, lote=None)
     # Snapshot DESPUÉS: qué resolvió el artículo, existencia, vencimiento, lotes.
     _snapshot_fila(page, s, "DESPUÉS de resolver")
     _dump_lote_select(page, s)
-    explorar_lotes(page, s)
+    explorar_lotes_teclado(page, s)
 
     # NOTA: los IDs de lote/cantidad se confirman con el snapshot de arriba.
     # Por ahora, intento no-fatal para no cortar el diagnóstico.
@@ -467,8 +593,10 @@ def main():
             if not cargar_cabecera(page, args.detalle):  return
             if args.cargar:
                 nombre = args.test_nombre or args.test_articulo
-                cargar_renglon(page, 1, nombre, args.cantidad,
-                               codigo=args.test_articulo, lote=args.lote)
+                r = cargar_articulo(page, 1, nombre, float(args.cantidad), codigo=args.test_articulo)
+                print(f"  RESULTADO: {r}")
+                if r.get("pendiente", 0) > 0:
+                    print(f"  ⚠ Quedaron {r['pendiente']} un. PENDIENTES de impactar (iría a la alerta de la app).")
                 finalizar(page)
             else:
                 print("  ✋ FRENO ACÁ: cabecera completa, foco en la primera fila de artículo.")
