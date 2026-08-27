@@ -239,15 +239,15 @@ def _dump_lote_select(page: Page, s: str):
 
 
 def _snapshot_fila(page: Page, s: str, titulo: str):
-    """Lista TODOS los inputs/selects de la fila (id que termina en el sufijo s),
+    """Lista TODOS los elementos con id de la fila (id que termina en el sufijo s),
     con su value/texto y opciones — para descubrir la estructura real de la grilla."""
     campos = page.evaluate(
-        """(suf) => Array.from(document.querySelectorAll('input,select,textarea'))
-            .filter(e => e.id && e.id.endsWith(suf))
+        """(suf) => Array.from(document.querySelectorAll('[id]'))
+            .filter(e => e.id && e.id.endsWith(suf) && ['INPUT','SELECT','TEXTAREA','SPAN','TD','DIV'].includes(e.tagName))
             .map(e => ({
                 id: e.id,
                 tag: e.tagName.toLowerCase(),
-                value: (e.value || '').slice(0, 60),
+                value: ((e.value !== undefined && e.tagName === 'INPUT') ? e.value : (e.innerText || '')).slice(0, 60),
                 opts: e.tagName === 'SELECT' ? Array.from(e.options).map(o => o.value + '=' + o.text.slice(0,30)) : undefined
             }))""",
         s)
@@ -255,6 +255,40 @@ def _snapshot_fila(page: Page, s: str, titulo: str):
     for c in campos:
         extra = f"  opts={c['opts']}" if c.get('opts') is not None else ""
         print(f"       {c['id']}  [{c['tag']}]  value='{c['value']}'{extra}")
+
+
+def explorar_lotes(page: Page, s: str, maximo: int = 25):
+    """Recorre el select de lote parándose en cada opción y leyendo la existencia
+    y el vencimiento que aparecen. Sirve para descubrir de qué elemento salen y
+    para validar el orden FEFO (arriba = más viejo)."""
+    sel = f"#ARTICULODEPOSITOSTOCKID{s}"
+    opts = page.evaluate(
+        "(x)=>{const e=document.querySelector(x); return e?Array.from(e.options).map(o=>({v:o.value,t:o.text})):[]}", sel)
+    utiles = [o for o in opts if o["v"]]
+    print(f"    ── Explorando lotes (fila {s}) — {len(utiles)} lote(s) ──")
+    # "Despertar" la lista como en el uso manual: abajo y arriba
+    try:
+        page.focus(sel); page.keyboard.press("ArrowDown"); page.keyboard.press("ArrowUp")
+        page.wait_for_load_state("networkidle")
+    except Exception:
+        pass
+    for o in utiles[:maximo]:
+        try:
+            page.select_option(sel, o["v"])
+            page.wait_for_load_state("networkidle")
+        except Exception as e:
+            print(f"       lote '{o['t']}': no pude seleccionar ({e})"); continue
+        datos = page.evaluate(
+            """(suf)=>{const r={};
+                document.querySelectorAll('[id]').forEach(e=>{
+                    if(!e.id.endsWith(suf)) return;
+                    const up=e.id.toUpperCase();
+                    if(/EXIST|STOCK|SALDO|VENC|CANT/.test(up)){
+                        r[e.id]=(e.value!==undefined&&e.tagName==='INPUT')?e.value:(e.innerText||'').trim();
+                    }
+                });
+                return r;}""", s)
+        print(f"       lote v={o['v']} '{o['t']}' → {datos}")
 
 
 # ── Buscar/seleccionar el artículo en la fila (reusa el matching de pedidos) ────
@@ -363,6 +397,7 @@ def cargar_renglon(page: Page, i: int, nombre, cantidad, codigo=None, lote=None)
     # Snapshot DESPUÉS: qué resolvió el artículo, existencia, vencimiento, lotes.
     _snapshot_fila(page, s, "DESPUÉS de resolver")
     _dump_lote_select(page, s)
+    explorar_lotes(page, s)
 
     # NOTA: los IDs de lote/cantidad se confirman con el snapshot de arriba.
     # Por ahora, intento no-fatal para no cortar el diagnóstico.
