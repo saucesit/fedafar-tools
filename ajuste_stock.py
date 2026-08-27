@@ -425,9 +425,10 @@ def escanear_lotes(page: Page, s: str) -> list:
     lotes = []
     for i in range(n):
         val = page.eval_on_selector(sel, "e => e.value")
+        codigo = page.eval_on_selector(sel, "e => e.options[e.selectedIndex] ? e.options[e.selectedIndex].text : ''")
         existencia = cg._num(page.inner_text(ex))
         venc = (page.inner_text(vc) or "").strip()
-        lotes.append({"idx": i, "value": val, "existencia": existencia, "venc": venc})
+        lotes.append({"idx": i, "value": val, "codigo": codigo, "existencia": existencia, "venc": venc})
         page.keyboard.press("ArrowDown"); page.wait_for_timeout(650)
     return lotes
 
@@ -491,7 +492,12 @@ def cargar_articulo(page: Page, fila_base: int, nombre: str, necesita, codigo=No
                 "filas_usadas": 0, "detalle": []}
     _tab_poblar_lotes(page, s)
     lotes = escanear_lotes(page, s)
-    con_stock = [l for l in lotes if l["existencia"] > 0]
+    print(f"    lotes escaneados: " +
+          ", ".join(f"{l['codigo']}(vto {l['venc']}, ex {l['existencia']:.0f})" for l in lotes))
+    # FEFO: ordenar por vencimiento (más próximo/viejo primero), no por el orden
+    # del dropdown. Solo lotes con existencia > 0.
+    con_stock = sorted([l for l in lotes if l["existencia"] > 0],
+                       key=lambda l: (_parse_venc(l["venc"]), l["idx"]))
 
     resto = float(necesita)
     detalle, fila = [], fila_base
@@ -507,13 +513,25 @@ def cargar_articulo(page: Page, fila_base: int, nombre: str, necesita, codigo=No
             if not r2.get("ok"):
                 break
             _tab_poblar_lotes(page, sk)
-        _ir_a_lote(page, sk, l["idx"])
+        # Fijar el lote con select_option (dispara change → commit server-side).
+        # La navegación por flechas revela la existencia pero NO fija el lote.
+        try:
+            page.select_option(f"#ARTICULODEPOSITOSTOCKID{sk}", l["value"])
+            page.wait_for_load_state("networkidle")
+        except Exception as e:
+            print(f"    (no pude fijar lote {l['codigo']} con select_option: {e})")
+            _ir_a_lote(page, sk, l["idx"])
         cant = int(toma) if float(toma) == int(toma) else toma
         page.fill(f"#MOVSTOCKDETCANTIDAD{sk}", str(cant))
         page.keyboard.press("Tab")
         page.wait_for_load_state("networkidle")
-        detalle.append({"fila": fila, "lote": l["value"], "venc": l["venc"], "cantidad": cant})
-        print(f"    fila {fila}: lote '{l['value']}' (vto {l['venc']}, exist {l['existencia']}) → egreso {cant}")
+        # Verifico qué lote quedó realmente seleccionado en la fila (por si GX lo reasigna)
+        cod_real = page.eval_on_selector(f"#ARTICULODEPOSITOSTOCKID{sk}",
+                                         "e => e.options[e.selectedIndex] ? e.options[e.selectedIndex].text : ''")
+        detalle.append({"fila": fila, "lote": l["codigo"], "lote_real": cod_real,
+                        "venc": l["venc"], "cantidad": cant})
+        marca = "" if cod_real == l["codigo"] else f"  ⚠ GX dejó '{cod_real}'"
+        print(f"    fila {fila}: lote '{l['codigo']}' (vto {l['venc']}, exist {l['existencia']:.0f}) → egreso {cant}{marca}")
         resto -= toma
         fila += 1
 
