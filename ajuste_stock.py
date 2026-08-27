@@ -440,6 +440,32 @@ def _ir_a_lote(page: Page, s: str, idx: int):
         page.keyboard.press("ArrowDown"); page.wait_for_timeout(450)
 
 
+def _filas_actuales(page: Page) -> int:
+    """Cantidad de renglones de detalle disponibles en la grilla."""
+    return page.evaluate("() => document.querySelectorAll(\"input[id^='vARTICULOID_']\").length")
+
+
+def _agregar_fila(page: Page) -> bool:
+    """Click en 'Nueva fila' para sumar un renglón cuando se llenan las 5 base."""
+    try:
+        page.get_by_text("Nueva fila", exact=False).first.click(timeout=5000)
+        page.wait_for_load_state("networkidle")
+        return True
+    except Exception as e:
+        print(f"    ⚠ No pude clickear 'Nueva fila': {e}")
+        return False
+
+
+def _asegurar_fila(page: Page, n: int) -> bool:
+    """Garantiza que exista el renglón n (agrega filas si hace falta)."""
+    guard = 0
+    while _filas_actuales(page) < n and guard < n + 3:
+        if not _agregar_fila(page):
+            break
+        guard += 1
+    return _filas_actuales(page) >= n
+
+
 def _tab_poblar_lotes(page: Page, s: str):
     page.focus(f"#vARTICULOID{s}")
     page.keyboard.press("Tab")
@@ -457,6 +483,7 @@ def cargar_articulo(page: Page, fila_base: int, nombre: str, necesita, codigo=No
     lotes con stock (FEFO, más viejo primero). Usa una fila por lote. Devuelve
     {ok, egresado, pendiente, filas_usadas, detalle:[{fila,lote,venc,cantidad}]}.
     Lo que no se pueda cubrir (sin stock, o se acaban las filas) queda en `pendiente`."""
+    _asegurar_fila(page, fila_base)
     s = f"_{fila_base:04d}"
     res = buscar_articulo_fila(page, s, nombre, codigo)
     if not res.get("ok"):
@@ -469,9 +496,10 @@ def cargar_articulo(page: Page, fila_base: int, nombre: str, necesita, codigo=No
     resto = float(necesita)
     detalle, fila = [], fila_base
     for l in con_stock:
-        if resto <= 0 or fila > max_fila:
+        if resto <= 0:
             break
         toma = min(resto, l["existencia"])
+        _asegurar_fila(page, fila)                 # agrega 'Nueva fila' si hace falta
         sk = f"_{fila:04d}"
         # La primera fila ya tiene el artículo; las siguientes hay que cargarlo de nuevo.
         if fila != fila_base:
@@ -489,9 +517,40 @@ def cargar_articulo(page: Page, fila_base: int, nombre: str, necesita, codigo=No
         resto -= toma
         fila += 1
 
+    # Si el artículo no tenía stock en ningún lote, limpio la fila para no dejar
+    # un renglón con artículo y cantidad 0 (que rechazaría el Confirmar).
+    if not detalle:
+        try:
+            page.fill(f"#vARTICULOID{s}", "")
+            page.keyboard.press("Tab")
+            page.wait_for_load_state("networkidle")
+        except Exception:
+            pass
+
     egresado = float(necesita) - resto
     return {"ok": True, "egresado": egresado, "pendiente": resto,
-            "filas_usadas": fila - fila_base, "detalle": detalle}
+            "filas_usadas": len(detalle), "detalle": detalle}
+
+
+def cargar_movimiento(page: Page, items: list) -> dict:
+    """Carga TODOS los items en un único movimiento (agrega 'Nueva fila' según haga
+    falta). `items`: [{'nombre', 'cantidad', 'codigo'(opcional)}].
+    Devuelve {detalle:[...], pendientes:[{nombre,cantidad,motivo}], filas}."""
+    fila = 1
+    detalle_total, pendientes = [], []
+    for it in items:
+        nombre, cant = it["nombre"], float(it["cantidad"])
+        print(f"  → {nombre}  x{cant}")
+        r = cargar_articulo(page, fila, nombre, cant, codigo=it.get("codigo"))
+        if not r.get("ok"):
+            pendientes.append({"nombre": nombre, "cantidad": cant, "motivo": r.get("motivo", "no se pudo cargar")})
+            continue
+        detalle_total += r["detalle"]
+        if r.get("pendiente", 0) > 0:
+            pendientes.append({"nombre": nombre, "cantidad": r["pendiente"],
+                               "motivo": "stock insuficiente en lotes"})
+        fila += r.get("filas_usadas", 0)
+    return {"detalle": detalle_total, "pendientes": pendientes, "filas": fila - 1}
 
 
 # ── Cargar un renglón de detalle (diagnóstico — Paso 7) ─────────────────────────
