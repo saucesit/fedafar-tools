@@ -348,8 +348,21 @@ def cargar_renglon(page: Page, i: int, nombre, cantidad, codigo=None, lote=None)
         print(f"    ⚠ No se cargó el artículo: {res.get('motivo')}")
         return False
 
+    # Tras seleccionar el artículo, forzar el postback (Tab) que puebla el select
+    # de lotes y las columnas de existencia/vencimiento. Espero a que aparezcan.
+    page.focus(f"#vARTICULOID{s}")
+    page.keyboard.press("Tab")
+    page.wait_for_load_state("networkidle")
+    try:
+        page.wait_for_function(
+            "(sel)=>{const e=document.querySelector(sel); return e && e.options.length>0;}",
+            arg=f"#ARTICULODEPOSITOSTOCKID{s}", timeout=6000)
+    except PWTimeout:
+        print("    ⚠ El select de lotes no se pobló tras el Tab (revisar postback).")
+
     # Snapshot DESPUÉS: qué resolvió el artículo, existencia, vencimiento, lotes.
     _snapshot_fila(page, s, "DESPUÉS de resolver")
+    _dump_lote_select(page, s)
 
     # NOTA: los IDs de lote/cantidad se confirman con el snapshot de arriba.
     # Por ahora, intento no-fatal para no cortar el diagnóstico.
