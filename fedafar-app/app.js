@@ -372,6 +372,14 @@ if (_viGuardar) _viGuardar.addEventListener('click', async () => {
 
 // ── Reporte diario de VENTA INF ──────────────────────────────
 function _viFmt(n) { return '$ ' + Number(n || 0).toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
+// Expandir/colapsar el detalle de una venta/consumo (solo jefe/admin).
+function _viToggleDet(idx) {
+    const el = document.getElementById('vi-det-' + idx); if (!el) return;
+    const abrir = el.style.display === 'none';
+    el.style.display = abrir ? 'block' : 'none';
+    const c = document.getElementById('vi-car-' + idx); if (c) c.textContent = abrir ? '▾' : '▸';
+}
+window._viToggleDet = _viToggleDet;
 async function _viCargarReporte() {
     const cont = document.getElementById('vi-reporte-resumen');
     const fecha = document.getElementById('vi-reporte-fecha').value;
@@ -387,11 +395,27 @@ async function _viCargarReporte() {
         </div>
         <div style="text-align:right;font-weight:600;margin-bottom:6px;">Total día: ${_viFmt(d.total)}</div>`;
         if (d.items.length) {
-            h += '<div style="max-height:120px;overflow-y:auto;">';
-            d.items.forEach(it => {
+            h += '<div style="max-height:200px;overflow-y:auto;">';
+            d.items.forEach((it, idx) => {
                 const ic = it.tipo === 'consumo' ? '👤' : '🛒';
-                h += `<div style="display:flex;justify-content:space-between;padding:3px 0;border-bottom:1px solid #eee;font-size:.75rem;">
-                    <span>${ic} ${it.hora} · ${it.empleado || ''}</span><span>${_viFmt(it.total)}</span></div>`;
+                const verDet = d.puede_ver_detalle && it.detalle && it.detalle.length;
+                h += `<div style="border-bottom:1px solid #eee;">
+                    <div ${verDet ? `onclick="_viToggleDet(${idx})" style="cursor:pointer;"` : 'style=""'} class="vi-mov-row" >
+                        <div style="display:flex;justify-content:space-between;padding:4px 0;font-size:.75rem;">
+                            <span>${verDet ? `<span id="vi-car-${idx}">▸</span> ` : ''}${ic} ${it.hora} · ${it.empleado || ''}</span>
+                            <span style="font-weight:600;">${_viFmt(it.total)}</span>
+                        </div>
+                    </div>`;
+                if (verDet) {
+                    h += `<div id="vi-det-${idx}" style="display:none;padding:2px 0 6px 16px;background:#fafafa;">`;
+                    it.detalle.forEach(p => {
+                        h += `<div style="display:flex;justify-content:space-between;font-size:.7rem;color:#555;padding:2px 0;">
+                            <span>${p.name} <b>×${Number(p.cantidad)}</b></span>
+                            <span>${_viFmt(p.subtotal)}</span></div>`;
+                    });
+                    h += '</div>';
+                }
+                h += '</div>';
             });
             h += '</div>';
         } else { h += '<span style="color:var(--text-muted);">Sin movimientos este día.</span>'; }

@@ -2113,13 +2113,17 @@ def api_venta_inf_reporte():
         def _sum(t):
             g = [v for v in ventas if v.get('tipo') == t]
             return {'cant': len(g), 'total': round(sum(float(v.get('total') or 0) for v in g), 2)}
+        # El detalle (qué productos tiene cada venta/consumo) solo lo ven jefe/admin.
+        es_jefe = current_user.tipo_precio in ('jefe', 'admin')
         return jsonify({
             'fecha': dia.isoformat(),
             'venta': _sum('venta'),
             'consumo': _sum('consumo'),
             'total': round(sum(float(v.get('total') or 0) for v in ventas), 2),
+            'puede_ver_detalle': es_jefe,
             'items': [{'id': v['id'], 'tipo': v['tipo'], 'hora': str(v.get('creado_en') or '')[11:16],
-                       'empleado': v.get('empleado_nombre', ''), 'total': v.get('total')} for v in ventas],
+                       'empleado': v.get('empleado_nombre', ''), 'total': v.get('total'),
+                       'detalle': (v.get('items') or []) if es_jefe else None} for v in ventas],
             'agregado': agregado,
         })
 
