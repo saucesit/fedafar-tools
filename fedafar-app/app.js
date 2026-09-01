@@ -409,9 +409,9 @@ async function _viCargarReporte() {
                 if (verDet) {
                     h += `<div id="vi-det-${idx}" style="display:none;padding:2px 0 6px 16px;background:#fafafa;">`;
                     it.detalle.forEach(p => {
-                        h += `<div style="display:flex;justify-content:space-between;font-size:.7rem;color:#555;padding:2px 0;">
-                            <span>${p.name} <b>×${Number(p.cantidad)}</b></span>
-                            <span>${_viFmt(p.subtotal)}</span></div>`;
+                        h += `<div style="display:flex;justify-content:space-between;gap:6px;font-size:.7rem;color:#555;padding:2px 0;">
+                            <span style="flex:1;">${p.name} <b>×${Number(p.cantidad)}</b> <span style="color:#9ca3af;">(${_viFmt(p.precio_unit)} c/u)</span></span>
+                            <span style="white-space:nowrap;font-weight:600;">${_viFmt(p.subtotal)}</span></div>`;
                     });
                     h += '</div>';
                 }
