@@ -282,7 +282,10 @@ async function _viResolverPendiente(id) {
 window._viResolverPendiente = _viResolverPendiente;
 // En modo venta el precio se redondea hacia arriba al proximo multiplo de 50
 // (sin centavos). En consumo se deja el costo tal cual. Igual que el backend.
-function _viRedondear(n) { n = Number(n) || 0; return n <= 0 ? 0 : Math.ceil(n / 50) * 50; }
+// Menos de $100 (agujas, jeringas...) redondea al proximo peso entero, para no
+// duplicar/triplicar el precio; de $100 en adelante, al proximo multiplo de 50.
+// Igual que el backend (_redondear_venta_inf).
+function _viRedondear(n) { n = Number(n) || 0; if (n <= 0) return 0; return n < 100 ? Math.ceil(n) : Math.ceil(n / 50) * 50; }
 function _viPrecioBase(p) { return _viModo === 'consumo' ? (p.costo || 0) : _viRedondear(p.contado || 0); }
 // Precio efectivo: el editado a mano si existe, si no el base segun el modo.
 function _viPrecio(i) { return (i.precioManual != null && i.precioManual !== '') ? Number(i.precioManual) : _viPrecioBase(i); }

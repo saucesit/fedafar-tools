@@ -1961,11 +1961,15 @@ def get_productos():
 import math
 
 def _redondear_venta_inf(precio):
-    """Redondea hacia arriba al proximo multiplo de 50 (solo modo venta).
-    589 -> 600, 230 -> 250, 250 -> 250, 601 -> 650."""
+    """Redondea hacia arriba (solo modo venta). Productos baratos (< $100, ej.
+    agujas/jeringas) redondean al proximo peso entero para no duplicar/triplicar
+    el precio; de $100 en adelante, al proximo multiplo de 50 como siempre.
+    15.91 -> 16, 55.26 -> 56, 589 -> 600, 230 -> 250, 601 -> 650."""
     p = float(precio or 0)
     if p <= 0:
         return 0.0
+    if p < 100:
+        return float(math.ceil(p))
     return float(math.ceil(p / 50.0) * 50)
 
 def _productos_venta_inf():
