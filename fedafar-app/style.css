@@ -1324,5 +1324,68 @@ body.desktop-mode #faltantes-body .faltante-resumen {
     grid-column: 1 / -1;
 }
 
+/* ── VENTA INF ───────────────────────────────────────────────── */
+#vi-search-results {
+    max-height: 220px;
+    overflow-y: auto;
+    margin-top: 4px;
+}
+.vi-result-item {
+    padding: 8px 10px;
+    border-bottom: 1px solid var(--border);
+    cursor: pointer;
+    font-size: .8rem;
+}
+.vi-result-item:hover { background: var(--bg-subtle, #f5f6f8); }
+.vi-result-item .vi-result-meta { color: #9ca3af; }
+
+/* Escritorio: el modal usa toda la pantalla y se divide en dos columnas —
+   buscador+resultados (grilla) a la izquierda, carrito a la derecha — para
+   aprovechar el espacio y evitar el scroll angosto de 2 resultados a la vez. */
+body.desktop-mode #ventainf-modal { align-items: center; }
+body.desktop-mode #ventainf-modal .cart-content {
+    max-width: 96%;
+    width: 96%;
+    max-height: 94vh;
+    border-radius: 20px;
+}
+body.desktop-mode #vi-layout {
+    display: grid;
+    grid-template-columns: 1.3fr 1fr;
+    gap: 20px;
+    align-items: start;
+    flex: 1;
+    min-height: 0;
+}
+body.desktop-mode #vi-col-buscar,
+body.desktop-mode #vi-col-carrito {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    max-height: 62vh;
+}
+body.desktop-mode #vi-col-carrito {
+    border-left: 1px solid var(--border);
+    padding-left: 20px;
+}
+body.desktop-mode #vi-search-results {
+    max-height: none;
+    flex: 1;
+    overflow-y: auto;
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 6px;
+    align-content: start;
+}
+body.desktop-mode .vi-result-item {
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    border-bottom: 1px solid var(--border);
+}
+body.desktop-mode #vi-cart {
+    overflow-y: auto;
+    flex: 1;
+}
+
 /* ── Utility ─────────────────────────────────────────────────── */
 .hidden { display: none !important; }

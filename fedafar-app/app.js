@@ -286,7 +286,6 @@ function _viRedondear(n) { n = Number(n) || 0; return n <= 0 ? 0 : Math.ceil(n /
 function _viPrecioBase(p) { return _viModo === 'consumo' ? (p.costo || 0) : _viRedondear(p.contado || 0); }
 // Precio efectivo: el editado a mano si existe, si no el base segun el modo.
 function _viPrecio(i) { return (i.precioManual != null && i.precioManual !== '') ? Number(i.precioManual) : _viPrecioBase(i); }
-function _viSetPrecio(name, v) { const it = _viCart.find(i => i.name === name); if (it) { it.precioManual = (v === '' ? null : Math.max(0, parseFloat(v) || 0)); _viRenderCart(); } }
 function _viSetModo(m) {
     _viModo = m;
     document.getElementById('vi-modo-venta').className   = (m === 'venta'   ? 'primary-btn' : 'secondary-btn');
@@ -302,53 +301,82 @@ function _viSetModo(m) {
 const _viMv = document.getElementById('vi-modo-venta');   if (_viMv) _viMv.addEventListener('click', () => _viSetModo('venta'));
 const _viMc = document.getElementById('vi-modo-consumo'); if (_viMc) _viMc.addEventListener('click', () => _viSetModo('consumo'));
 
+// Normaliza para comparar ignorando mayúsculas/acentos/ñ (evita que "nino" no
+// encuentre "NIÑOS", o "jabon" no encuentre "JABÓN").
+function _viNorm(s) { return (s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase(); }
+
+let _viResultados = [];   // último set de resultados de búsqueda (para el click delegado)
+
 const _viSearchEl = document.getElementById('vi-search');
 if (_viSearchEl) _viSearchEl.addEventListener('input', () => {
-    const q = _viSearchEl.value.trim().toLowerCase();
+    const q = _viNorm(_viSearchEl.value.trim());
     const out = document.getElementById('vi-search-results');
-    if (q.length < 2) { out.innerHTML = ''; return; }
-    const res = _viProductos.filter(p => p.name.toLowerCase().includes(q)).slice(0, 12);
-    out.innerHTML = res.map(p => `<div onclick="_viAdd('${p.name.replace(/'/g, "\\'")}')" style="padding:6px 8px;border-bottom:1px solid var(--border);cursor:pointer;font-size:.8rem;">
-        ${p.name} <span style="color:#9ca3af;">· $${(_viPrecio(p)).toLocaleString('es-AR')}${p.stock != null ? ` · stock ${p.stock}` : ''}</span></div>`).join('')
+    if (q.length < 2) { out.innerHTML = ''; _viResultados = []; return; }
+    _viResultados = _viProductos.filter(p => _viNorm(p.name).includes(q));
+    out.innerHTML = _viResultados.map((p, idx) => `<div class="vi-result-item" data-idx="${idx}">
+        ${p.name} <span class="vi-result-meta">· $${(_viPrecio(p)).toLocaleString('es-AR')}${p.stock != null ? ` · stock ${p.stock}` : ''}</span></div>`).join('')
         || '<p style="font-size:.78rem;color:#9ca3af;padding:6px;">Sin resultados</p>';
 });
+// Delegación de eventos: nunca se rompe aunque el nombre tenga comillas u otros
+// caracteres especiales (a diferencia de armar el nombre dentro de un onclick).
+const _viResultsEl = document.getElementById('vi-search-results');
+if (_viResultsEl) _viResultsEl.addEventListener('click', (ev) => {
+    const row = ev.target.closest('.vi-result-item'); if (!row) return;
+    const p = _viResultados[Number(row.dataset.idx)]; if (!p) return;
+    _viAddProducto(p);
+});
 
-function _viAdd(name) {
-    const p = _viProductos.find(x => x.name === name); if (!p) return;
-    const ex = _viCart.find(i => i.name === name);
+function _viAddProducto(p) {
+    const ex = _viCart.find(i => i.name === p.name);
     if (ex) ex.cantidad += 1; else _viCart.push({ ...p, cantidad: 1 });
-    document.getElementById('vi-search').value = ''; document.getElementById('vi-search-results').innerHTML = '';
+    document.getElementById('vi-search').value = ''; document.getElementById('vi-search-results').innerHTML = ''; _viResultados = [];
     _viRenderCart();
 }
-function _viDel(name) { _viCart = _viCart.filter(i => i.name !== name); _viRenderCart(); }
-function _viQty(name, v) { const it = _viCart.find(i => i.name === name); if (it) it.cantidad = Math.max(0, parseFloat(v) || 0); _viRenderCart(); }
-function _viInc(name, d) { const it = _viCart.find(i => i.name === name); if (it) { it.cantidad = Math.max(0, (parseFloat(it.cantidad) || 0) + d); _viRenderCart(); } }
-window._viAdd = _viAdd; window._viDel = _viDel; window._viQty = _viQty; window._viInc = _viInc; window._viSetPrecio = _viSetPrecio;
+function _viDelIdx(idx) { _viCart.splice(idx, 1); _viRenderCart(); }
+function _viQtyIdx(idx, v) { const it = _viCart[idx]; if (it) it.cantidad = Math.max(0, parseFloat(v) || 0); _viRenderCart(); }
+function _viIncIdx(idx, d) { const it = _viCart[idx]; if (it) { it.cantidad = Math.max(0, (parseFloat(it.cantidad) || 0) + d); _viRenderCart(); } }
+function _viSetPrecioIdx(idx, v) { const it = _viCart[idx]; if (it) { it.precioManual = (v === '' ? null : Math.max(0, parseFloat(v) || 0)); _viRenderCart(); } }
 
 function _viRenderCart() {
     const el = document.getElementById('vi-cart'); if (!el) return;
     let total = 0;
-    el.innerHTML = _viCart.map(i => {
+    el.innerHTML = _viCart.map((i, idx) => {
         const pu = _viPrecio(i), sub = pu * i.cantidad; total += sub;
-        const nm = i.name.replace(/'/g, "\\'");
-        const btn = 'width:28px;height:28px;border:1px solid var(--border);border-radius:6px;background:#fff;font-size:1rem;font-weight:700;cursor:pointer;line-height:1;';
         const edit = i.precioManual != null && i.precioManual !== '';
-        return `<div style="display:flex;gap:6px;align-items:center;padding:6px 0;border-bottom:1px solid var(--border);font-size:.8rem;flex-wrap:wrap;">
+        return `<div class="vi-cart-row" data-idx="${idx}" style="display:flex;gap:6px;align-items:center;padding:6px 0;border-bottom:1px solid var(--border);font-size:.8rem;flex-wrap:wrap;">
             <span style="flex:1 1 100%;">${i.name}</span>
             <div style="display:flex;gap:2px;align-items:center;">
                 <span style="color:#9ca3af;font-size:.72rem;">$</span>
-                <input type="number" min="0" step="0.01" value="${_viPrecio(i)}" onchange="_viSetPrecio('${nm}',this.value)" title="Precio unitario (editable)"
+                <input type="number" min="0" step="0.01" value="${_viPrecio(i)}" class="vi-precio-input" title="Precio unitario (editable)"
                     style="width:70px;padding:3px;border:1px solid ${edit ? '#2563eb' : 'var(--border)'};border-radius:5px;font-size:.78rem;text-align:right;${edit ? 'color:#2563eb;font-weight:600;' : ''}">
                 <span style="color:#9ca3af;font-size:.7rem;">c/u</span>
             </div>
-            <button onclick="_viInc('${nm}',-1)" style="${btn}">−</button>
-            <input type="number" min="0" value="${i.cantidad}" onchange="_viQty('${nm}',this.value)" style="width:46px;padding:3px;border:1px solid var(--border);border-radius:5px;font-size:.8rem;text-align:center;">
-            <button onclick="_viInc('${nm}',1)" style="${btn}">+</button>
+            <button class="vi-inc-btn" data-d="-1" style="width:28px;height:28px;border:1px solid var(--border);border-radius:6px;background:#fff;font-size:1rem;font-weight:700;cursor:pointer;line-height:1;">−</button>
+            <input type="number" min="0" value="${i.cantidad}" class="vi-cant-input" style="width:46px;padding:3px;border:1px solid var(--border);border-radius:5px;font-size:.8rem;text-align:center;">
+            <button class="vi-inc-btn" data-d="1" style="width:28px;height:28px;border:1px solid var(--border);border-radius:6px;background:#fff;font-size:1rem;font-weight:700;cursor:pointer;line-height:1;">+</button>
             <span style="flex:1;text-align:right;font-weight:600;">$${sub.toLocaleString('es-AR')}</span>
-            <button onclick="_viDel('${nm}')" style="border:none;background:none;color:#dc2626;cursor:pointer;">✕</button>
+            <button class="vi-del-btn" style="border:none;background:none;color:#dc2626;cursor:pointer;">✕</button>
         </div>`;
     }).join('') || '<p style="font-size:.8rem;color:#9ca3af;text-align:center;padding:10px;">Agregá productos con el buscador.</p>';
     document.getElementById('vi-total').textContent = '$ ' + total.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+// Delegación de eventos del carrito (cantidad, precio, +/-, borrar) — robusto
+// ante cualquier caracter en el nombre del producto.
+const _viCartEl = document.getElementById('vi-cart');
+if (_viCartEl) {
+    _viCartEl.addEventListener('click', (ev) => {
+        const row = ev.target.closest('.vi-cart-row'); if (!row) return;
+        const idx = Number(row.dataset.idx);
+        if (ev.target.closest('.vi-del-btn')) { _viDelIdx(idx); return; }
+        const inc = ev.target.closest('.vi-inc-btn');
+        if (inc) { _viIncIdx(idx, Number(inc.dataset.d)); return; }
+    });
+    _viCartEl.addEventListener('change', (ev) => {
+        const row = ev.target.closest('.vi-cart-row'); if (!row) return;
+        const idx = Number(row.dataset.idx);
+        if (ev.target.classList.contains('vi-cant-input')) _viQtyIdx(idx, ev.target.value);
+        else if (ev.target.classList.contains('vi-precio-input')) _viSetPrecioIdx(idx, ev.target.value);
+    });
 }
 function _viMsg(t, tipo) { const e = document.getElementById('vi-msg'); if (!e) return; e.textContent = t || ''; e.className = 'docs-msg' + (tipo ? ' ' + tipo : '') + (t ? '' : ' hidden'); }
 

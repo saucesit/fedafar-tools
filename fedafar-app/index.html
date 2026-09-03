@@ -293,9 +293,15 @@
                 <button id="vi-modo-consumo" class="secondary-btn" style="flex:1;font-size:.85rem;">👤 Consumo personal</button>
             </div>
             <p id="vi-modo-info" style="font-size:.72rem;color:var(--text-muted);margin:0 0 8px;">Venta a cliente — precio de venta (contado).</p>
-            <input type="text" id="vi-search" class="docs-input" placeholder="🔍 Buscar producto para agregar..." autocomplete="off">
-            <div id="vi-search-results" style="max-height:150px;overflow-y:auto;"></div>
-            <div id="vi-cart" class="cuenta-body" style="margin-top:6px;"></div>
+            <div id="vi-layout">
+                <div id="vi-col-buscar">
+                    <input type="text" id="vi-search" class="docs-input" placeholder="🔍 Buscar producto para agregar..." autocomplete="off">
+                    <div id="vi-search-results"></div>
+                </div>
+                <div id="vi-col-carrito">
+                    <div id="vi-cart" class="cuenta-body"></div>
+                </div>
+            </div>
             <div class="cart-footer">
                 <div class="cart-total"><span>Total:</span><span id="vi-total">$ 0,00</span></div>
                 <div class="cart-actions">
@@ -547,7 +553,7 @@
         </div>
     </div>
 
-    <script src="app.js?v=20260901b"></script>
+    <script src="app.js?v=20260901c"></script>
 
     <!-- ── Registro del Service Worker (PWA) ──────────────────── -->
     <script>
