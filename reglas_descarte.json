@@ -5,7 +5,8 @@
     "malla": "cubre 'malla prolene' y 'malla de polipropileno' (mismo producto, distinto nombre)",
     " lca": "va con espacio adelante: 'lca' suelto matchearía dentro de palabras como 'alcalina'",
     "sonda": "cubre sonda nasogástrica y nasoyeyunal",
-    "protesis": "seguro por título: los Dexcom se llaman 'MATERIAL PARA DIABETES'/'SENSOR CONTINUO DE GLUCOSA'. 'Prótesis' es el nombre de la plataforma de IPS, no del título"
+    "protesis": "seguro por título: los Dexcom se llaman 'MATERIAL PARA DIABETES'/'SENSOR CONTINUO DE GLUCOSA'. 'Prótesis' es el nombre de la plataforma de IPS, no del título",
+    "freestyle / free style": "marca de sensores de glucosa (competidor de Dexcom): hay un proveedor que siempre gana esas licitaciones, no competimos. Es de diabetes (rubro que sí cotizamos) pero la marca puntual se descarta. Validado sep-2026: 0 choques en CRM/APLICA. Dos entradas (con y sin espacio) por las dos formas de escribirla."
   },
   "palabras_descarte": [
     "audifono",
@@ -37,6 +38,8 @@
     "boton gastrico",
     "trucut",
     "tru cut",
-    "heber"
+    "heber",
+    "freestyle",
+    "free style"
   ]
 }
