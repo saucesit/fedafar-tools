@@ -246,6 +246,7 @@ async function abrirVentaInf() {
     ventainfModal.classList.remove('hidden');
     _viCart = []; _viRenderCart(); _viMsg('');
     document.getElementById('vi-search').value = ''; document.getElementById('vi-search-results').innerHTML = '';
+    const _viClienteEl = document.getElementById('vi-cliente'); if (_viClienteEl) _viClienteEl.value = '';
     if (!_viProductos.length) {
         try { const r = await fetch(`${BASE_URL}/api/venta-inf/productos`, { credentials: 'include' }); if (r.ok) _viProductos = await r.json(); } catch (e) {}
     }
@@ -387,14 +388,16 @@ const _viGuardar = document.getElementById('vi-guardar');
 if (_viGuardar) _viGuardar.addEventListener('click', async () => {
     const items = _viCart.filter(i => i.cantidad > 0).map(i => ({ name: i.name, cantidad: i.cantidad, precio_unit: _viPrecio(i) }));
     if (!items.length) { _viMsg('Agregá al menos un producto.', 'error'); return; }
+    const clienteNombre = (document.getElementById('vi-cliente')?.value || '').trim();
     _viGuardar.disabled = true; _viGuardar.textContent = 'Guardando...';
     try {
-        const r = await fetch(`${BASE_URL}/api/venta-inf`, { method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tipo: _viModo, items }) });
+        const r = await fetch(`${BASE_URL}/api/venta-inf`, { method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tipo: _viModo, items, cliente_nombre: clienteNombre }) });
         const d = await r.json();
         if (r.ok && d.ok) {
             _viMsg('✅ Guardado. Descargando hoja…', 'success');
             await _camaraDescarga(`${BASE_URL}/api/venta-inf/${d.id}/hoja`, `venta_${d.id}.pdf`, 'No se pudo generar la hoja');
             _viCart = []; _viRenderCart();
+            const _viClienteEl = document.getElementById('vi-cliente'); if (_viClienteEl) _viClienteEl.value = '';
             setTimeout(() => _viMsg(''), 2500);
         } else { _viMsg('Error: ' + (d.error || r.status), 'error'); }
     } catch (e) { _viMsg('Error de conexión.', 'error'); }
@@ -433,7 +436,7 @@ async function _viCargarReporte() {
                 h += `<div style="border-bottom:1px solid #eee;">
                     <div ${verDet ? `onclick="_viToggleDet(${idx})" style="cursor:pointer;"` : 'style=""'} class="vi-mov-row" >
                         <div style="display:flex;justify-content:space-between;padding:4px 0;font-size:.75rem;">
-                            <span>${verDet ? `<span id="vi-car-${idx}">▸</span> ` : ''}${ic} ${it.hora} · ${it.empleado || ''}</span>
+                            <span>${verDet ? `<span id="vi-car-${idx}">▸</span> ` : ''}${ic} ${it.hora} · ${it.empleado || ''}${it.cliente ? ` · <b>${it.cliente}</b>` : ''}</span>
                             <span style="font-weight:600;">${_viFmt(it.total)}</span>
                         </div>
                     </div>`;

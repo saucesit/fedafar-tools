@@ -2002,6 +2002,9 @@ def api_venta_inf_crear():
     pedidos = data.get('items') or []
     if not pedidos:
         return jsonify({'error': 'Sin productos'}), 400
+    # Nombre del cliente: opcional, solo para identificar la venta. Vacío = no
+    # se guarda nada (se ve igual que antes).
+    cliente_nombre = (data.get('cliente_nombre') or '').strip()[:80] or None
 
     cat = _productos_venta_inf()
     items, total = [], 0.0
@@ -2040,6 +2043,7 @@ def api_venta_inf_crear():
             'tipo':            tipo,
             'empleado_id':     current_user.id,
             'empleado_nombre': current_user.nombre,
+            'cliente_nombre':  cliente_nombre,
             'items':           items,
             'total':           round(total, 2),
             'creado_en':       datetime.now(timezone.utc).isoformat(),
@@ -2126,7 +2130,8 @@ def api_venta_inf_reporte():
             'total': round(sum(float(v.get('total') or 0) for v in ventas), 2),
             'puede_ver_detalle': es_jefe,
             'items': [{'id': v['id'], 'tipo': v['tipo'], 'hora': str(v.get('creado_en') or '')[11:16],
-                       'empleado': v.get('empleado_nombre', ''), 'total': v.get('total'),
+                       'empleado': v.get('empleado_nombre', ''), 'cliente': v.get('cliente_nombre') or '',
+                       'total': v.get('total'),
                        'detalle': (v.get('items') or []) if es_jefe else None} for v in ventas],
             'agregado': agregado,
         })

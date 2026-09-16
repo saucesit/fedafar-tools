@@ -33,6 +33,9 @@ def generar_hoja(venta):
     pdf.set_font('Helvetica', '', 9)
     pdf.set_text_color(90, 90, 90)
     pdf.cell(0, 5, f'Fecha: {fecha}', ln=1)
+    cliente = (venta.get('cliente_nombre') or '').strip()
+    if cliente:
+        pdf.cell(0, 5, f'Cliente: {cliente}', ln=1)
     pdf.ln(3)
 
     # Encabezado tabla
@@ -113,7 +116,9 @@ def generar_reporte_dia(fecha, ventas):
         for v in grupo:
             hora = str(v.get('creado_en') or '')[11:16]
             n_items = len(v.get('items') or [])
-            pdf.cell(0, 5, f'   {hora}  -  {v.get("empleado_nombre","")}  -  {n_items} items  -  $ {_fmt(v.get("total"))}', ln=1)
+            cliente = (v.get('cliente_nombre') or '').strip()
+            cli_txt = f'  -  Cliente: {cliente}' if cliente else ''
+            pdf.cell(0, 5, f'   {hora}  -  {v.get("empleado_nombre","")}  -  {n_items} items  -  $ {_fmt(v.get("total"))}{cli_txt}', ln=1)
         pdf.ln(3)
 
     total_gral = sum(float(v.get('total') or 0) for v in ventas)
