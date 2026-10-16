@@ -136,7 +136,12 @@
             <div class="cart-content">
                 <div class="cart-header">
                     <h2>Tu Pedido</h2>
-                    <button id="close-cart" class="icon-btn"><i data-lucide="x"></i></button>
+                    <div style="display:flex;gap:6px;align-items:center;">
+                        <button id="vaciar-carrito" class="secondary-btn hidden" style="font-size:.75rem;padding:6px 10px;color:#dc2626;border-color:#fecaca;">
+                            <i data-lucide="trash-2" style="width:14px;height:14px;"></i> Vaciar carrito
+                        </button>
+                        <button id="close-cart" class="icon-btn"><i data-lucide="x"></i></button>
+                    </div>
                 </div>
                 <div id="cart-items" class="cart-items-list"></div>
                 <div class="cart-footer">
@@ -554,7 +559,7 @@
         </div>
     </div>
 
-    <script src="app.js?v=20260916"></script>
+    <script src="app.js?v=20261016"></script>
 
     <!-- ── Registro del Service Worker (PWA) ──────────────────── -->
     <script>

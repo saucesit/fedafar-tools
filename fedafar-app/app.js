@@ -930,6 +930,9 @@ function updateCart() {
     const totalQty = cart.reduce((sum, item) => sum + item.qty, 0);
     cartCount.innerText = totalQty;
     cartItemsContainer.innerHTML = '';
+    // El boton de vaciar solo tiene sentido si hay algo cargado.
+    const btnVaciar = document.getElementById('vaciar-carrito');
+    if (btnVaciar) btnVaciar.classList.toggle('hidden', cart.length === 0);
     let totalValue = 0;
 
     cart.forEach(item => {
@@ -980,6 +983,18 @@ function removeItem(productId) {
     cart = cart.filter(item => item.id !== productId);
     updateCart();
 }
+
+// Vaciar todo el carrito de una. El carrito queda guardado en el navegador,
+// asi que al volver a entrar reaparece el pedido anterior; esto deja arrancar
+// de cero sin borrar producto por producto.
+const btnVaciarCarrito = document.getElementById('vaciar-carrito');
+if (btnVaciarCarrito) btnVaciarCarrito.addEventListener('click', () => {
+    const totalQty = cart.reduce((sum, item) => sum + item.qty, 0);
+    if (!cart.length) return;
+    if (!confirm(`¿Vaciar el carrito? Se van a quitar ${cart.length} producto(s) (${totalQty} unidades).`)) return;
+    cart = [];
+    updateCart();
+});
 
 // ── Mi Cuenta ──────────────────────────────────────────────────────────────────
 
