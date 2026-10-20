@@ -678,8 +678,12 @@ def clean_name_for_matching(name):
 
 def fuzzy_stock_match(price_name, stock_dict):
     price_name_clean = clean_name_for_matching(price_name)
-    if price_name_clean in stock_dict:
-        return stock_dict[price_name_clean]
+    # Comparar normalizado contra normalizado: clean_name_for_matching pega el
+    # " X " ("RESAQUIT X 4" -> "RESAQUITX4"), asi que comparar contra la clave
+    # cruda del stock nunca coincidia y el producto quedaba afuera.
+    for stock_name, stock_val in stock_dict.items():
+        if clean_name_for_matching(stock_name) == price_name_clean:
+            return stock_val
     parts = price_name_clean.split()
     if not parts:
         return None
@@ -759,7 +763,15 @@ def parse_price_list(tipo='contado', incluir_costo=False):
         col_art = 'artículo' if 'artículo' in df.columns else 'articulo'
         col_lab = 'laboratorio'
         articulo = str(row.get(col_art, row.iloc[1])).strip()
+        # Quitar el codigo del final del nombre. Ojo: hay codigos con letras
+        # (DGE00515, DAG00520...), no solo numericos; si no se sacan, el nombre
+        # no matchea con el del reporte de stock y el producto no aparece.
         name     = re.sub(r'\s*-\s*\d+\s*$', '', articulo).strip()
+        if name == articulo.strip():
+            cod_art = str(row.iloc[0]).strip()   # 1ra columna = codigo del articulo
+            if cod_art and cod_art.lower() != 'nan':
+                name = re.sub(r'\s*-\s*' + re.escape(cod_art) + r'\s*$', '',
+                              articulo, flags=re.I).strip()
         lab      = str(row.get(col_lab, 'GENERICO')).strip() if pd.notna(row.get(col_lab, None)) else 'GENERICO'
 
         # Categoría
