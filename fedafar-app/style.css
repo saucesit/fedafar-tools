@@ -1325,6 +1325,37 @@ body.desktop-mode #faltantes-body .faltante-resumen {
 }
 
 /* ── VENTA INF ───────────────────────────────────────────────── */
+/* En celular el carrito tiene overflow-y:auto y flex:1 (de .cuenta-body),
+   pero sus contenedores no eran flex, asi que ese flex:1 no hacia nada: la
+   lista crecia sin limite, empujaba el footer fuera de la pantalla y a
+   partir del 5to item ya no se podia desplazar ni llegar a Guardar.
+   Hay que encadenar flex + min-height:0 hasta el carrito para que scrollee. */
+#ventainf-modal .cart-content {
+    max-height: 90vh;
+    padding: 20px;
+}
+#ventainf-modal .cart-header,
+#ventainf-modal .cart-footer { flex-shrink: 0; }
+#vi-layout {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    min-height: 0;
+}
+#vi-col-buscar { flex-shrink: 0; }
+#vi-col-carrito {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    min-height: 0;
+}
+#vi-cart {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+    margin-bottom: 10px;
+}
 #vi-search-results {
     max-height: 220px;
     overflow-y: auto;
