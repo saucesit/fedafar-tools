@@ -2905,11 +2905,21 @@ def _precalentar_catalogo():
         _precalentado_info['detalle'] = f'{type(e).__name__}: {e}'
         print(f"No se pudo precalentar el catalogo: {e}")
 
-def _arrancar_precalentado():
+# El hilo NO se puede lanzar al importar el modulo: gunicorn importa la app y
+# despues forkea el worker, y los hilos no sobreviven al fork — el worker
+# heredaba el estado "corriendo" sin ningun hilo vivo detras (verificado en
+# produccion: se quedo asi mas de 8 minutos con el cache vacio). Se lanza en el
+# primer request que atiende el worker, que si corre post-fork.
+_precalentado_lanzado = False
+
+@app.before_request
+def _lanzar_precalentado():
+    global _precalentado_lanzado
+    if _precalentado_lanzado:
+        return
+    _precalentado_lanzado = True
     import threading
     threading.Thread(target=_precalentar_catalogo, daemon=True).start()
-
-_arrancar_precalentado()
 
 
 @app.route('/api/health', methods=['GET'])
