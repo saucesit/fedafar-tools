@@ -2919,6 +2919,7 @@ def api_health():
         'ok': True,
         'catalogo_en_cache': len(_price_cache),
         'pid': os.getpid(),
+        'commit': (os.getenv('RENDER_GIT_COMMIT') or 'local')[:8],
         'en_render': EN_RENDER,
         'precalentado': _precalentado_info,
     })
