@@ -626,14 +626,26 @@ def admin_update_cliente(cliente_id):
 
 STOCK_JSON_PATH = os.path.join(BASE_DIR, 'stock_data.json')
 
+# En Render (o cualquier host fuera de la LAN) la IP 192.168.0.35 es inalcanzable
+# y el intento se come el timeout completo en CADA build del catalogo. Lo salteamos
+# si estamos en Render, y si falla una vez no lo reintentamos por un rato.
+EN_RENDER = bool(os.getenv('RENDER') or os.getenv('RENDER_SERVICE_ID'))
+_lan_caida_hasta = 0.0          # timestamp: no reintentar la LAN antes de este momento
+_LAN_BACKOFF     = 600          # 10 minutos
+
 def get_stock_data():
+    import time as _t
+    global _lan_caida_hasta
     stock_dict = {}
 
     # 1. Intentar desde la red interna (tiempo real, solo en red local)
-    try:
+    if EN_RENDER or _t.time() < _lan_caida_hasta:
+        pass
+    else:
+      try:
         import requests
         from io import BytesIO
-        r = requests.get(STOCK_URL, timeout=5)
+        r = requests.get(STOCK_URL, timeout=(1.5, 4))
         r.raise_for_status()
         df = pd.read_excel(BytesIO(r.content), skiprows=5, header=None,
             names=['Articulo','Descripcion','Tranzable','Existencia','Lote','FechaVenc','Serie','Cantidad'])
@@ -643,8 +655,9 @@ def get_stock_data():
             stock_dict[str(nombre).strip().upper()] = float(stock)
         print(f"Stock cargado: {len(stock_dict)} productos desde red interna.")
         return stock_dict
-    except Exception:
-        pass
+      except Exception:
+        stock_dict = {}
+        _lan_caida_hasta = _t.time() + _LAN_BACKOFF
 
     # 2. Supabase (actualizado por sync_stock.py — funciona en Render)
     try:
@@ -668,29 +681,59 @@ def get_stock_data():
 
     return stock_dict
 
-def clean_name_for_matching(name):
-    name = name.upper()
-    name = re.sub(r'\s+', ' ', name)
-    name = name.replace("COMPR", "COMP")
-    name = name.replace(" X ", "X")
-    name = name.replace(" MG", "MG")
-    return name.strip()
+_clean_cache: dict = {}
 
-def fuzzy_stock_match(price_name, stock_dict):
+def clean_name_for_matching(name):
+    cached = _clean_cache.get(name)
+    if cached is not None:
+        return cached
+    out = name.upper()
+    out = re.sub(r'\s+', ' ', out)
+    out = out.replace("COMPR", "COMP")
+    out = out.replace(" X ", "X")
+    out = out.replace(" MG", "MG")
+    out = out.strip()
+    if len(_clean_cache) < 20000:
+        _clean_cache[name] = out
+    return out
+
+def construir_indice_stock(stock_dict):
+    """Indexa el stock UNA sola vez por build del catalogo.
+
+    Antes fuzzy_stock_match recorria el dict de stock entero por cada producto
+    de la lista de precios y re-normalizaba cada nombre en cada comparacion:
+    533 productos x 488 nombres de stock = ~390.000 normalizaciones con regex
+    por cada armado del catalogo. Era el 80% del tiempo de parse_price_list.
+    Con el indice, el match exacto es O(1) y el por tokens solo recorre los
+    nombres que comparten la primera palabra."""
+    exacto    = {}
+    por_token = {}
+    for stock_name, stock_val in stock_dict.items():
+        limpio = clean_name_for_matching(stock_name)
+        exacto.setdefault(limpio, stock_val)
+        tokens = limpio.split()
+        # Se indexa por CADA token del nombre de stock, no solo por el primero:
+        # el filtro original era "la 1ra palabra del precio aparece en cualquier
+        # posicion del nombre de stock". Indexar solo por la 1ra palabra del
+        # stock dejaria afuera matches legitimos con las palabras invertidas.
+        for t in set(tokens):
+            por_token.setdefault(t, []).append((tokens, stock_val))
+    return {'exacto': exacto, 'por_token': por_token}
+
+def fuzzy_stock_match(price_name, stock_dict, indice=None):
+    if indice is None:
+        indice = construir_indice_stock(stock_dict)
     price_name_clean = clean_name_for_matching(price_name)
     # Comparar normalizado contra normalizado: clean_name_for_matching pega el
     # " X " ("RESAQUIT X 4" -> "RESAQUITX4"), asi que comparar contra la clave
     # cruda del stock nunca coincidia y el producto quedaba afuera.
-    for stock_name, stock_val in stock_dict.items():
-        if clean_name_for_matching(stock_name) == price_name_clean:
-            return stock_val
+    val = indice['exacto'].get(price_name_clean)
+    if val is not None:
+        return val
     parts = price_name_clean.split()
     if not parts:
         return None
-    for stock_name, stock_val in stock_dict.items():
-        stock_parts = clean_name_for_matching(stock_name).split()
-        if parts[0] not in stock_parts:
-            continue
+    for stock_parts, stock_val in indice['por_token'].get(parts[0], ()):
         # TODOS los tokens del nombre deben estar en el del stock. La tolerancia
         # anterior (permitir que difiera 1 token) confundía productos distintos que
         # solo cambian la marca, la dosis o la presentación, y les prestaba stock:
@@ -702,7 +745,12 @@ def fuzzy_stock_match(price_name, stock_dict):
     return None
 
 _price_cache: dict = {}   # { tipo: (timestamp, [products]) }
-_CACHE_TTL = 900          # 15 minutos
+# 1 hora. Antes eran 15 minutos, justo el tiempo que Render tarda en dormir el
+# servicio en el plan free: el cache practicamente nunca llegaba caliente a un
+# cliente real. Los datos de origen (price_list.xlsx y stock_data.json) se
+# actualizan una vez por dia con sync_diario.bat, que pushea y redeploya (lo
+# que limpia el cache igual), asi que una hora no muestra nada viejo.
+_CACHE_TTL = 3600
 
 def invalidar_cache_productos():
     _price_cache.clear()
@@ -718,6 +766,7 @@ def parse_price_list(tipo='contado', incluir_costo=False):
 
     products   = []
     stock_dict = get_stock_data()
+    indice_stock = construir_indice_stock(stock_dict) if stock_dict else None
     principios = get_principios()
     es_empleado = tipo in ('empleado', 'jefe', 'admin', 'farmaceutico', 'jefe_deposito')
 
@@ -803,7 +852,7 @@ def parse_price_list(tipo='contado', incluir_costo=False):
         # Filtrar por stock (solo si hay datos disponibles)
         stock_val = None
         if len(stock_dict) > 0:
-            stock_val = fuzzy_stock_match(name, stock_dict)
+            stock_val = fuzzy_stock_match(name, stock_dict, indice_stock)
             if stock_val is None or stock_val <= 0:
                 continue
 
@@ -2810,6 +2859,32 @@ def api_intercambios_borrar(id):
         return jsonify({'ok': True})
     except Exception as e:
         return jsonify({'error': str(e)}), 500
+
+# ── Precalentado del catalogo ─────────────────────────────────────────────────
+# Armar el catalogo lleva unos segundos (leer el Excel, traer el stock, matchear).
+# Si el primer cliente que entra despues de un arranque en frio es el que paga
+# ese costo, la app "tarda muchisimo en mostrar el catalogo". Lo armamos en
+# segundo plano al arrancar, asi el cache ya esta listo cuando entra alguien.
+def _precalentar_catalogo():
+    try:
+        for tipo in ('contado', 'cta-cte'):
+            parse_price_list(tipo)
+        print("Catalogo precalentado en cache.")
+    except Exception as e:
+        print(f"No se pudo precalentar el catalogo: {e}")
+
+def _arrancar_precalentado():
+    import threading
+    threading.Thread(target=_precalentar_catalogo, daemon=True).start()
+
+_arrancar_precalentado()
+
+
+@app.route('/api/health', methods=['GET'])
+def api_health():
+    """Endpoint liviano para el keepalive (evita que Render duerma el servicio)."""
+    return jsonify({'ok': True, 'catalogo_en_cache': len(_price_cache)})
+
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5001))

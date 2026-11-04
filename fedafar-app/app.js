@@ -791,13 +791,18 @@ function showPriceBadge() {
 // ── Productos ──────────────────────────────────────────────────────────────────
 
 function renderProducts(filter = '', category = 'all') {
-    productGrid.innerHTML = '';
+    // El termino se normaliza UNA vez. Antes se hacia filter.toLowerCase() tres
+    // veces por producto (casi 1000 veces por tecla) y los campos del producto
+    // se re-bajaban a minuscula en cada busqueda.
+    const q = filter.trim().toLowerCase();
     const filtered = PRODUCTS.filter(p => {
-        const matchesSearch = p.name.toLowerCase().includes(filter.toLowerCase()) ||
-                              p.lab.toLowerCase().includes(filter.toLowerCase()) ||
-                              (p.principio && p.principio.toLowerCase().includes(filter.toLowerCase()));
-        const matchesCat = category === 'all' || p.category === category;
-        return matchesSearch && matchesCat;
+        if (q) {
+            if (p._busq === undefined) {
+                p._busq = (p.name + ' ' + p.lab + ' ' + (p.principio || '')).toLowerCase();
+            }
+            if (!p._busq.includes(q)) return false;
+        }
+        return category === 'all' || p.category === category;
     });
 
     if (filtered.length === 0) {
@@ -811,9 +816,8 @@ function renderProducts(filter = '', category = 'all') {
         return;
     }
 
+    const partes = [];
     filtered.forEach(product => {
-        const card = document.createElement('div');
-        card.className = 'product-card';
         const principioHtml = product.principio ? `<p class="prod-principio">${product.principio}</p>` : '';
         const promoHtml     = product.promo ? `<p class="prod-promo">${product.promo}</p>` : '';
         const tipo       = currentUser?.tipo_precio;
@@ -828,7 +832,7 @@ function renderProducts(filter = '', category = 'all') {
                     <input type="number" id="qty-${product.id}" class="qty-input" value="1" min="1">
                     <button class="add-btn" data-id="${product.id}">Añadir</button>
                 </div>` : '';
-            card.innerHTML = `
+            partes.push(`<div class="product-card">
                 <div class="prod-info prod-info--empleado">
                     <span class="prod-lab">${product.lab}</span>
                     <h3>${product.name}</h3>
@@ -851,10 +855,10 @@ function renderProducts(filter = '', category = 'all') {
                     ${promoHtml}
                 </div>
                 ${cartHtml}
-            `;
+            </div>`);
         } else {
             const precioTexto = product.price === 0 ? 'Sin cargo' : `$ ${product.price.toLocaleString('es-AR')}`;
-            card.innerHTML = `
+            partes.push(`<div class="product-card">
                 <div class="prod-info">
                     <span class="prod-lab">${product.lab}</span>
                     <h3>${product.name}</h3>
@@ -866,26 +870,30 @@ function renderProducts(filter = '', category = 'all') {
                     <input type="number" id="qty-${product.id}" class="qty-input" value="1" min="1">
                     <button class="add-btn" data-id="${product.id}">Añadir</button>
                 </div>
-            `;
+            </div>`);
         }
-        productGrid.appendChild(card);
     });
 
-    const notaPie = document.createElement('p');
-    notaPie.style.cssText = 'width:100%;text-align:center;color:var(--text-muted);font-size:.82rem;padding:18px 16px 8px;';
-    notaPie.textContent = '¿No encontrás lo que buscás? Es posible que no tenga stock disponible. Consultanos.';
-    productGrid.appendChild(notaPie);
+    partes.push('<p style="width:100%;text-align:center;color:var(--text-muted);font-size:.82rem;padding:18px 16px 8px;">¿No encontrás lo que buscás? Es posible que no tenga stock disponible. Consultanos.</p>');
 
-    lucide.createIcons();
+    // Una sola escritura al DOM en lugar de un appendChild por producto.
+    // Tampoco se llama a lucide.createIcons(): las tarjetas no tienen iconos,
+    // y esa llamada recorria TODO el documento en cada tecla del buscador.
+    productGrid.innerHTML = partes.join('');
+}
 
-    document.querySelectorAll('.add-btn').forEach(btn => {
-        btn.addEventListener('click', () => {
-            const id       = parseInt(btn.dataset.id);
-            const qtyInput = document.getElementById(`qty-${id}`);
-            const qty      = Math.max(1, parseInt(qtyInput.value) || 1);
-            qtyInput.value = qty;
-            addToCart(id, qty);
-        });
+// Los botones "Añadir" se manejan con un solo listener delegado en la grilla.
+// Antes se creaban ~330 listeners nuevos en cada render (cada tecla del buscador).
+if (productGrid && !productGrid.dataset.delegado) {
+    productGrid.dataset.delegado = '1';
+    productGrid.addEventListener('click', (e) => {
+        const btn = e.target.closest('.add-btn');
+        if (!btn || !productGrid.contains(btn)) return;
+        const id       = parseInt(btn.dataset.id);
+        const qtyInput = document.getElementById(`qty-${id}`);
+        const qty      = Math.max(1, parseInt(qtyInput?.value) || 1);
+        if (qtyInput) qtyInput.value = qty;
+        addToCart(id, qty);
     });
 }
 
@@ -1182,7 +1190,13 @@ async function loadCuentaCorriente() {
 
 // ── Eventos ────────────────────────────────────────────────────────────────────
 
-searchInput.addEventListener('input', (e) => renderProducts(e.target.value, activeCategory));
+// Debounce: re-renderizar la grilla entera en cada tecla hacia lento el tipeo.
+let _busqTimer = null;
+searchInput.addEventListener('input', (e) => {
+    const val = e.target.value;
+    clearTimeout(_busqTimer);
+    _busqTimer = setTimeout(() => renderProducts(val, activeCategory), 120);
+});
 
 categoryPills.forEach(pill => {
     pill.addEventListener('click', () => {
@@ -2720,20 +2734,23 @@ async function loadBalanceTickets() {
 
 function setDesktopMode(on) {
     document.body.classList.toggle('desktop-mode', on);
-    localStorage.setItem('fedafar_desktop_mode', on ? '1' : '0');
-    const icon = modoBtn.querySelector('i');
-    icon.setAttribute('data-lucide', on ? 'smartphone' : 'monitor');
+    try { localStorage.setItem('fedafar_desktop_mode', on ? '1' : '0'); } catch (e) {}
+    if (!modoBtn) return;
+    // lucide.createIcons() reemplaza el <i data-lucide> por un <svg>, asi que
+    // buscar un <i> daba null y esto explotaba. Se regenera el <i> de cero.
+    modoBtn.innerHTML = `<i data-lucide="${on ? 'smartphone' : 'monitor'}"></i>`;
     modoBtn.title = on ? 'Modo App (móvil)' : 'Modo Escritorio';
-    lucide.createIcons();
+    try { lucide.createIcons(); } catch (e) {}
 }
 
 function initDesktopMode() {
-    const saved = localStorage.getItem('fedafar_desktop_mode');
+    let saved = null;
+    try { saved = localStorage.getItem('fedafar_desktop_mode'); } catch (e) {}
     const on = saved !== null ? saved === '1' : window.innerWidth > 900;
     setDesktopMode(on);
 }
 
-modoBtn.addEventListener('click', () => {
+if (modoBtn) modoBtn.addEventListener('click', () => {
     setDesktopMode(!document.body.classList.contains('desktop-mode'));
 });
 
@@ -3146,5 +3163,9 @@ async function registrarDevolucion(id) {
 }
 
 // ── Init ───────────────────────────────────────────────────────────────────────
-initDesktopMode();
+// initDesktopMode() va dentro de un try: si falla, checkSession() TIENE que
+// correr igual. Cuando explotaba, la sesion guardada no se restauraba nunca y
+// el usuario veia la pantalla de login en cada apertura, aunque ya estuviera
+// logueado; el catalogo solo aparecia despues de volver a loguearse a mano.
+try { initDesktopMode(); } catch (e) { console.warn('modo escritorio:', e); }
 checkSession();
