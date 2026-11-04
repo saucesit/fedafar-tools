@@ -2865,12 +2865,22 @@ def api_intercambios_borrar(id):
 # Si el primer cliente que entra despues de un arranque en frio es el que paga
 # ese costo, la app "tarda muchisimo en mostrar el catalogo". Lo armamos en
 # segundo plano al arrancar, asi el cache ya esta listo cuando entra alguien.
+_precalentado_info = {'estado': 'no arrancado', 'detalle': ''}
+
 def _precalentar_catalogo():
+    import time as _t
+    _precalentado_info['estado'] = 'corriendo'
+    t0 = _t.time()
     try:
+        n = 0
         for tipo in ('contado', 'cta-cte'):
-            parse_price_list(tipo)
-        print("Catalogo precalentado en cache.")
+            n = len(parse_price_list(tipo))
+        _precalentado_info['estado']  = 'listo'
+        _precalentado_info['detalle'] = f'{n} productos en {_t.time()-t0:.1f}s'
+        print(f"Catalogo precalentado en cache: {_precalentado_info['detalle']}")
     except Exception as e:
+        _precalentado_info['estado']  = 'error'
+        _precalentado_info['detalle'] = f'{type(e).__name__}: {e}'
         print(f"No se pudo precalentar el catalogo: {e}")
 
 def _arrancar_precalentado():
@@ -2883,7 +2893,13 @@ _arrancar_precalentado()
 @app.route('/api/health', methods=['GET'])
 def api_health():
     """Endpoint liviano para el keepalive (evita que Render duerma el servicio)."""
-    return jsonify({'ok': True, 'catalogo_en_cache': len(_price_cache)})
+    return jsonify({
+        'ok': True,
+        'catalogo_en_cache': len(_price_cache),
+        'pid': os.getpid(),
+        'en_render': EN_RENDER,
+        'precalentado': _precalentado_info,
+    })
 
 
 if __name__ == '__main__':
