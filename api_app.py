@@ -659,23 +659,45 @@ def get_stock_data():
         stock_dict = {}
         _lan_caida_hasta = _t.time() + _LAN_BACKOFF
 
-    # 2. Supabase (actualizado por sync_stock.py — funciona en Render)
-    try:
-        sb = get_sb()
-        res = sb.table('stock_productos').select('nombre,existencia').execute()
-        if res.data:
-            for row in res.data:
-                stock_dict[row['nombre']] = float(row['existencia'])
-            print(f"Stock cargado: {len(stock_dict)} productos desde Supabase.")
-            return stock_dict
-    except Exception as e:
-        print(f"Stock desde Supabase no disponible: {e}")
-
-    # 3. Fallback: stock_data.json (último recurso)
+    # 2. stock_data.json del repo (instantaneo, y es EXACTAMENTE el mismo dato
+    #    que Supabase: sync_stock.py escribe los dos en la misma corrida, y el
+    #    push del json redeploya Render). Antes esto era el ultimo recurso y
+    #    primero se consultaba Supabase, una llamada de red SIN timeout que
+    #    podia colgar el armado del catalogo indefinidamente.
     try:
         with open(STOCK_JSON_PATH, 'r', encoding='utf-8') as f:
-            stock_dict = json.load(f)
-        print(f"Stock cargado: {len(stock_dict)} productos desde stock_data.json.")
+            data = json.load(f)
+        if data:
+            stock_dict = {k: float(v) for k, v in data.items()}
+            print(f"Stock cargado: {len(stock_dict)} productos desde stock_data.json.")
+            return stock_dict
+    except Exception as e:
+        print(f"stock_data.json no disponible: {e}")
+
+    # 3. Supabase, solo si no hubo json. Con timeout: si no contesta en 8s se
+    #    sigue sin stock antes que dejar la app colgada.
+    def _stock_supabase(salida):
+        try:
+            sb = get_sb()
+            res = sb.table('stock_productos').select('nombre,existencia').execute()
+            salida['data'] = res.data or []
+        except Exception as e:
+            salida['error'] = e
+
+    try:
+        import threading
+        salida = {}
+        th = threading.Thread(target=_stock_supabase, args=(salida,), daemon=True)
+        th.start()
+        th.join(8)
+        if th.is_alive():
+            print("Stock desde Supabase: sin respuesta en 8s, se continua sin stock.")
+        elif salida.get('error'):
+            print(f"Stock desde Supabase no disponible: {salida['error']}")
+        else:
+            for row in salida.get('data', []):
+                stock_dict[row['nombre']] = float(row['existencia'])
+            print(f"Stock cargado: {len(stock_dict)} productos desde Supabase.")
     except Exception as e:
         print(f"Stock no disponible: {e}")
 
