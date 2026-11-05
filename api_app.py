@@ -767,11 +767,10 @@ def fuzzy_stock_match(price_name, stock_dict, indice=None):
     return None
 
 _price_cache: dict = {}   # { tipo: (timestamp, [products]) }
-# 1 hora. Antes eran 15 minutos, justo el tiempo que Render tarda en dormir el
-# servicio en el plan free: el cache practicamente nunca llegaba caliente a un
-# cliente real. Los datos de origen (price_list.xlsx y stock_data.json) se
-# actualizan una vez por dia con sync_diario.bat, que pushea y redeploya (lo
-# que limpia el cache igual), asi que una hora no muestra nada viejo.
+# 1 hora (antes 15 minutos). Los datos de origen (price_list.xlsx y
+# stock_data.json) se actualizan una vez por dia con sync_diario.bat, que
+# pushea y redeploya — lo que limpia el cache igual —, asi que una hora no
+# muestra nada viejo y evita rearmar el catalogo por gusto.
 _CACHE_TTL = 3600
 
 def invalidar_cache_productos():

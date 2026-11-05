@@ -4,4 +4,4 @@ services:
     env: python
     buildCommand: pip install -r requirements.txt
     startCommand: gunicorn api_app:app
-    plan: free
+    plan: starter   # verificado desde el contenedor: 0.5 CPU / 512 MB (free = 0.1 CPU)
