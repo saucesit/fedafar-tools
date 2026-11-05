@@ -26,3 +26,10 @@ full_price_list_backup_anterior.txt
 
 # Config local de Claude Code
 .claude/
+
+# Cache de precios y perfiles de navegador (importadores/)
+.cache_alfabeta/
+.kairos_profile/
+.kairos_chrome_profile/
+output/recon/
+keepalive_log.txt
