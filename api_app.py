@@ -2922,6 +2922,45 @@ def _lanzar_precalentado():
     threading.Thread(target=_precalentar_catalogo, daemon=True).start()
 
 
+def _recursos_contenedor():
+    """Lee los limites reales de CPU/RAM del contenedor (cgroups).
+
+    Sirve para saber en que plan de Render corre el servicio sin depender de
+    render.yaml, que puede estar desactualizado si el plan se cambio desde el
+    panel. Render free = 0.1 CPU / 512 MB; Starter = 0.5 CPU / 512 MB."""
+    out = {}
+    try:
+        # cgroup v2
+        with open('/sys/fs/cgroup/cpu.max') as f:
+            cuota, periodo = f.read().split()
+        out['cpu'] = 'sin limite' if cuota == 'max' else round(int(cuota) / int(periodo), 3)
+    except Exception:
+        try:
+            # cgroup v1
+            with open('/sys/fs/cgroup/cpu/cpu.cfs_quota_us') as f:
+                cuota = int(f.read().strip())
+            with open('/sys/fs/cgroup/cpu/cpu.cfs_period_us') as f:
+                periodo = int(f.read().strip())
+            out['cpu'] = 'sin limite' if cuota <= 0 else round(cuota / periodo, 3)
+        except Exception as e:
+            out['cpu'] = f'no se pudo leer ({type(e).__name__})'
+    for ruta in ('/sys/fs/cgroup/memory.max',
+                 '/sys/fs/cgroup/memory/memory.limit_in_bytes'):
+        try:
+            with open(ruta) as f:
+                v = f.read().strip()
+            out['ram_mb'] = 'sin limite' if v == 'max' else round(int(v) / 1048576)
+            break
+        except Exception:
+            continue
+    out.setdefault('ram_mb', 'no se pudo leer')
+    try:
+        out['cpus_visibles'] = os.cpu_count()
+    except Exception:
+        pass
+    return out
+
+
 @app.route('/api/health', methods=['GET'])
 def api_health():
     """Endpoint liviano para el keepalive (evita que Render duerma el servicio)."""
@@ -2930,6 +2969,7 @@ def api_health():
         'catalogo_en_cache': len(_price_cache),
         'pid': os.getpid(),
         'commit': (os.getenv('RENDER_GIT_COMMIT') or 'local')[:8],
+        'recursos': _recursos_contenedor(),
         'en_render': EN_RENDER,
         'precalentado': _precalentado_info,
     })
