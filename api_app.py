@@ -44,9 +44,41 @@ ADMIN_PASSWORD = os.getenv('ADMIN_PASSWORD', '')
 
 # ── Supabase ───────────────────────────────────────────────────────────────────
 
+# Cliente Supabase UNICO y con timeout.
+#
+# Antes cada endpoint llamaba create_client() de nuevo: medido, 0,206s solo de
+# construir el cliente, pagados en cada una de las ~70 llamadas del backend,
+# antes incluso de hablar con Supabase.
+#
+# Y mas importante: el timeout por defecto de postgrest son 120 SEGUNDOS. Una
+# consulta lenta dejaba el request colgado 2 minutos; como gunicorn mata al
+# worker a los 30s, se caia esa llamada y tambien las de los demas usuarios que
+# estaban en la fila. Ese es el mecanismo detras de "la app se cuelga". Con 10s
+# falla rapido y de forma visible en lugar de arrastrar al worker.
+_sb_cliente = None
+_sb_lock = None
+
 def get_sb():
-    from supabase import create_client
-    return create_client(SUPABASE_URL, SUPABASE_KEY)
+    global _sb_cliente, _sb_lock
+    if _sb_cliente is not None:
+        return _sb_cliente
+    import threading
+    if _sb_lock is None:
+        _sb_lock = threading.Lock()
+    with _sb_lock:
+        if _sb_cliente is None:
+            from supabase import create_client
+            # El cliente sincronico usa SyncClientOptions (no el ClientOptions
+            # base) y necesita su propio storage; se parte de los valores por
+            # defecto y solo se cambian los timeouts.
+            from supabase.lib.client_options import SyncClientOptions
+            from supabase_auth import SyncMemoryStorage
+            _sb_cliente = create_client(SUPABASE_URL, SUPABASE_KEY, options=SyncClientOptions(
+                storage=SyncMemoryStorage(),
+                postgrest_client_timeout=10,
+                storage_client_timeout=20,
+            ))
+    return _sb_cliente
 
 # ── Flask-Login ────────────────────────────────────────────────────────────────
 
@@ -2921,6 +2953,18 @@ def _lanzar_precalentado():
     threading.Thread(target=_precalentar_catalogo, daemon=True).start()
 
 
+def _info_concurrencia():
+    """Dice si el --threads del start command realmente tomo efecto.
+
+    Render usa el start command del panel, que puede no ser el del Procfile ni
+    el de render.yaml: hay que verificarlo, no suponerlo."""
+    import threading
+    # Con el worker gthread (que gunicorn usa al pasar --threads>1) aparecen
+    # hilos del pool; con el worker sync por defecto solo esta MainThread.
+    nombres = sorted({t.name.rstrip('0123456789-_ ') for t in threading.enumerate()})
+    return {'hilos_vivos': threading.active_count(), 'nombres_de_hilos': nombres[:8]}
+
+
 def _recursos_contenedor():
     """Lee los limites reales de CPU/RAM del contenedor (cgroups).
 
@@ -2969,6 +3013,7 @@ def api_health():
         'pid': os.getpid(),
         'commit': (os.getenv('RENDER_GIT_COMMIT') or 'local')[:8],
         'recursos': _recursos_contenedor(),
+        'concurrencia': _info_concurrencia(),
         'en_render': EN_RENDER,
         'precalentado': _precalentado_info,
     })

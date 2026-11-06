@@ -18,6 +18,26 @@ const BASE_URL = (window.location.hostname === 'localhost' || window.location.ho
 
 lucide.createIcons();
 
+// ── Carga de librerias a demanda ───────────────────────────────────────────────
+// chart.js (69 KB) y signature_pad se usaban en UN solo lugar cada uno (el
+// grafico de camara de frio y la firma de documentos) pero se bajaban en el
+// <head> en cada apertura de la app, bloqueando el renderizado. Ahora se piden
+// recien cuando se abre esa pantalla.
+const _scriptsCargados = {};
+function cargarScript(url) {
+    if (_scriptsCargados[url]) return _scriptsCargados[url];
+    _scriptsCargados[url] = new Promise((resolve, reject) => {
+        const el = document.createElement('script');
+        el.src = url;
+        el.onload = () => resolve();
+        el.onerror = () => { delete _scriptsCargados[url]; reject(new Error('No se pudo cargar ' + url)); };
+        document.head.appendChild(el);
+    });
+    return _scriptsCargados[url];
+}
+const CHARTJS_URL       = 'https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js';
+const SIGNATUREPAD_URL  = 'https://cdn.jsdelivr.net/npm/signature_pad@4.1.5/dist/signature_pad.umd.min.js';
+
 // ── DOM ────────────────────────────────────────────────────────────────────────
 const loginScreen     = document.getElementById('login-screen');
 const appDiv          = document.getElementById('app');
@@ -662,6 +682,7 @@ async function verGraficoCamara() {
     const msg = document.getElementById('camara-graf-msg');
     msg.textContent = 'Cargando…';
     try {
+        await cargarScript(CHARTJS_URL);   // se baja recien aca, no en cada apertura de la app
         const res  = await fetch(`${BASE_URL}/api/camara-frio/grafico?fecha=${fecha}`, { credentials: 'include' });
         const data = await res.json();
         if (!res.ok) { msg.textContent = data.error || 'Error'; return; }
@@ -2258,7 +2279,7 @@ firmaLimpiarBtn.addEventListener('click', () => {
 
 firmaConfirmarBtn.addEventListener('click', submitFirma);
 
-function openSignPad(docId, docNombre) {
+async function openSignPad(docId, docNombre) {
     currentDocId = docId;
     firmaDocNombre.textContent = docNombre;
     firmaMsgEl.classList.add('hidden');
@@ -2274,6 +2295,7 @@ function openSignPad(docId, docNombre) {
     if (signaturePad) {
         signaturePad.clear();
     } else {
+        await cargarScript(SIGNATUREPAD_URL);   // se baja recien al abrir la firma
         signaturePad = new SignaturePad(canvas, {
             backgroundColor: 'rgb(255,255,255)',
             penColor:        'rgb(10,10,40)',

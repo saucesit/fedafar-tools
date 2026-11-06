@@ -3,5 +3,11 @@ services:
     name: fedafar-tools
     env: python
     buildCommand: pip install -r requirements.txt
-    startCommand: gunicorn api_app:app
+    # --threads 4: con 1 worker sync los pedidos se atendian de a uno y una
+    #   farmacia con algo lento hacia esperar a las demas. El trabajo es de
+    #   espera (Supabase, Genexus), asi que los threads lo resuelven sin gastar
+    #   RAM extra, y el cache del catalogo sigue siendo uno solo compartido.
+    # --timeout 120: el default son 30s y al vencer MATA el worker, tirando
+    #   tambien los pedidos que estaban en la fila.
+    startCommand: gunicorn api_app:app --threads 4 --timeout 120 --graceful-timeout 30
     plan: starter   # verificado desde el contenedor: 0.5 CPU / 512 MB (free = 0.1 CPU)
