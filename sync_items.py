@@ -537,7 +537,10 @@ def _verificar_ids(sb, todos: list) -> tuple[set, dict]:
             print("  No se pudo loguear: se saltea la verificación.")
             return set(), {}
         try:
-            mapa = scan_all_facturas(page, por_cliente)
+            # El mapa COMPLETO, no scan_all_facturas(): esa función recorta la
+            # salida a los clientes que tienen comprobantes sin ID, y acá
+            # justamente queremos revisar los que ya lo tienen.
+            mapa = construir_mapa_desde_export(_exportar_lista_facturas(page))
         finally:
             browser.close()
 
