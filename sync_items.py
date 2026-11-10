@@ -19,18 +19,29 @@ import os
 import re
 import sys
 from datetime import datetime
+import pandas as pd
 from dotenv import load_dotenv
 from playwright.sync_api import sync_playwright, Page, TimeoutError as PWTimeout
 
 load_dotenv()
 
+BASE_DIR     = os.path.dirname(os.path.abspath(__file__))
 BASE_URL     = "http://192.168.0.35/fedafar"
 FEDAFAR_USER = os.getenv("FEDAFAR_USER")
 FEDAFAR_PASS = os.getenv("FEDAFAR_PASS")
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY")
 
-MAX_PAGES_SCAN = 40   # 40 páginas × 50 filas = hasta 2000 facturas escaneadas
+# La grilla de Detalle de la factura muestra 15 renglones por página y se avanza
+# con el link "Sig". El script leía SOLO la primera página, así que toda factura
+# de más de 15 renglones quedaba truncada en silencio: se guardaban 15 ítems y
+# un total que no cerraba. Se detectó por la distribución de tamaños (baja suave
+# de 1 a 14 renglones, salto a 88 facturas con exactamente 15, y cero por
+# encima). Caso verificado: la factura 162714 tiene 27 renglones y guardaba 15.
+MAX_PAGINAS_DETALLE = 30   # 30 × 15 = hasta 450 renglones por factura
+
+# Logging extra. Se activa con --verbose.
+VERBOSE = "--verbose" in sys.argv
 
 
 # ── Helpers ────────────────────────────────────────────────────────────────────
@@ -80,139 +91,193 @@ def do_login(page: Page) -> bool:
 
 # ── Paso 1: escanear lista de facturas → mapa global ─────────────────────────
 
-def _leer_filas_facturas(page: Page, client_id: int, comp_set: set) -> dict:
-    """
-    Lee todas las páginas del listado de facturas filtrado por client_id.
-    Retorna { comp_norm: fac_id } para ese cliente.
-    Usa paginación por número de página en la barra '.PaginationBar'.
-    """
-    id_map  = {}
-    hallados = set()
+def _exportar_lista_facturas(page: Page) -> str:
+    """Descarga el Excel con la lista COMPLETA de facturas. Devuelve la ruta.
 
-    for pagina in range(1, 30):   # máximo 30 páginas por cliente
-        links = page.locator("a[href*='teso_facturasview']")
-        n = links.count()
-        if n == 0:
-            break
+    Ojo: hay que limpiar el filtro antes de exportar. El filtro de la grilla
+    queda guardado del lado del servidor entre sesiones, y si quedó puesto el
+    Excel sale filtrado y faltan facturas (el mismo vicio que ya nos mordió con
+    el reporte de stock).
+    """
+    page.goto(f"{BASE_URL}/teso_facturasww.aspx", timeout=20000)
+    try:
+        page.wait_for_load_state("networkidle", timeout=15000)
+    except PWTimeout:
+        pass
+    page.wait_for_timeout(1000)
 
-        for i in range(n):
+    try:
+        residual = page.locator("#vFILTERFULLTEXT").input_value()
+        if residual:
+            print(f"  Limpiando filtro residual: {residual!r}")
+            page.fill("#vFILTERFULLTEXT", "")
+            page.locator("#vFILTERFULLTEXT").press("Enter")
             try:
-                lnk   = links.nth(i)
-                href  = lnk.get_attribute("href") or ""
-                m     = re.search(r"teso_facturasview\.aspx\?(\d+)", href)
-                if not m:
-                    continue
-                fac_id = int(m.group(1))
+                page.wait_for_load_state("networkidle", timeout=12000)
+            except PWTimeout:
+                pass
+            page.wait_for_timeout(1200)
+    except Exception as e:
+        print(f"  WARN no pude limpiar el filtro: {e}")
 
-                row    = lnk.locator("xpath=ancestor::tr[1]")
-                celdas = row.locator("td")
-                if celdas.count() < 11:
-                    continue
+    destino = os.path.join(BASE_DIR, "facturas_export.xlsx")
+    with page.expect_download(timeout=120000) as di:
+        page.click("#BTNEXPORT")
+    di.value.save_as(destino)
+    print(f"  Excel de facturas descargado ({os.path.getsize(destino)//1024} KB).")
+    return destino
 
-                # Verificar que pertenece al cliente correcto
-                cli_str = celdas.nth(10).inner_text().strip()
-                try:
-                    if int(cli_str) != client_id:
-                        continue
-                except ValueError:
-                    continue
 
-                tipo    = celdas.nth(5).inner_text().strip()
-                letra   = celdas.nth(6).inner_text().strip()
-                pto_vta = celdas.nth(7).inner_text().strip()
-                numero  = celdas.nth(8).inner_text().strip()
-                comp    = norm_comp(f"{tipo} {letra} {pto_vta}-{numero}")
+def construir_mapa_desde_export(ruta: str) -> dict:
+    """Arma { client_id: { comprobante_norm: fac_id } } desde el Excel exportado.
 
-                id_map[comp] = fac_id
-                if comp in comp_set:
-                    hallados.add(comp)
+    Columnas del export: ID | Tipo | Letra | Sucursal | Número | Fecha |
+    Cliente | Total | Saldo, con el encabezado en la 3ra fila.
 
-            except Exception:
-                continue
+    El ID es el id interno de Genexus, el mismo que necesita
+    teso_facturasview.aspx?{ID}. Sucursal y Número vienen SIN ceros a la
+    izquierda (6 y 13096), mientras que cuenta_corriente los guarda con
+    relleno ('FAC A 00006-00013096'), así que hay que rellenar a 5 y 8.
+    """
+    df = pd.read_excel(ruta, skiprows=2)
+    df.columns = [str(c).strip() for c in df.columns]
+    # 'Número' con tilde complica el acceso por atributo en itertuples.
+    df = df.rename(columns={"Número": "Numero"})
 
-        # ¿Ya encontramos todo lo que buscamos?
-        if comp_set and hallados >= comp_set:
-            break
+    faltan = {"ID", "Tipo", "Letra", "Sucursal", "Numero", "Cliente"} - set(df.columns)
+    if faltan:
+        print(f"  ERROR: al export le faltan columnas {faltan}. Columnas: {list(df.columns)}")
+        return {}
 
-        # Siguiente página: Genexus muestra números de página en .PaginationBar
-        sig_pag = pagina + 1
+    def _ent(v) -> str:
+        """'6' / '6.0' / ' 6 ' → '6' (el export trae algunos como float)."""
+        return str(v).strip().split(".")[0]
 
-        # Esperar que desaparezca el spinner/mask de Genexus antes de clickear
+    mapa: dict = {}
+    for r in df.itertuples(index=False):
         try:
-            page.wait_for_selector(".gx-mask", state="hidden", timeout=5000)
+            m = re.match(r"\s*(\d+)", str(r.Cliente))
+            if not m:
+                continue
+            cli = int(m.group(1))
+            comp = norm_comp(f"{str(r.Tipo).strip()} {str(r.Letra).strip()} "
+                             f"{_ent(r.Sucursal).zfill(5)}-{_ent(r.Numero).zfill(8)}")
+            mapa.setdefault(cli, {})[comp] = int(r.ID)
         except Exception:
-            pass  # si no hay mask, continuar igual
+            continue
 
-        next_link = page.locator(f".PaginationBar a:has-text('{sig_pag}')").first
-        if next_link.count() == 0 or not next_link.is_visible():
-            break
-
-        # Usar JS click para bypassar cualquier overlay residual
-        page.evaluate(
-            f"Array.from(document.querySelectorAll('.PaginationBar a'))"
-            f".find(a => a.textContent.trim() === '{sig_pag}')?.click()"
-        )
-        page.wait_for_load_state("networkidle", timeout=8000)
-        page.wait_for_timeout(600)
-
-    return id_map
+    total = sum(len(v) for v in mapa.values())
+    print(f"  Mapa armado: {total} facturas de {len(mapa)} clientes.")
+    return mapa
 
 
 def scan_all_facturas(page: Page, por_cliente: dict) -> dict:
+    """{ client_id: { comprobante_norm: fac_id } } para los clientes pedidos.
+
+    Antes esto recorría la grilla de teso_facturasww.aspx filtrando por cliente
+    y paginando. No funcionaba: verificado en vivo, el filtro vFILTERFULLTEXT
+    NO se aplicaba (tres búsquedas distintas devolvían las mismas 15 filas) y
+    la grilla abría en la página que había quedado de la sesión anterior
+    ('Página 4 de 4'), así que el escaneo leía páginas al azar. La cobertura
+    que lograba era accidental y cambiaba en cada corrida (215/221/217), y
+    clientes enteros quedaban en cero: Fleming San Luis (100004) mapeaba 0 de 9.
+
+    Ahora se baja el Excel completo de una sola vez y el mapa se arma offline.
+    Es determinístico y no depende de clics. Medido: 302 de 302 pendientes
+    mapeados (100%), contra 217 parciales del método anterior.
     """
-    Escanea teso_facturasww.aspx filtrando por código de cliente (vFILTERFULLTEXT).
-    Retorna { client_id (int): { comprobante_norm (str): genexus_factura_id (int) } }
+    ruta = _exportar_lista_facturas(page)
+    mapa = construir_mapa_desde_export(ruta)
 
-    Estructura de celdas por fila (confirmada con debug_genexus.py):
-        td[3]  = ID interno Genexus
-        td[5]  = tipo comprobante  (FAC, NCRE, …)
-        td[6]  = letra             (A, B)
-        td[7]  = punto de venta    (00006)
-        td[8]  = número            (00011529)
-        td[10] = código de cliente (1248, 540, …)
-    """
-    mapping = {}
-
-    try:
-        page.goto(f"{BASE_URL}/teso_facturasww.aspx", timeout=15000)
-        page.wait_for_load_state("networkidle", timeout=12000)
-        page.wait_for_timeout(800)
-    except PWTimeout:
-        print("  ERROR: timeout abriendo lista de facturas.")
-        return mapping
-
-    filtro = page.locator("#vFILTERFULLTEXT")
-    if filtro.count() == 0:
-        print("  ERROR: no se encontró el input de filtro (vFILTERFULLTEXT).")
-        return mapping
-
+    # Reportar por cliente qué se encontró, igual que antes.
+    salida = {}
     for client_id, comps in por_cliente.items():
         comp_set = {norm_comp(c["comprobante"]) for c in comps
                     if not c.get("genexus_factura_id")}
         if not comp_set:
             continue
-
-        print(f"  Cliente {client_id}: buscando {len(comp_set)} comprobantes...")
-
-        # Filtrar por código de cliente
-        filtro.fill(str(client_id))
-        filtro.press("Enter")
-        page.wait_for_load_state("networkidle", timeout=10000)
-        page.wait_for_timeout(600)
-
-        client_map = _leer_filas_facturas(page, client_id, comp_set)
-        encontrados = len([c for c in comp_set if c in client_map])
-        print(f"    {encontrados}/{len(comp_set)} encontrados ({len(client_map)} facturas mapeadas)")
-
-        if client_map:
-            mapping[client_id] = client_map
-
-    total = sum(len(v) for v in mapping.values())
-    print(f"  Escaneo terminado: {total} facturas de {len(mapping)} clientes.")
-    return mapping
+        del_cliente = mapa.get(client_id, {})
+        hallados = comp_set & set(del_cliente)
+        print(f"  Cliente {client_id}: {len(hallados)}/{len(comp_set)} encontrados")
+        if del_cliente:
+            salida[client_id] = del_cliente
+    return salida
 
 
-# ── Paso 2: scrapear ítems y totales de una factura ───────────────────────────
+def _encontrar_tabla_items(page: Page):
+    """Busca la tabla de renglones dentro de la solapa Detalle."""
+    tables = page.locator("table")
+    for i in range(tables.count()):
+        t = tables.nth(i)
+        try:
+            hdr = (t.locator("thead").inner_text() or "").lower()
+        except Exception:
+            hdr = ""
+        try:
+            fila1 = (t.locator("tr").first.inner_text() or "").lower()
+        except Exception:
+            fila1 = ""
+        texto = hdr + fila1
+        if "artículo" in texto or "articulo" in texto or ("cantidad" in texto and "precio" in texto):
+            return t
+    return None
+
+
+def _leer_columnas_items(items_table) -> dict:
+    """Mapea nombre de columna → índice, leyendo el encabezado de la grilla."""
+    col = {}
+    try:
+        ths = items_table.locator("thead tr th")
+        if ths.count() == 0:
+            ths = items_table.locator("tr").first.locator("td, th")
+        for j in range(ths.count()):
+            h = (ths.nth(j).inner_text() or "").strip().lower()
+            if "artículo"   in h or "articulo"   in h: col["articulo"]    = j
+            elif "laboratorio" in h:                    col["laboratorio"]  = j
+            elif "cantidad"    in h and "devuelta" not in h: col["cantidad"] = j
+            elif "precio total" in h:                   col["precio_total"] = j
+            elif h == "precio":                         col["precio"]       = j
+            elif "iva" in h or "i.v.a" in h:           col["iva_label"]    = j
+            elif "subtotal"    in h:                    col["subtotal"]     = j
+            elif "impuesto"    in h:                    col["impuesto"]     = j
+            elif h in ("línea", "linea"):               col["linea"]        = j
+            elif h in ("item", "#"):                    col["item_num"]     = j
+    except Exception as e:
+        print(f"    WARN leyendo encabezados: {e}")
+    return col
+
+
+def _leer_pagina_items(items_table, col: dict) -> list:
+    """Lee los renglones de la página de grilla que está visible ahora."""
+    def celda(cells, campo):
+        idx = col.get(campo)
+        if idx is None: return ""
+        try: return (cells.nth(idx).inner_text() or "").strip()
+        except Exception: return ""
+
+    salida = []
+    filas = items_table.locator("tbody tr")
+    for r in range(filas.count()):
+        cells = filas.nth(r).locator("td")
+        if cells.count() == 0:
+            continue
+        articulo = celda(cells, "articulo")
+        if not articulo:
+            continue
+        salida.append({
+            "item_num":     int(celda(cells, "item_num") or 0),
+            "articulo":     articulo,
+            "laboratorio":  celda(cells, "laboratorio"),
+            "cantidad":     ar_num(celda(cells, "cantidad")),
+            "precio":       ar_num(celda(cells, "precio")),
+            "iva_label":    celda(cells, "iva_label"),
+            "precio_total": ar_num(celda(cells, "precio_total")),
+            "subtotal":     ar_num(celda(cells, "subtotal")),
+            "impuesto":     ar_num(celda(cells, "impuesto")),
+            "linea":        ar_num(celda(cells, "linea")),
+        })
+    return salida
+
 
 def scrape_factura(page: Page, factura_id: int) -> tuple:
     """
@@ -260,82 +325,54 @@ def scrape_factura(page: Page, factura_id: int) -> tuple:
     except Exception as e:
         print(f"    WARN totales: {e}")
 
-    # ── Solapa Detalle: ítems ─────────────────────────────────────────────────
+    # ── Solapa Detalle: ítems (TODAS las páginas) ─────────────────────────────
     try:
         tab = page.get_by_text("Detalle", exact=True).first
         tab.click()
         page.wait_for_timeout(1000)
 
-        # Encontrar la tabla que contiene columna "Artículo" o "Cantidad"
-        tables = page.locator("table")
-        items_table = None
-        for i in range(tables.count()):
-            t = tables.nth(i)
-            try:
-                hdr = (t.locator("thead").inner_text() or "").lower()
-            except Exception:
-                hdr = ""
-            try:
-                fila1 = (t.locator("tr").first.inner_text() or "").lower()
-            except Exception:
-                fila1 = ""
-            texto = hdr + fila1
-            if "artículo" in texto or "articulo" in texto or ("cantidad" in texto and "precio" in texto):
-                items_table = t
+        col    = None
+        vistos = set()
+
+        for nro_pagina in range(1, MAX_PAGINAS_DETALLE + 1):
+            # La tabla se vuelve a buscar en cada página: el "Sig" hace un
+            # postback que reemplaza el DOM y los locators viejos quedan
+            # apuntando a nodos que ya no existen.
+            items_table = _encontrar_tabla_items(page)
+            if items_table is None:
+                if nro_pagina == 1:
+                    print(f"    WARN: tabla de ítems no encontrada en factura {factura_id}.")
                 break
 
-        if items_table is None:
-            print(f"    WARN: tabla de ítems no encontrada en factura {factura_id}.")
-            return items, totales
+            if col is None:
+                col = _leer_columnas_items(items_table)
 
-        # Leer encabezados
-        col = {}
-        try:
-            ths = items_table.locator("thead tr th")
-            if ths.count() == 0:
-                ths = items_table.locator("tr").first.locator("td, th")
-            for j in range(ths.count()):
-                h = (ths.nth(j).inner_text() or "").strip().lower()
-                if "artículo"   in h or "articulo"   in h: col["articulo"]    = j
-                elif "laboratorio" in h:                    col["laboratorio"]  = j
-                elif "cantidad"    in h and "devuelta" not in h: col["cantidad"] = j
-                elif "precio total" in h:                   col["precio_total"] = j
-                elif h == "precio":                         col["precio"]       = j
-                elif "iva" in h or "i.v.a" in h:           col["iva_label"]    = j
-                elif "subtotal"    in h:                    col["subtotal"]     = j
-                elif "impuesto"    in h:                    col["impuesto"]     = j
-                elif h in ("línea", "linea"):               col["linea"]        = j
-                elif h in ("item", "#"):                    col["item_num"]     = j
-        except Exception as e:
-            print(f"    WARN leyendo encabezados: {e}")
+            agregados = 0
+            for it in _leer_pagina_items(items_table, col):
+                # Dedup por número correlativo de renglón (1, 2, 3...). Si la
+                # grilla no lo trae, cae a artículo+cantidad+precio.
+                clave = it["item_num"] or (it["articulo"], it["cantidad"], it["precio"])
+                if clave in vistos:
+                    continue
+                vistos.add(clave)
+                items.append(it)
+                agregados += 1
 
-        def celda(cells, campo):
-            idx = col.get(campo)
-            if idx is None: return ""
-            try: return (cells.nth(idx).inner_text() or "").strip()
-            except: return ""
+            # Si la página no aportó nada nuevo, ya estábamos en la última.
+            if agregados == 0:
+                break
 
-        filas = items_table.locator("tbody tr")
-        for r in range(filas.count()):
-            cells = filas.nth(r).locator("td")
-            if cells.count() == 0:
-                continue
-            articulo = celda(cells, "articulo")
-            if not articulo:
-                continue
-
-            items.append({
-                "item_num":     int(celda(cells, "item_num") or 0),
-                "articulo":     articulo,
-                "laboratorio":  celda(cells, "laboratorio"),
-                "cantidad":     ar_num(celda(cells, "cantidad")),
-                "precio":       ar_num(celda(cells, "precio")),
-                "iva_label":    celda(cells, "iva_label"),
-                "precio_total": ar_num(celda(cells, "precio_total")),
-                "subtotal":     ar_num(celda(cells, "subtotal")),
-                "impuesto":     ar_num(celda(cells, "impuesto")),
-                "linea":        ar_num(celda(cells, "linea")),
-            })
+            sig = page.get_by_role("link", name="Sig", exact=True)
+            if sig.count() == 0:
+                break
+            try:
+                sig.first.click()
+                page.wait_for_timeout(1600)
+            except Exception:
+                break
+        else:
+            print(f"    WARN: factura {factura_id} llegó al tope de "
+                  f"{MAX_PAGINAS_DETALLE} páginas de detalle.")
 
     except Exception as e:
         print(f"    WARN ítems: {e}")
@@ -425,7 +462,7 @@ def sync_items(force: bool = False):
 
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True)
-        context = browser.new_context()
+        context = browser.new_context(accept_downloads=True)
         page    = context.new_page()
 
         if not do_login(page):
