@@ -192,11 +192,21 @@ def api_cta_cte():
         renglones = {}
         if ids:
             try:
-                det = sb.table('comprobante_items') \
-                        .select('genexus_factura_id,linea') \
-                        .in_('genexus_factura_id', ids).execute()
-                for d in (det.data or []):
-                    renglones.setdefault(d['genexus_factura_id'], []).append(d)
+                # Paginado: Supabase corta en 1000 filas y un cliente grande
+                # (27 facturas de 30 renglones) ya roza ese techo. Si se cortara,
+                # el detalle no cuadraría y el botón desaparecería sin motivo.
+                off = 0
+                while True:
+                    det = sb.table('comprobante_items') \
+                            .select('genexus_factura_id,linea') \
+                            .in_('genexus_factura_id', ids) \
+                            .range(off, off + 999).execute()
+                    lote = det.data or []
+                    for d in lote:
+                        renglones.setdefault(d['genexus_factura_id'], []).append(d)
+                    if len(lote) < 1000:
+                        break
+                    off += 1000
             except Exception as e:
                 print(f"[WARN cta-cte detalle] {e}")   # sin detalle, sin botón
 
