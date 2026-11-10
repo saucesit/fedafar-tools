@@ -508,6 +508,65 @@ def limpiar_items_pagados(sb, aplicar: bool = False) -> int:
     return borrados
 
 
+def _verificar_ids(sb, todos: list) -> tuple[set, dict]:
+    """Corrige en Supabase los genexus_factura_id que no coinciden con Genexus.
+
+    Devuelve (claves corregidas, mapa del export) para que el llamador fuerce
+    el re-escaneo de esas facturas y reutilice el mapa sin bajarlo de nuevo.
+
+    La corrección se escribe en el momento, antes de bajar ningún ítem: así, si
+    la corrida se interrumpe, la factura queda apuntando a un ID sin detalle
+    (la app esconde el botón) en vez de seguir mostrando el detalle ajeno.
+    """
+    con_id = [c for c in todos if c.get("genexus_factura_id")]
+    if not con_id:
+        return set(), {}
+
+    por_cliente: dict = {}
+    for c in todos:
+        por_cliente.setdefault(c["genexus_client_id"], []).append(c)
+
+    print(f"\n[Paso 0] Verificando el ID interno de {len(con_id)} comprobantes "
+          "contra el export de Genexus...")
+    with sync_playwright() as p:
+        browser = p.chromium.launch(headless=True)
+        context = browser.new_context(accept_downloads=True)
+        page    = context.new_page()
+        if not do_login(page):
+            browser.close()
+            print("  No se pudo loguear: se saltea la verificación.")
+            return set(), {}
+        try:
+            mapa = scan_all_facturas(page, por_cliente)
+        finally:
+            browser.close()
+
+    corregidas, sin_mapear = set(), 0
+    for c in con_id:
+        cli_id = c["genexus_client_id"]
+        clave  = norm_comp(c["comprobante"])
+        real   = mapa.get(cli_id, {}).get(clave)
+        if not real:
+            sin_mapear += 1
+            continue
+        if str(real) == str(c["genexus_factura_id"]):
+            continue
+        print(f"  [CORRIGE] {c['comprobante']} (cliente {cli_id}): "
+              f"ID {c['genexus_factura_id']} -> {real}")
+        sb.table("cuenta_corriente") \
+          .update({"genexus_factura_id": real}) \
+          .eq("genexus_client_id", cli_id) \
+          .eq("comprobante", c["comprobante"]) \
+          .execute()
+        c["genexus_factura_id"] = real
+        corregidas.add((cli_id, clave))
+
+    print(f"  IDs corregidos: {len(corregidas)} | "
+          f"no estaban en el export: {sin_mapear} | "
+          f"correctos: {len(con_id) - len(corregidas) - sin_mapear}")
+    return corregidas, mapa
+
+
 def sync_items(force: bool = False, retruncadas: bool = False,
                limpiar: bool = False):
     sb = get_sb()
@@ -523,6 +582,14 @@ def sync_items(force: bool = False, retruncadas: bool = False,
         k = str(r["genexus_factura_id"])
         cuenta_items[k] = cuenta_items.get(k, 0) + 1
     ya_ids = set(cuenta_items)
+
+    # ── Verificar el ID interno de TODOS los pendientes ──────────────────────
+    # No alcanza con buscarle ID a los que no lo tienen: un ID ya guardado puede
+    # estar MAL. Las corridas viejas leían la grilla de facturas y a veces se
+    # llevaban la fila equivocada, así que dos comprobantes distintos del mismo
+    # cliente podían quedar apuntando al mismo ID — y la farmacia terminaba
+    # viendo el detalle de otra factura. El export de Genexus es la verdad.
+    corregidas, mapa_export = _verificar_ids(sb, todos)
 
     if retruncadas:
         # Modo reparación: re-leer solo las facturas que pueden haber quedado
@@ -547,6 +614,16 @@ def sync_items(force: bool = False, retruncadas: bool = False,
             c for c in todos
             if not c.get("genexus_factura_id") or str(c["genexus_factura_id"]) not in ya_ids
         ]
+
+    # Las de ID corregido van siempre: su detalle nuevo todavía no está bajado.
+    if corregidas:
+        ya = {(c["genexus_client_id"], norm_comp(c["comprobante"])) for c in pendientes}
+        extra = [c for c in todos
+                 if (c["genexus_client_id"], norm_comp(c["comprobante"])) in corregidas
+                 and (c["genexus_client_id"], norm_comp(c["comprobante"])) not in ya]
+        if extra:
+            print(f"[sync_items] + {len(extra)} con ID corregido, se re-bajan.")
+            pendientes += extra
 
     if not pendientes:
         print("[sync_items] Todo actualizado. Usá --force para re-sincronizar "
@@ -583,7 +660,8 @@ def sync_items(force: bool = False, retruncadas: bool = False,
             for c in sin_id:
                 por_cliente_sin.setdefault(c["genexus_client_id"], []).append(c)
 
-            mapa = scan_all_facturas(page, por_cliente_sin)
+            # El export ya se bajó en el Paso 0: no se baja de nuevo.
+            mapa = mapa_export or scan_all_facturas(page, por_cliente_sin)
 
             # Asignar IDs encontrados
             for c in sin_id:
