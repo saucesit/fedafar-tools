@@ -16,6 +16,14 @@ Uso:
                                         # cortadas (ítems múltiplo exacto de 15)
     python sync_items.py --force        # re-descarga las 302, aunque ya estén
     python sync_items.py --verbose      # logging extra
+
+    python sync_items.py --solo-limpiar            # informa que borraria
+    python sync_items.py --solo-limpiar --limpiar  # borra el detalle de las
+                                                   # facturas ya pagadas
+
+Nota: comprobante_items guarda TEXTO Y NUMEROS, nunca PDFs ni imagenes. El PDF
+se genera al vuelo en api_app._build_comprobante_pdf() cada vez que alguien lo
+pide, asi la base no se infla.
 """
 
 import os
@@ -451,7 +459,57 @@ def _traer_todo(sb, tabla: str, select: str, filtro=None) -> list:
         off += 1000
 
 
-def sync_items(force: bool = False, retruncadas: bool = False):
+def limpiar_items_pagados(sb, aplicar: bool = False) -> int:
+    """Borra el detalle de las facturas que ya no están pendientes de pago.
+
+    comprobante_items es solo un caché para que la app pueda armar el PDF: la
+    factura de verdad vive en Genexus. Una vez que la farmacia pagó y se pasó
+    el recibo, el comprobante desaparece de la cuenta corriente y su detalle no
+    se puede descargar más desde la app, así que guardarlo es puro peso.
+
+    Medido antes de implementar esto: 3379 de 4852 renglones (70% de la tabla)
+    eran de facturas ya pagadas.
+
+    Con aplicar=False solo informa qué borraría (es el default a propósito:
+    borrar es irreversible).
+    """
+    pend = _traer_todo(sb, "cuenta_corriente", "genexus_factura_id",
+                       lambda q: q.gt("saldo", 0))
+    vivas = {r["genexus_factura_id"] for r in pend if r.get("genexus_factura_id")}
+
+    filas = _traer_todo(sb, "comprobante_items", "genexus_factura_id")
+    por_factura: dict = {}
+    for r in filas:
+        fid = r["genexus_factura_id"]
+        por_factura[fid] = por_factura.get(fid, 0) + 1
+
+    muertas = [fid for fid in por_factura if fid not in vivas]
+    renglones = sum(por_factura[f] for f in muertas)
+
+    if not muertas:
+        print("[limpieza] No hay detalle de facturas pagadas para borrar.")
+        return 0
+
+    if not aplicar:
+        print(f"[limpieza] Se borrarían {renglones} renglones de {len(muertas)} "
+              f"facturas ya pagadas. Usá --limpiar para aplicarlo.")
+        return 0
+
+    borrados = 0
+    for i in range(0, len(muertas), 100):   # de a 100 ids por request
+        lote = muertas[i:i + 100]
+        try:
+            sb.table("comprobante_items").delete() \
+              .in_("genexus_factura_id", lote).execute()
+            borrados += sum(por_factura[f] for f in lote)
+        except Exception as e:
+            print(f"  WARN borrando lote: {e}")
+    print(f"[limpieza] Borrados {borrados} renglones de {len(muertas)} facturas pagadas.")
+    return borrados
+
+
+def sync_items(force: bool = False, retruncadas: bool = False,
+               limpiar: bool = False):
     sb = get_sb()
 
     # Obtener comprobantes pendientes
@@ -554,10 +612,21 @@ def sync_items(force: bool = False, retruncadas: bool = False):
 
     print(f"\n[sync_items] Completado: {total_ok} facturas procesadas.")
 
+    # Sacar el detalle de las que ya se pagaron: no se pueden descargar más.
+    print()
+    limpiar_items_pagados(sb, aplicar=limpiar)
+
 
 if __name__ == "__main__":
     if not FEDAFAR_USER or not FEDAFAR_PASS:
         print("ERROR: FEDAFAR_USER o FEDAFAR_PASS no configurados en .env")
         sys.exit(1)
+
+    # --solo-limpiar no toca Genexus: solo purga el detalle de las pagadas.
+    if "--solo-limpiar" in sys.argv:
+        limpiar_items_pagados(get_sb(), aplicar="--limpiar" in sys.argv)
+        sys.exit(0)
+
     sync_items(force="--force" in sys.argv,
-               retruncadas="--retruncadas" in sys.argv)
+               retruncadas="--retruncadas" in sys.argv,
+               limpiar="--limpiar" in sys.argv)
