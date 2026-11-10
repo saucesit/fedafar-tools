@@ -178,12 +178,35 @@ def api_cta_cte():
     try:
         sb  = get_sb()
         res = sb.table('cuenta_corriente') \
-                .select('fecha_comprobante,comprobante,fecha_vencimiento,importe,saldo,actualizado_en') \
+                .select('fecha_comprobante,comprobante,fecha_vencimiento,importe,saldo,'
+                        'actualizado_en,genexus_factura_id') \
                 .eq('genexus_client_id', current_user.genexus_client_id) \
                 .gt('saldo', 0) \
                 .order('fecha_comprobante', desc=False) \
                 .execute()
-        return jsonify(res.data or [])
+        filas = res.data or []
+
+        # ¿De cuáles tenemos el detalle de productos cargado? Sólo esas muestran
+        # el botón de PDF. Una consulta sola para todas, no una por fila.
+        ids = [f['genexus_factura_id'] for f in filas if f.get('genexus_factura_id')]
+        renglones = {}
+        if ids:
+            try:
+                det = sb.table('comprobante_items') \
+                        .select('genexus_factura_id,linea') \
+                        .in_('genexus_factura_id', ids).execute()
+                for d in (det.data or []):
+                    renglones.setdefault(d['genexus_factura_id'], []).append(d)
+            except Exception as e:
+                print(f"[WARN cta-cte detalle] {e}")   # sin detalle, sin botón
+
+        for f in filas:
+            # El id interno de Genexus no sale al frontend: el PDF se pide por
+            # comprobante y el backend resuelve el cliente desde la sesión.
+            fid = f.pop('genexus_factura_id', None)
+            f['tiene_detalle'] = _detalle_cuadra(renglones.get(fid), f.get('importe'))
+
+        return jsonify(filas)
     except Exception as e:
         print(f"[ERROR] {e}")
         return jsonify({'error': 'Error interno del servidor'}), 500
@@ -290,6 +313,22 @@ def _fmt_money(v):
 def _latin1(s):
     """fpdf2 con fuentes core usa latin-1; reemplazamos caracteres no soportados."""
     return str(s if s is not None else '').encode('latin-1', 'replace').decode('latin-1')
+
+def _detalle_cuadra(items, importe, tol=1.0):
+    """¿La suma del detalle coincide con el importe de la factura?
+
+    Si no coincide, el detalle está incompleto o mal mapeado. Antes que
+    mostrarle a la farmacia un detalle que no cierra con lo que debe, no se
+    muestra nada: el PDF sale con el encabezado solo y el botón no aparece.
+    """
+    if not items:
+        return False
+    try:
+        suma = sum(float(it.get('linea') or 0) for it in items)
+        return abs(suma - float(importe or 0)) <= tol
+    except (TypeError, ValueError):
+        return False
+
 
 def _build_comprobante_pdf(cliente_nombre, gx_id, comp, items=None):
     """
@@ -442,13 +481,16 @@ def _build_comprobante_pdf(cliente_nombre, gx_id, comp, items=None):
             pdf.ln()
 
         # Calcular totales desde los ítems si los de Genexus no están
-        total_neto = sum(float(it.get('subtotal', 0)) for it in items)
-        total_iva  = sum(float(it.get('impuesto', 0)) for it in items)
-        total_tot  = sum(float(it.get('linea', 0))    for it in items)
+        total_tot  = sum(float(it.get('linea')    or 0) for it in items)
+        total_iva  = sum(float(it.get('impuesto') or 0) for it in items)
 
         # Usar los del comprobante si están (vienen de la solapa General de Genexus)
-        if comp.get('iva_total'):    total_iva = float(comp['iva_total'])
+        if comp.get('iva_total'):     total_iva = float(comp['iva_total'])
         if comp.get('total_factura'): total_tot = float(comp['total_factura'])
+
+        # El neto por diferencia, así Neto + IVA = TOTAL cierra siempre. Sumar
+        # los subtotales por separado daba Neto = TOTAL con IVA en cero.
+        total_neto = total_tot - total_iva
 
         fila_total('Neto sin IVA', total_neto)
         fila_total('IVA',          total_iva)
@@ -489,13 +531,23 @@ def _build_comprobante_pdf(cliente_nombre, gx_id, comp, items=None):
 
 @app.route('/api/factura-pdf', methods=['GET'])
 def api_factura_pdf():
-    """Descarga el comprobante PDF de una factura puntual (solo jefe/admin)."""
+    """Descarga el comprobante PDF de una factura puntual.
+
+    Autorización: jefe/admin puede pedir el comprobante de cualquier cliente
+    pasándolo por ?cliente=. La farmacia sólo puede bajar los suyos: en ese caso
+    el parámetro ?cliente= se IGNORA y se usa el id de la sesión, así que editar
+    la URL a mano no sirve para ver la factura de otra farmacia. Además, al
+    cliente se le limita a comprobantes con saldo pendiente.
+    """
     if not current_user.is_authenticated:
         return jsonify({'error': 'No autenticado'}), 401
-    if current_user.tipo_precio not in ('jefe', 'admin'):
-        return jsonify({'error': 'No autorizado'}), 403
 
-    gx_id       = request.args.get('cliente', '').strip()
+    es_interno = current_user.tipo_precio in ('jefe', 'admin')
+    if es_interno:
+        gx_id = request.args.get('cliente', '').strip()
+    else:
+        gx_id = str(current_user.genexus_client_id or '').strip()
+
     comprobante = request.args.get('comprobante', '').strip()
     if not gx_id or not comprobante:
         return jsonify({'error': 'Faltan parámetros cliente/comprobante'}), 400
@@ -506,12 +558,14 @@ def api_factura_pdf():
                 .eq('genexus_client_id', gx_id).limit(1).execute()
         nombre = cli.data[0]['nombre'] if cli.data else f'Cliente {gx_id}'
 
-        res = sb.table('cuenta_corriente') \
-                .select('fecha_comprobante,comprobante,fecha_vencimiento,importe,saldo,'
-                        'genexus_factura_id,iva_total,total_factura') \
-                .eq('genexus_client_id', gx_id) \
-                .eq('comprobante', comprobante) \
-                .limit(1).execute()
+        q = sb.table('cuenta_corriente') \
+              .select('fecha_comprobante,comprobante,fecha_vencimiento,importe,saldo,'
+                      'genexus_factura_id,iva_total,total_factura') \
+              .eq('genexus_client_id', gx_id) \
+              .eq('comprobante', comprobante)
+        if not es_interno:
+            q = q.gt('saldo', 0)      # la farmacia sólo baja lo que debe
+        res = q.limit(1).execute()
         if not res.data:
             return jsonify({'error': 'Comprobante no encontrado'}), 404
 
@@ -527,6 +581,12 @@ def api_factura_pdf():
                           .order('item_num') \
                           .execute()
             items = items_res.data or []
+
+        if not _detalle_cuadra(items, comp_row.get('importe')):
+            if items:
+                print(f"[factura-pdf] detalle descartado, no cuadra: "
+                      f"{comprobante} (cliente {gx_id})")
+            items = []
 
         pdf_bytes = _build_comprobante_pdf(nombre, gx_id, comp_row, items=items)
 

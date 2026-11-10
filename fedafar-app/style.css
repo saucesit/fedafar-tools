@@ -661,6 +661,20 @@ body {
 .factura-pdf-btn:active   { transform: scale(0.92); }
 .factura-pdf-btn:disabled { opacity: 0.6; cursor: default; }
 
+/* Comprobante + boton de PDF en la misma celda (la tabla de cta cte tiene
+   solo 3 columnas y en el celular no entra una cuarta). */
+.comp-celda {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    flex-wrap: nowrap;
+}
+.comp-celda .factura-pdf-btn {
+    padding: 2px 6px;
+    font-size: 0.9rem;
+    flex: 0 0 auto;
+}
+
 /* ── Documentos de empleados ─────────────────────────────────── */
 
 /* Pestañas */

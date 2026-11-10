@@ -1138,7 +1138,10 @@ async function descargarFacturaPDF(gxId, comprobante, btn) {
     const original = btn ? btn.textContent : '';
     if (btn) { btn.disabled = true; btn.textContent = '⏳'; }
     try {
-        const url = `${BASE_URL}/api/factura-pdf?cliente=${gxId}&comprobante=${encodeURIComponent(comprobante)}`;
+        // Sin gxId (la farmacia mirando su propia cuenta) no se manda ?cliente=:
+        // el backend lo resuelve desde la sesión.
+        const q = gxId ? `cliente=${gxId}&` : '';
+        const url = `${BASE_URL}/api/factura-pdf?${q}comprobante=${encodeURIComponent(comprobante)}`;
         const res = await fetch(url, { credentials: 'include' });
         if (!res.ok) { alert('No se pudo generar el PDF.'); return; }
         const blob = await res.blob();
@@ -1174,6 +1177,7 @@ async function loadCuentaCorriente() {
         let html = `
             <p style="font-size:0.8rem;color:var(--text-muted);margin-bottom:12px;">
                 📋 Solo se muestran comprobantes con saldo pendiente.
+                Tocá 📄 para descargar el detalle de productos.
             </p>
             <table class="cuenta-table">
                 <thead>
@@ -1190,9 +1194,16 @@ async function loadCuentaCorriente() {
             totalSaldo += saldo;
             const vence = row.fecha_vencimiento ? row.fecha_vencimiento.substring(0, 10) : '-';
             const saldoClass = saldo > 0 ? 'saldo-pendiente' : 'saldo-ok';
+            // El botón va DENTRO de la celda del comprobante, no en una cuarta
+            // columna: en el celular la tabla ya entra justa con tres.
+            const comp = (row.comprobante || '').replace(/'/g, "\\'");
+            const btnPdf = row.tiene_detalle
+                ? `<button class="factura-pdf-btn" title="Descargar detalle en PDF"
+                           onclick="descargarFacturaPDF(null, '${comp}', this)">📄</button>`
+                : '';
             html += `
                 <tr>
-                    <td>${row.comprobante || '-'}</td>
+                    <td><span class="comp-celda">${row.comprobante || '-'}${btnPdf}</span></td>
                     <td>${vence}</td>
                     <td class="${saldoClass}">$ ${saldo.toLocaleString('es-AR', {minimumFractionDigits:2})}</td>
                 </tr>
