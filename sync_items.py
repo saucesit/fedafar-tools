@@ -11,8 +11,11 @@ Estrategia:
   3. Guarda en comprobante_items y actualiza cuenta_corriente.
 
 Uso:
-    python sync_items.py            # solo procesa los que no tienen ítems aún
-    python sync_items.py --force    # re-descarga todos aunque ya tengan ítems
+    python sync_items.py                # solo los que no tienen ítems aún
+    python sync_items.py --retruncadas  # repara las que pueden haber quedado
+                                        # cortadas (ítems múltiplo exacto de 15)
+    python sync_items.py --force        # re-descarga las 302, aunque ya estén
+    python sync_items.py --verbose      # logging extra
 """
 
 import os
@@ -38,6 +41,11 @@ SUPABASE_KEY = os.getenv("SUPABASE_KEY")
 # un total que no cerraba. Se detectó por la distribución de tamaños (baja suave
 # de 1 a 14 renglones, salto a 88 facturas con exactamente 15, y cero por
 # encima). Caso verificado: la factura 162714 tiene 27 renglones y guardaba 15.
+# Renglones que muestra una pagina de la grilla de Detalle. Un corte por el bug
+# de paginacion siempre dejaba un multiplo exacto de este numero, asi que sirve
+# para detectar las facturas sospechosas de haber quedado truncadas.
+PAGINA_DETALLE = 15
+
 MAX_PAGINAS_DETALLE = 30   # 30 × 15 = hasta 450 renglones por factura
 
 # Logging extra. Se activa con --verbose.
@@ -423,30 +431,68 @@ def guardar(sb, factura_id: int, gx_client_id: int,
 
 # ── Main ───────────────────────────────────────────────────────────────────────
 
-def sync_items(force: bool = False):
+def _traer_todo(sb, tabla: str, select: str, filtro=None) -> list:
+    """Trae TODAS las filas, paginando de a 1000.
+
+    Supabase corta en 1000 filas por consulta. comprobante_items ya tiene casi
+    5000, así que la consulta sin paginar solo veía las primeras 1000: el
+    script creía que miles de facturas no tenían ítems y las volvía a bajar
+    todas las noches al pasar.
+    """
+    out, off = [], 0
+    while True:
+        q = sb.table(tabla).select(select)
+        if filtro:
+            q = filtro(q)
+        d = q.range(off, off + 999).execute().data or []
+        out += d
+        if len(d) < 1000:
+            return out
+        off += 1000
+
+
+def sync_items(force: bool = False, retruncadas: bool = False):
     sb = get_sb()
 
     # Obtener comprobantes pendientes
-    res = sb.table("cuenta_corriente") \
-            .select("genexus_client_id,comprobante,genexus_factura_id") \
-            .gt("saldo", 0) \
-            .execute()
-    todos = res.data or []
+    todos = _traer_todo(sb, "cuenta_corriente",
+                        "genexus_client_id,comprobante,genexus_factura_id",
+                        lambda q: q.gt("saldo", 0))
 
-    if not force:
-        ya_ids = {
-            str(r["genexus_factura_id"])
-            for r in (sb.table("comprobante_items").select("genexus_factura_id").execute().data or [])
-        }
+    filas_items = _traer_todo(sb, "comprobante_items", "genexus_factura_id")
+    cuenta_items: dict = {}
+    for r in filas_items:
+        k = str(r["genexus_factura_id"])
+        cuenta_items[k] = cuenta_items.get(k, 0) + 1
+    ya_ids = set(cuenta_items)
+
+    if retruncadas:
+        # Modo reparación: re-leer solo las facturas que pueden haber quedado
+        # cortadas por el bug de paginación del detalle. La grilla trae 15
+        # renglones por página, así que un corte siempre deja un múltiplo
+        # exacto de 15. Una factura con 15 ítems justos es ambigua (puede estar
+        # completa o truncada) y no hay forma de saberlo sin releerla; releerla
+        # es inofensivo porque el guardado reemplaza los renglones.
+        # Mucho más barato que --force: ~87 facturas en lugar de 302.
+        pendientes = [
+            c for c in todos
+            if c.get("genexus_factura_id")
+            and cuenta_items.get(str(c["genexus_factura_id"]), 0) > 0
+            and cuenta_items[str(c["genexus_factura_id"])] % PAGINA_DETALLE == 0
+        ]
+        print(f"[sync_items] Modo --retruncadas: {len(pendientes)} facturas con "
+              f"un múltiplo exacto de {PAGINA_DETALLE} renglones (posible corte).")
+    elif force:
+        pendientes = todos
+    else:
         pendientes = [
             c for c in todos
             if not c.get("genexus_factura_id") or str(c["genexus_factura_id"]) not in ya_ids
         ]
-    else:
-        pendientes = todos
 
     if not pendientes:
-        print("[sync_items] Todo actualizado. Usá --force para re-sincronizar.")
+        print("[sync_items] Todo actualizado. Usá --force para re-sincronizar "
+              "o --retruncadas para reparar las que puedan estar cortadas.")
         return
 
     print(f"[sync_items] Comprobantes a procesar: {len(pendientes)}")
@@ -513,5 +559,5 @@ if __name__ == "__main__":
     if not FEDAFAR_USER or not FEDAFAR_PASS:
         print("ERROR: FEDAFAR_USER o FEDAFAR_PASS no configurados en .env")
         sys.exit(1)
-    force = "--force" in sys.argv
-    sync_items(force=force)
+    sync_items(force="--force" in sys.argv,
+               retruncadas="--retruncadas" in sys.argv)
