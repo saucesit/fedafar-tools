@@ -94,6 +94,10 @@
                     <i data-lucide="package-x"></i>
                     <span id="faltantes-count" class="prestamos-badge hidden">0</span>
                 </button>
+                <button id="wa-sug-btn" class="icon-btn hidden" title="WhatsApp: respuestas por aprobar">
+                    <i data-lucide="message-circle"></i>
+                    <span id="wa-sug-count" class="prestamos-badge hidden">0</span>
+                </button>
                 <button id="ventainf-btn" class="icon-btn hidden" title="Venta Inf">
                     <i data-lucide="receipt"></i>
                 </button>
@@ -319,6 +323,20 @@
                     <button id="vi-guardar" class="primary-btn">Guardar y generar hoja</button>
                 </div>
                 <p id="vi-msg" class="docs-msg hidden" style="margin-top:6px;"></p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal WhatsApp: respuestas por aprobar (solo cuenta admin) ───── -->
+    <div id="wa-sug-modal" class="cart-modal hidden">
+        <div class="cart-content">
+            <div class="cart-header">
+                <h2>💬 Respuestas por aprobar</h2>
+                <button id="close-wa-sug" class="icon-btn"><i data-lucide="x"></i></button>
+            </div>
+            <p style="font-size:.78rem;color:var(--text-muted);margin:0 0 10px;">El Compañero sugiere la respuesta. Corregila si hace falta y tocá <b>OK ENVIAR</b>: sale por el WhatsApp Web de la PC de Facu en unos segundos. Sin tu OK no sale nada.</p>
+            <div id="wa-sug-body" class="cuenta-body">
+                <p style="text-align:center;color:var(--text-muted);">Cargando...</p>
             </div>
         </div>
     </div>

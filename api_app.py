@@ -2624,6 +2624,15 @@ def api_companero_charla():
 
 import threading as _threading
 _sug_lock = _threading.Lock()
+
+def companero_required(f):
+    """Panel admin (sesión is_admin) o la cuenta de Facu en la app (tipo admin)."""
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        if session.get('is_admin') or (current_user.is_authenticated and current_user.tipo_precio == 'admin'):
+            return f(*args, **kwargs)
+        return jsonify({'error': 'No autorizado'}), 401
+    return decorated
 SUG_MAX_POR_CORRIDA = 8
 APROBADA_VENCE_MIN = 10
 _SUG_NO = ('ruido', 'personal')
@@ -2689,7 +2698,7 @@ def _sug_marcar_respondidas(sb, pendientes):
     return vivas
 
 @app.route('/api/companero/sugerencias', methods=['GET'])
-@admin_required
+@companero_required
 def api_companero_sugerencias():
     try:
         sb = get_sb()
@@ -2712,7 +2721,7 @@ def _sug_texto_valido(texto):
     return texto[:4000], None
 
 @app.route('/api/companero/sugerencias/<int:sid>/aprobar', methods=['POST'])
-@admin_required
+@companero_required
 def api_companero_sug_aprobar(sid):
     data = request.get_json(silent=True) or {}
     texto, err = _sug_texto_valido(data.get('texto'))
@@ -2731,7 +2740,7 @@ def api_companero_sug_aprobar(sid):
     return jsonify({'ok': True})
 
 @app.route('/api/companero/sugerencias/<int:sid>/descartar', methods=['POST'])
-@admin_required
+@companero_required
 def api_companero_sug_descartar(sid):
     sb = get_sb()
     res = sb.table('wa_sugerencias').update({'estado': 'descartada'}).eq('id', sid).eq('estado', 'pendiente').execute()

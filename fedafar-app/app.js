@@ -229,6 +229,13 @@ function showApp() {
         if (interno) actualizarBadgeCamara();
     }
 
+    // WhatsApp: respuestas sugeridas por el Compañero, solo la cuenta admin (Facu)
+    const waSugBtn = document.getElementById('wa-sug-btn');
+    if (waSugBtn) {
+        waSugBtn.classList.toggle('hidden', tipo !== 'admin');
+        if (tipo === 'admin') { actualizarBadgeWaSug(); if (!window._waSugTimer) window._waSugTimer = setInterval(actualizarBadgeWaSug, 30000); }
+    }
+
     // Venta Inf: todo el personal interno
     const ventainfBtn = document.getElementById('ventainf-btn');
     if (ventainfBtn) {
@@ -243,6 +250,96 @@ function showApp() {
 loginBtn.addEventListener('click', doLogin);
 loginPasswordEl.addEventListener('keydown', e => { if (e.key === 'Enter') doLogin(); });
 loginUsernameEl.addEventListener('keydown', e => { if (e.key === 'Enter') loginPasswordEl.focus(); });
+
+// ── WhatsApp: respuestas por aprobar (Compañero) ────────────────────────────
+// Mismas sugerencias que la pestaña "Por aprobar" de /companero. Solo cuenta admin.
+const waSugModal = document.getElementById('wa-sug-modal');
+const _waSugEdit = {};
+document.getElementById('wa-sug-btn')?.addEventListener('click', () => { waSugModal.classList.remove('hidden'); loadWaSug(); });
+document.getElementById('close-wa-sug')?.addEventListener('click', () => waSugModal.classList.add('hidden'));
+
+const _waEsc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+function _waHace(iso) {
+    const min = Math.max(0, Math.floor((Date.now() - new Date(iso)) / 60000));
+    return min < 60 ? min + ' min' : min < 1440 ? Math.floor(min / 60) + ' h' : Math.floor(min / 1440) + ' d';
+}
+const _WA_EST = {
+    enviada: ['✓ Enviada', '#1a6b3c', '#e6f4ea'], aprobada: ['Esperando a WhatsApp Web', '#8a5300', '#fff4e0'],
+    enviando: ['Enviando…', '#8a5300', '#fff4e0'], error: ['Error al enviar', '#b42318', '#fdecea'],
+    vencida: ['Venció sin enviarse', '#b42318', '#fdecea'], descartada: ['Descartada', '#4b5563', '#f1f2f4'],
+    respondida: ['La contestó el equipo', '#4b5563', '#f1f2f4'],
+};
+
+async function actualizarBadgeWaSug() {
+    try {
+        const r = await fetch(`${BASE_URL}/api/companero/sugerencias`, { credentials: 'include' });
+        if (!r.ok) return;
+        const d = await r.json();
+        const b = document.getElementById('wa-sug-count');
+        const n = (d.pendientes || []).length;
+        if (b) { b.textContent = n; b.classList.toggle('hidden', !n); }
+        if (!waSugModal.classList.contains('hidden') && !document.activeElement?.matches('textarea[data-wasug]')) renderWaSug(d);
+    } catch (e) {}
+}
+
+async function loadWaSug() {
+    const body = document.getElementById('wa-sug-body');
+    try {
+        const r = await fetch(`${BASE_URL}/api/companero/sugerencias`, { credentials: 'include' });
+        const d = await r.json();
+        if (!r.ok) { body.innerHTML = `<p style="text-align:center;color:#dc2626;">${_waEsc(d.error || 'Error')}</p>`; return; }
+        renderWaSug(d);
+    } catch (e) { body.innerHTML = '<p style="text-align:center;color:#dc2626;">Sin conexión</p>'; }
+}
+
+function renderWaSug(d) {
+    const body = document.getElementById('wa-sug-body');
+    const b = document.getElementById('wa-sug-count');
+    if (b) { b.textContent = d.pendientes.length; b.classList.toggle('hidden', !d.pendientes.length); }
+    const tarjetas = d.pendientes.map((x) => `
+        <div style="border:1px solid var(--border);border-radius:10px;padding:10px 12px;margin-bottom:10px;background:#fff;">
+            <div style="display:flex;justify-content:space-between;gap:8px;"><b>${_waEsc(x.chat_nombre || x.chat_id)}</b><span style="font-size:.72rem;color:var(--text-muted);">hace ${_waHace(x.creado_en)}</span></div>
+            <div style="background:#f1f2f4;border-radius:8px;padding:6px 9px;margin:7px 0;font-size:.85rem;white-space:pre-wrap;">${_waEsc(x.texto_cliente || '')}</div>
+            <textarea data-wasug="${x.id}" style="width:100%;box-sizing:border-box;min-height:84px;border:1px solid #b7d7c2;background:#f3faf5;border-radius:8px;padding:8px;font:inherit;font-size:.9rem;resize:vertical;">${_waEsc(_waSugEdit[x.id] ?? x.sugerencia ?? '')}</textarea>
+            ${x.nota && !/^ok\.?$/i.test(x.nota.trim()) ? `<div style="font-size:.75rem;color:#8a5300;background:#fff4e0;border-radius:6px;padding:5px 8px;margin-top:6px;">💬 ${_waEsc(x.nota)}</div>` : ''}
+            <div style="display:flex;gap:8px;margin-top:8px;">
+                <button class="primary-btn" data-wa-ok="${x.id}" style="flex:1;background:#1a6b3c;">OK ENVIAR</button>
+                <button class="secondary-btn" data-wa-no="${x.id}">Descartar</button>
+            </div>
+        </div>`).join('');
+    const rec = (d.recientes || []).filter((x) => _WA_EST[x.estado]).slice(0, 15).map((x) => {
+        const e = _WA_EST[x.estado];
+        return `<div style="padding:7px 0;border-bottom:1px solid var(--border);font-size:.82rem;">
+            <b>${_waEsc(x.chat_nombre || '')}</b> <span style="font-size:.7rem;padding:1px 7px;border-radius:6px;color:${e[1]};background:${e[2]};">${e[0]}</span>
+            <div style="color:var(--text-muted);">${_waEsc(x.estado === 'error' ? x.error : (x.texto_final || x.sugerencia || ''))}</div></div>`;
+    }).join('');
+    body.innerHTML = (tarjetas || '<p style="text-align:center;color:var(--text-muted);padding:12px;">No hay respuestas esperando tu OK 👌</p>')
+        + (rec ? `<h4 style="margin:14px 0 4px;">Últimas 24 h</h4>${rec}` : '');
+    body.querySelectorAll('textarea[data-wasug]').forEach((t) => t.oninput = () => { _waSugEdit[t.dataset.wasug] = t.value; });
+    body.querySelectorAll('[data-wa-ok]').forEach((btn) => btn.onclick = async () => {
+        const id = btn.dataset.waOk;
+        const texto = body.querySelector(`textarea[data-wasug="${id}"]`).value.trim();
+        btn.disabled = true; btn.textContent = 'Enviando…';
+        const aprobar = (forzar) => fetch(`${BASE_URL}/api/companero/sugerencias/${id}/aprobar`, {
+            method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ texto, forzar }) });
+        let r = await aprobar(false), j = await r.json().catch(() => ({}));
+        if (r.status === 409 && j.respondida && confirm('Alguien del equipo ya le contestó a este chat. ¿Enviar igual?')) {
+            r = await aprobar(true); j = await r.json().catch(() => ({}));
+        }
+        if (!r.ok) { if (j.error && !j.respondida) alert(j.error); btn.disabled = false; btn.textContent = 'OK ENVIAR'; return; }
+        delete _waSugEdit[id];
+        loadWaSug();
+    });
+    body.querySelectorAll('[data-wa-no]').forEach((btn) => btn.onclick = async () => {
+        const motivo = prompt('¿Por qué la descartás? Si es algo que el Compañero tiene que aprender, escribilo. Si no, dejalo vacío.');
+        if (motivo === null) return;
+        btn.disabled = true;
+        await fetch(`${BASE_URL}/api/companero/sugerencias/${btn.dataset.waNo}/descartar`, {
+            method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ motivo }) }).catch(() => {});
+        delete _waSugEdit[btn.dataset.waNo];
+        loadWaSug();
+    });
+}
 
 // ── Cámara de frío ──────────────────────────────────────────────────────────
 const camaraModal = document.getElementById('camara-modal');
