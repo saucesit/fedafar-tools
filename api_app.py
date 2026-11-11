@@ -2119,6 +2119,71 @@ def api_admin_pedidos():
         print(f"[ERROR] {e}")
         return jsonify({'error': 'Error interno del servidor'}), 500
 
+# ── Compañero WhatsApp (ingesta de la extensión de Chrome) ─────────────────────
+#
+# La extensión (whatsapp_companero/extension) lee WhatsApp Web en la PC de Facu,
+# en modo solo lectura, y manda los mensajes acá en lotes. Autenticación por
+# token fijo (COMPANERO_TOKEN): la extensión no tiene sesión de la app.
+# Deduplica por id de mensaje, así que reenviar el mismo lote no duplica nada.
+
+COMPANERO_TOKEN = os.getenv('COMPANERO_TOKEN', '')
+_WA_CAMPOS = ('id', 'chat_id', 'chat_nombre', 'telefono', 'from_me', 'tipo',
+              'texto', 'mimetype', 'duracion', 'cita_id')
+
+def _wa_fila(m):
+    if not isinstance(m, dict) or not m.get('id') or not m.get('chat_id') or not m.get('t'):
+        return None
+    fila = {k: m.get(k) for k in _WA_CAMPOS}
+    fila['from_me'] = bool(fila['from_me'])
+    fila['tipo'] = str(fila['tipo'] or 'desconocido')[:30]
+    fila['texto'] = (fila['texto'] or '')[:10000]
+    try:
+        fila['t'] = datetime.fromtimestamp(int(m['t']), tz=timezone.utc).isoformat()
+        fila['duracion'] = int(fila['duracion']) if fila['duracion'] is not None else None
+    except (TypeError, ValueError):
+        return None
+    return fila
+
+@app.route('/api/wa/ingest', methods=['POST'])
+@limiter.limit("120 per minute")
+def api_wa_ingest():
+    import hmac
+    auth = request.headers.get('Authorization', '')
+    token = auth[7:] if auth.startswith('Bearer ') else ''
+    if not COMPANERO_TOKEN or not hmac.compare_digest(token, COMPANERO_TOKEN):
+        return jsonify({'error': 'No autorizado'}), 401
+    data = request.get_json(silent=True) or {}
+    mensajes = data.get('mensajes')
+    if not isinstance(mensajes, list) or len(mensajes) > 2000:
+        return jsonify({'error': 'Formato inválido'}), 400
+    filas = [f for f in (_wa_fila(m) for m in mensajes) if f]
+    if not filas:
+        return jsonify({'ok': True, 'recibidos': 0})
+    try:
+        sb = get_sb()
+        for i in range(0, len(filas), 500):
+            sb.table('wa_mensajes').upsert(filas[i:i + 500], on_conflict='id', ignore_duplicates=True).execute()
+        contactos = {}
+        for f in filas:
+            c = contactos.setdefault(f['chat_id'], {'chat_id': f['chat_id']})
+            if f['chat_nombre']:
+                c['nombre'] = f['chat_nombre']
+            if f['telefono']:
+                c['telefono'] = f['telefono']
+        ahora = datetime.now(timezone.utc).isoformat()
+        # Solo actualiza nombre/teléfono; no pisa genexus_client_id ni notas.
+        # Se agrupa por juego de columnas: en un upsert por lote, una columna que
+        # falta en una fila se escribe como NULL y borraría el dato existente.
+        grupos = {}
+        for c in contactos.values():
+            grupos.setdefault(tuple(sorted(c)), []).append(dict(c, actualizado_en=ahora))
+        for filas_c in grupos.values():
+            sb.table('wa_contactos').upsert(filas_c, on_conflict='chat_id').execute()
+        return jsonify({'ok': True, 'recibidos': len(filas)})
+    except Exception as e:
+        print(f"[ERROR] wa_ingest: {e}")
+        return jsonify({'error': 'Error interno del servidor'}), 500
+
 # ── Rutas estáticas ────────────────────────────────────────────────────────────
 
 @app.route('/', methods=['GET'])

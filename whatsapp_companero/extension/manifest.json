@@ -1,0 +1,28 @@
+{
+  "manifest_version": 3,
+  "name": "FEDAFAR Compañero - lector WhatsApp",
+  "version": "0.2.0",
+  "description": "Lee (solo lectura) los mensajes de WhatsApp Web y los guarda para el Compañero. Nunca envía mensajes.",
+  "permissions": ["storage", "alarms"],
+  "host_permissions": [
+    "https://web.whatsapp.com/*",
+    "https://fedafar-tools.onrender.com/*",
+    "http://localhost:5001/*",
+    "http://127.0.0.1:5001/*"
+  ],
+  "background": { "service_worker": "background.js" },
+  "content_scripts": [
+    {
+      "matches": ["https://web.whatsapp.com/*"],
+      "js": ["inject.js"],
+      "world": "MAIN",
+      "run_at": "document_idle"
+    },
+    {
+      "matches": ["https://web.whatsapp.com/*"],
+      "js": ["bridge.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  "action": { "default_popup": "popup.html", "default_title": "Compañero" }
+}

@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<style>
+  body { font: 13px system-ui, sans-serif; width: 360px; margin: 0; padding: 12px; color: #222; background: #fff; }
+  h1 { font-size: 15px; margin: 0 0 8px; }
+  .stats { display: flex; gap: 8px; margin-bottom: 8px; }
+  .stats div { flex: 1; background: #f3f2ee; border-radius: 6px; padding: 6px 8px; }
+  .stats b { display: block; font-size: 17px; }
+  .envio { padding: 6px 8px; border-radius: 6px; margin-bottom: 8px; background: #f3f2ee; }
+  .envio.ok { background: #e6f4ea; color: #1a5e33; }
+  .envio.err { background: #fdecea; color: #8a1c1c; }
+  details { margin-bottom: 8px; }
+  label { display: block; margin-top: 6px; color: #555; }
+  input { width: 100%; box-sizing: border-box; padding: 5px; font: inherit; }
+  button { margin-top: 8px; padding: 5px 10px; font: inherit; cursor: pointer; }
+  ul { list-style: none; padding: 0; margin: 0; max-height: 300px; overflow: auto; }
+  li { border-bottom: 1px solid #eee; padding: 6px 0; }
+  .who { font-weight: 600; }
+  .me { color: #1a7f4b; }
+  .meta { color: #888; font-size: 11px; }
+</style>
+</head>
+<body>
+  <h1>Compañero · lector WhatsApp</h1>
+  <div class="stats">
+    <div>Capturados<b id="total">0</b></div>
+    <div>Entrantes<b id="in">0</b></div>
+    <div>Salientes<b id="out">0</b></div>
+  </div>
+  <div class="envio" id="envio"></div>
+  <details id="conf">
+    <summary>Conexión con la API</summary>
+    <label>URL <input id="apiUrl"></label>
+    <label>Token <input id="apiToken" type="password"></label>
+    <button id="guardar">Guardar y enviar</button>
+  </details>
+  <div class="meta" id="ultimo"></div>
+  <ul id="lista"></ul>
+  <script src="popup.js"></script>
+</body>
+</html>
