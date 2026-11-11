@@ -35,7 +35,12 @@ Redactar respuestas a clientes:
 - Vos no podés mandar mensajes. El borrador le aparece a Facundo con botones para copiarlo o abrirlo en WhatsApp; él lo revisa y lo manda. Nunca digas que lo enviaste.
 - Tono del borrador: como escribe FEDAFAR en ese chat (mirá sus mensajes anteriores). Cordial, breve, sin firmas largas, sin emojis de más.
 - Precios: hay precio contado y precio cuenta corriente. Si no sabés cuál corresponde al cliente, poné el que corresponda según la conversación o avisale a Facundo en tu respuesta que confirme cuál usar.
-- Si falta un dato para responder bien (precio, si hay stock, fecha de entrega), redactá igual dejando el hueco marcado entre corchetes, por ejemplo [confirmar fecha], y avisale a Facundo qué falta."""
+- Si falta un dato para responder bien (precio, si hay stock, fecha de entrega), redactá igual dejando el hueco marcado entre corchetes, por ejemplo [confirmar fecha], y avisale a Facundo qué falta.
+
+Aprender:
+- Cuando Facundo te enseñe cómo responder o cómo encarar una situación ("acordate que...", "de ahora en más...", "a tal cliente no le...", "eso no se dice así"), guardalo con recordar_regla: una regla corta, clara y general, en sus palabras. Si es solo para un cliente, pasá su chat_id. Confirmale en una línea qué guardaste.
+- Si te pide ver lo que aprendiste, usá ver_reglas. Si te dice que algo ya no va, olvidar_regla.
+- Las reglas guardadas están más abajo; respetalas siempre."""
 
 TOOLS = [
     {
@@ -81,6 +86,28 @@ TOOLS = [
             'properties': {'texto': {'type': 'string', 'description': 'Ej: "aciclovir 800", "guantes nitrilo".'}},
             'required': ['texto'],
         },
+    },
+    {
+        'name': 'recordar_regla',
+        'description': 'Guarda algo que Facundo te enseña sobre cómo responder o encarar situaciones. Se usa en todas las sugerencias futuras. Pasá chat_id solo si la regla es para un cliente puntual.',
+        'input_schema': {
+            'type': 'object',
+            'properties': {
+                'regla': {'type': 'string', 'description': 'La regla, corta y clara. Ej: "A los centros de salud no se les pasa precio por WhatsApp; derivar al mail de licitaciones."'},
+                'chat_id': {'type': 'string'},
+            },
+            'required': ['regla'],
+        },
+    },
+    {
+        'name': 'ver_reglas',
+        'description': 'Lista las reglas que Facundo te enseñó (con su id).',
+        'input_schema': {'type': 'object', 'properties': {}},
+    },
+    {
+        'name': 'olvidar_regla',
+        'description': 'Desactiva una regla por id cuando Facundo dice que ya no va.',
+        'input_schema': {'type': 'object', 'properties': {'id': {'type': 'integer'}}, 'required': ['id']},
     },
     {
         'name': 'redactar_respuesta',
@@ -186,7 +213,7 @@ MODO SUGERENCIA: acaba de entrar un mensaje de un cliente y nadie de FEDAFAR con
 _TOOLS_SUG = [t for t in TOOLS if t['name'] in ('buscar_producto', 'buscar_mensajes', 'redactar_respuesta')]
 
 
-def sugerir(chat, herramientas, log=print):
+def sugerir(chat, herramientas, log=print, extra=''):
     """chat: salida de leer_chat (chat_id, nombre, mensajes[]). Devuelve {'texto', 'borradores'}."""
     lineas = []
     for m in chat['mensajes']:
@@ -198,4 +225,4 @@ def sugerir(chat, herramientas, log=print):
               + '\n'.join(lineas)
               + "\n\nRedactá la respuesta que debería mandar FEDAFAR al último mensaje del cliente.")
     return charlar([{'role': 'user', 'content': prompt}], herramientas, log=log,
-                   modelo=MODELO_SUG, tools=_TOOLS_SUG, system=_sistema() + SYSTEM_SUG)
+                   modelo=MODELO_SUG, tools=_TOOLS_SUG, system=_sistema() + SYSTEM_SUG + (extra or ''))

@@ -178,6 +178,7 @@ const VISTAS = [
   { id: 'hoy', ic: '☀️', nombre: 'Hoy' },
   { id: 'aprobar', ic: '✅', nombre: 'Por aprobar' },
   { id: 'charla', ic: '💬', nombre: 'Charla' },
+  { id: 'aprendio', ic: '🧠', nombre: 'Aprendizajes' },
   { id: 'sin', ic: '⏳', nombre: 'Sin responder' },
   { id: 'cat:pedido', ic: '🛒', nombre: 'Pedidos' },
   { id: 'cat:reclamo', ic: '⚠️', nombre: 'Reclamos' },
@@ -279,6 +280,7 @@ async function renderMain() {
   main.classList.toggle('modo-charla', estado.vista === 'charla');
   if (estado.vista === 'charla') return renderCharla();
   if (estado.vista === 'aprobar') return renderAprobar();
+  if (estado.vista === 'aprendio') return renderAprendio();
   if (!d) { main.innerHTML = '<div class="vacio">Cargando…</div>'; return; }
   const v = estado.vista;
 
@@ -404,8 +406,10 @@ function renderAprobar() {
   main.querySelectorAll('textarea[data-sugt]').forEach((t) => t.oninput = () => { estado.sugEdit[t.dataset.sugt] = t.value; });
   main.querySelectorAll('[data-verchat]').forEach((b) => b.onclick = () => abrirChat(b.dataset.verchat));
   main.querySelectorAll('[data-descartar]').forEach((b) => b.onclick = async () => {
+    const motivo = prompt('¿Por qué la descartás?\nSi es algo que tengo que aprender para la próxima, escribilo (ej: "a los hospitales no se les pasa precio por WhatsApp"). Si no, dejalo vacío.');
+    if (motivo === null) return;
     b.disabled = true;
-    await apiPost(`/api/companero/sugerencias/${b.dataset.descartar}/descartar`, {}).catch(() => {});
+    await apiPost(`/api/companero/sugerencias/${b.dataset.descartar}/descartar`, { motivo }).catch(() => {});
     delete estado.sugEdit[b.dataset.descartar]; await cargarSug(true);
   });
   main.querySelectorAll('[data-aprobar]').forEach((b) => b.onclick = async () => {
@@ -446,8 +450,44 @@ async function cargarSug(forzarRender) {
   if (estado.vista === 'hoy' && nuevas.length) renderMain();
 }
 
+// ── Aprendizajes ─────────────────────────────────────────────────────────
+async function renderAprendio() {
+  const main = $('#main');
+  main.innerHTML = '<h2>Lo que aprendió</h2><div class="vacio">Cargando…</div>';
+  let d;
+  try { d = await api('/api/companero/aprendizajes'); } catch (e) { return; }
+  if (estado.vista !== 'aprendio') return;
+  const ORIG = { facundo: 'te lo enseñaste vos', descarte: 'al descartar una sugerencia' };
+  main.innerHTML = `<h2>Lo que aprendió</h2>
+    <p style="color:var(--muted);margin-top:0">Reglas que usa en cada sugerencia. Enseñale desde acá, en la Charla ("acordate que…") o al descartar una sugerencia. Además aprende solo de cómo responde el equipo y de lo que corregís antes de enviar.</p>
+    <form class="buscador" id="fRegla"><input id="nuevaRegla" placeholder='Ej: "Siempre saludar por el nombre y tutear"'><button>Enseñar</button></form>
+    ${d.reglas.length ? '<div class="lista">' + d.reglas.map((r) => `<div class="fila" style="cursor:default"><div class="cuerpo">
+        <div style="white-space:normal">${esc(r.regla)}</div>
+        <div class="prev">${r.chat_id ? 'Solo para ' + esc(r.chat_nombre) : 'Para todos'} · ${ORIG[r.origen] || r.origen}${r.origen === 'descarte' && r.chat_nombre ? ' (' + esc(r.chat_nombre) + ')' : ''} · ${fechaCorta(r.creado_en)}</div></div>
+        <div class="lado"><button class="btn" data-olvidar="${r.id}">Olvidar</button></div></div>`).join('') + '</div>'
+      : '<div class="aviso">Todavía no le enseñaste nada.</div>'}
+    <h2>Tus correcciones</h2>
+    <p style="color:var(--muted);margin-top:0">Sugerencias que editaste antes de enviar. Las usa como ejemplo de "así no, así sí".</p>
+    ${d.correcciones.length ? '<div class="lista">' + d.correcciones.map((c) => `<div class="fila" style="cursor:default"><div class="cuerpo">
+        <div class="nombre">${esc(c.chat_nombre || '')}</div>
+        <div class="prev" style="white-space:normal"><s>${esc(c.sugerencia)}</s></div>
+        <div style="white-space:normal">→ ${esc(c.texto_final)}</div></div></div>`).join('') + '</div>'
+      : '<div class="aviso">Todavía no corregiste ninguna sugerencia.</div>'}`;
+  $('#fRegla').onsubmit = async (e) => {
+    e.preventDefault();
+    const regla = $('#nuevaRegla').value.trim();
+    if (!regla) return;
+    try { await apiPost('/api/companero/aprendizajes', { regla }); renderAprendio(); } catch (er) { alert(er.message); }
+  };
+  main.querySelectorAll('[data-olvidar]').forEach((b) => b.onclick = async () => {
+    if (!confirm('¿Que se olvide de esta regla?')) return;
+    await apiPost(`/api/companero/aprendizajes/${b.dataset.olvidar}/olvidar`, {}).catch(() => {});
+    renderAprendio();
+  });
+}
+
 // ── Charla con el Compañero ──────────────────────────────────────────────
-const SUGERENCIAS = ['¿Qué quedó sin responder?', 'Resumime el día', '¿Qué pedidos entraron hoy?', '¿Hubo algún reclamo esta semana?'];
+const SUGERENCIAS = ['¿Qué quedó sin responder?', 'Resumime el día', '¿Qué pedidos entraron hoy?', '¿Qué aprendiste de cómo respondemos?'];
 
 function guardarCharla() {
   try { localStorage.setItem('companero_charla', JSON.stringify(estado.charla.slice(-40))); } catch (e) {}
@@ -564,7 +604,7 @@ async function cargar() {
     $('#estado').textContent = (u ? 'Último mensaje recibido: ' + fechaCorta(u) + ' · actualizado ' + hora(new Date().toISOString()) : 'Todavía no hay mensajes guardados')
       + (estado.datos.sin_clasificar ? ' · clasificando ' + estado.datos.sin_clasificar + '…' : '');
     renderNav();
-    if (!['buscar', 'charla', 'aprobar'].includes(estado.vista)) renderMain();
+    if (!['buscar', 'charla', 'aprobar', 'aprendio'].includes(estado.vista)) renderMain();
   } catch (e) {
     if (e.message !== 'no autenticado') $('#estado').textContent = 'No se pudo actualizar (' + e.message + ')';
   }

@@ -2475,7 +2475,108 @@ def _charla_redactar(chat_id, texto):
     return {'chat_id': chat_id, 'nombre': res[0]['chat_nombre'] or res[0]['telefono'] or chat_id,
             'telefono': res[0]['telefono'], 'texto': texto[:4000]}
 
+# ── Aprendizaje: reglas de Facundo, sus correcciones y respuestas reales ──────
+
+def _aprend_reglas(chat_id=None):
+    filas = (get_sb().table('wa_aprendizajes').select('id,regla,chat_id,chat_nombre,origen,creado_en')
+             .eq('activo', True).order('creado_en').limit(200).execute().data or [])
+    return [f for f in filas if not f['chat_id'] or f['chat_id'] == chat_id]
+
+def _aprend_correcciones(limite=8):
+    filas = (get_sb().table('wa_sugerencias').select('chat_nombre,texto_cliente,sugerencia,texto_final,aprobado_en')
+             .in_('estado', ['enviada', 'aprobada', 'enviando']).not_.is_('sugerencia', 'null')
+             .order('aprobado_en', desc=True).limit(60).execute().data or [])
+    return [f for f in filas if f['texto_final'] and f['texto_final'].strip() != (f['sugerencia'] or '').strip()][:limite]
+
+_ej_cache = {'ts': 0, 'pares': []}
+
+def _aprend_pares():
+    """(mensaje del cliente → respuesta real de FEDAFAR) de los últimos 30 días. Cache 10 min."""
+    import time as _t
+    if _t.time() - _ej_cache['ts'] < 600:
+        return _ej_cache['pares']
+    msgs = sorted(_wa_traer(_wa_desde(30)), key=lambda m: m['t'])
+    por_chat = {}
+    for m in msgs:
+        por_chat.setdefault(m['chat_id'], []).append(m)
+    pares = []
+    for ms in por_chat.values():
+        for i, m in enumerate(ms):
+            if m['from_me'] or not m.get('categoria') or m['categoria'] in _SUG_NO:
+                continue
+            sig = ms[i + 1] if i + 1 < len(ms) else None
+            if (sig and sig['from_me'] and sig['tipo'] == 'chat' and (sig.get('texto') or '').strip()
+                    and datetime.fromisoformat(sig['t']) - datetime.fromisoformat(m['t']) < timedelta(hours=6)):
+                pares.append({'chat_id': m['chat_id'], 'cliente': m['chat_nombre'] or m['telefono'],
+                              'categoria': m['categoria'], 'mensaje': _wa_preview(m),
+                              'respuesta': sig['texto'][:600], 't': m['t']})
+    _ej_cache.update(ts=_t.time(), pares=pares)
+    return pares
+
+def _contexto_aprendido(chat_id=None, categoria=None, ejemplos=True):
+    """Nunca rompe la sugerencia ni la charla: si algo falla, sigue sin ese contexto."""
+    try:
+        return _contexto_aprendido_(chat_id, categoria, ejemplos)
+    except Exception as e:
+        print(f"[ERROR] contexto aprendido: {type(e).__name__}: {e}")
+        return ''
+
+def _contexto_aprendido_(chat_id=None, categoria=None, ejemplos=True):
+    partes = []
+    reglas = _aprend_reglas(chat_id)
+    gen = [r['regla'] for r in reglas if not r['chat_id']]
+    esp = [r['regla'] for r in reglas if r['chat_id']]
+    if gen:
+        partes.append('Reglas que te enseñó Facundo (respetalas siempre):\n' + '\n'.join('- ' + r for r in gen))
+    if esp:
+        partes.append('Reglas para este cliente:\n' + '\n'.join('- ' + r for r in esp))
+    if ejemplos:
+        corr = _aprend_correcciones()
+        if corr:
+            partes.append('Correcciones recientes de Facundo a tus sugerencias (aprendé de lo que cambió):\n' + '\n'.join(
+                f"- {c['chat_nombre']}: sugeriste «{c['sugerencia'][:300]}» → él lo mandó así: «{c['texto_final'][:300]}»" for c in corr))
+        pares = [p for p in _aprend_pares() if p['chat_id'] != chat_id]
+        misma = [p for p in pares if p['categoria'] == categoria]
+        elegidos, vistos = [], set()
+        for p in sorted(misma, key=lambda p: p['t'], reverse=True) + sorted(pares, key=lambda p: p['t'], reverse=True):
+            if p['chat_id'] in vistos:
+                continue
+            vistos.add(p['chat_id']); elegidos.append(p)
+            if len(elegidos) >= 6:
+                break
+        if elegidos:
+            partes.append('Así respondió el equipo de FEDAFAR en otros chats (copiá el tono y la forma, no el contenido):\n' + '\n'.join(
+                f"- [{p['categoria']}] {p['cliente']}: «{p['mensaje'][:200]}» → FEDAFAR: «{p['respuesta'][:300]}»" for p in elegidos))
+    return ('\n\n' + '\n\n'.join(partes)) if partes else ''
+
+def _charla_recordar(regla, chat_id=None):
+    regla = (regla or '').strip()
+    if len(regla) < 4:
+        return {'error': 'Regla vacía'}
+    nombre = None
+    if chat_id:
+        u = (get_sb().table('wa_mensajes').select('chat_nombre,telefono').eq('chat_id', chat_id)
+             .limit(1).execute().data or [None])[0]
+        if not u:
+            return {'error': f'No existe el chat {chat_id}'}
+        nombre = u['chat_nombre'] or u['telefono']
+    r = get_sb().table('wa_aprendizajes').insert({'regla': regla[:1000], 'chat_id': chat_id or None,
+                                                  'chat_nombre': nombre, 'origen': 'facundo'}).execute()
+    return {'ok': True, 'id': r.data[0]['id'], 'para': nombre or 'todos los chats'}
+
+def _charla_ver_reglas():
+    return {'reglas': [{'id': r['id'], 'regla': r['regla'], 'cliente': r['chat_nombre'] or 'todos'}
+                       for r in (get_sb().table('wa_aprendizajes').select('*').eq('activo', True)
+                                 .order('creado_en').limit(200).execute().data or [])]}
+
+def _charla_olvidar(id):
+    get_sb().table('wa_aprendizajes').update({'activo': False}).eq('id', int(id)).execute()
+    return {'ok': True}
+
 _CHARLA_HERRAMIENTAS = {
+    'recordar_regla': _charla_recordar,
+    'ver_reglas': _charla_ver_reglas,
+    'olvidar_regla': _charla_olvidar,
     'resumen_chats': _charla_resumen_chats,
     'leer_chat': _charla_leer_chat,
     'buscar_mensajes': _charla_buscar_mensajes,
@@ -2508,8 +2609,9 @@ def api_companero_charla():
         return jsonify({'error': 'El último mensaje tiene que ser tuyo'}), 400
     foco = data.get('foco') if isinstance(data.get('foco'), str) else None
     try:
-        from whatsapp_companero.charla import charlar
-        return jsonify(charlar(limpio, _CHARLA_HERRAMIENTAS, foco=foco))
+        from whatsapp_companero.charla import charlar, _sistema
+        return jsonify(charlar(limpio, _CHARLA_HERRAMIENTAS, foco=foco,
+                               system=_sistema() + _contexto_aprendido(foco, ejemplos=False)))
     except Exception as e:
         print(f"[ERROR] companero_charla: {type(e).__name__}: {e}")
         return jsonify({'error': 'No pude responder, probá de nuevo'}), 500
@@ -2553,7 +2655,7 @@ def _companero_sugerir():
                     'texto_cliente': _wa_preview(m)}
             try:
                 chat = _charla_leer_chat(m['chat_id'], cantidad=30)
-                r = sugerir(chat, _CHARLA_HERRAMIENTAS)
+                r = sugerir(chat, _CHARLA_HERRAMIENTAS, extra=_contexto_aprendido(m['chat_id'], m.get('categoria')))
                 b = (r.get('borradores') or [None])[-1]
                 fila.update({'sugerencia': b['texto'] if b else None, 'nota': (r.get('texto') or '')[:600] or None,
                              'estado': 'pendiente' if b else 'sin_sugerencia'})
@@ -2631,7 +2733,39 @@ def api_companero_sug_aprobar(sid):
 @app.route('/api/companero/sugerencias/<int:sid>/descartar', methods=['POST'])
 @admin_required
 def api_companero_sug_descartar(sid):
-    get_sb().table('wa_sugerencias').update({'estado': 'descartada'}).eq('id', sid).eq('estado', 'pendiente').execute()
+    sb = get_sb()
+    res = sb.table('wa_sugerencias').update({'estado': 'descartada'}).eq('id', sid).eq('estado', 'pendiente').execute()
+    motivo = str((request.get_json(silent=True) or {}).get('motivo') or '').strip()
+    if motivo and res.data:   # lo que Facundo explica al descartar queda como regla
+        s = res.data[0]
+        sb.table('wa_aprendizajes').insert({'regla': motivo[:1000], 'chat_nombre': s.get('chat_nombre'),
+                                            'origen': 'descarte'}).execute()
+    return jsonify({'ok': True})
+
+@app.route('/api/companero/aprendizajes', methods=['GET'])
+@admin_required
+def api_companero_aprendizajes():
+    try:
+        reglas = (get_sb().table('wa_aprendizajes').select('*').eq('activo', True)
+                  .order('creado_en', desc=True).limit(200).execute().data or [])
+        return jsonify({'reglas': reglas, 'correcciones': _aprend_correcciones(20)})
+    except Exception as e:
+        print(f"[ERROR] companero_aprendizajes: {e}")
+        return jsonify({'error': 'Error interno del servidor'}), 500
+
+@app.route('/api/companero/aprendizajes', methods=['POST'])
+@admin_required
+def api_companero_aprendizajes_nueva():
+    regla = str((request.get_json(silent=True) or {}).get('regla') or '').strip()
+    if len(regla) < 4:
+        return jsonify({'error': 'Escribí la regla'}), 400
+    get_sb().table('wa_aprendizajes').insert({'regla': regla[:1000], 'origen': 'facundo'}).execute()
+    return jsonify({'ok': True})
+
+@app.route('/api/companero/aprendizajes/<int:aid>/olvidar', methods=['POST'])
+@admin_required
+def api_companero_aprendizajes_olvidar(aid):
+    get_sb().table('wa_aprendizajes').update({'activo': False}).eq('id', aid).execute()
     return jsonify({'ok': True})
 
 @app.route('/api/companero/enviar', methods=['POST'])

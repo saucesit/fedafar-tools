@@ -78,3 +78,18 @@ create table if not exists wa_sugerencias (
 );
 create index if not exists wa_sugerencias_estado on wa_sugerencias (estado, creado_en desc);
 alter table wa_sugerencias disable row level security;
+
+-- ── Aprendizajes (cómo responde FEDAFAR) ─────────────────────────────────────
+-- Reglas que Facundo le enseña al Compañero (en la Charla o al descartar una
+-- sugerencia). Se inyectan en cada sugerencia y en la Charla.
+-- chat_id null = regla general; con chat_id = solo para ese cliente.
+create table if not exists wa_aprendizajes (
+  id         bigserial primary key,
+  regla      text not null,
+  chat_id    text,
+  chat_nombre text,
+  origen     text not null default 'facundo',   -- facundo | descarte
+  activo     boolean not null default true,
+  creado_en  timestamptz not null default now()
+);
+alter table wa_aprendizajes disable row level security;
