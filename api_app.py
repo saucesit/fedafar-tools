@@ -2751,6 +2751,16 @@ def api_companero_sug_descartar(sid):
                                             'origen': 'descarte'}).execute()
     return jsonify({'ok': True})
 
+@app.route('/api/companero/sugerencias/<int:sid>/reintentar', methods=['POST'])
+@companero_required
+def api_companero_sug_reintentar(sid):
+    """Un envío que falló o venció vuelve a 'por aprobar' (hay que volver a darle OK)."""
+    res = (get_sb().table('wa_sugerencias').update({'estado': 'pendiente', 'error': None, 'aprobado_en': None})
+           .eq('id', sid).in_('estado', ['error', 'vencida']).execute())
+    if not res.data:
+        return jsonify({'error': 'Solo se puede reintentar un envío con error o vencido'}), 409
+    return jsonify({'ok': True})
+
 @app.route('/api/companero/aprendizajes', methods=['GET'])
 @admin_required
 def api_companero_aprendizajes():

@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "FEDAFAR Compañero - lector WhatsApp",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "Lee los mensajes de WhatsApp Web para el Compañero y envía solo las respuestas que Facundo aprueba en el panel.",
   "permissions": ["storage", "alarms"],
   "host_permissions": [

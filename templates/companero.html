@@ -394,8 +394,9 @@ function renderAprobar() {
   const rec = d.recientes.filter((x) => x.estado !== 'reemplazada').map((x) => {
     const e = ESTADO_SUG[x.estado] || [x.estado, 'p-gris'];
     const det = x.estado === 'error' ? x.error : x.estado === 'sin_sugerencia' ? x.nota : (x.texto_final || x.sugerencia);
+    const reint = (x.estado === 'error' || x.estado === 'vencida') ? `<br><button class="btn" data-reintentar="${x.id}" style="margin-top:4px">Reintentar</button>` : '';
     return `<div class="fila" data-chat="${esc(x.chat_id)}"><div class="cuerpo"><div class="nombre">${esc(x.chat_nombre || x.chat_id)} <span class="pill ${e[1]}">${e[0]}</span></div>
-      <div class="prev" style="white-space:normal">${esc(det || '')}</div></div><div class="lado">${fechaCorta(x.enviado_en || x.aprobado_en || x.creado_en)}</div></div>`;
+      <div class="prev" style="white-space:normal">${esc(det || '')}</div></div><div class="lado">${fechaCorta(x.enviado_en || x.aprobado_en || x.creado_en)}${reint}</div></div>`;
   }).join('');
   main.innerHTML = `<h2>Por aprobar</h2>
     <p style="color:var(--muted);margin-top:0">Cuando entra un mensaje que pide respuesta, el Compañero te deja una. Corregila si hace falta y tocá Enviar: sale desde el WhatsApp Web de esta PC en unos segundos. Sin tu OK no sale nada.</p>
@@ -427,6 +428,11 @@ function renderAprobar() {
     } catch (e) { alert(e.message); b.disabled = false; }
   });
   enlazarFilas();
+  main.querySelectorAll('[data-reintentar]').forEach((b) => b.onclick = async (ev) => {
+    ev.stopPropagation(); b.disabled = true;
+    try { await apiPost(`/api/companero/sugerencias/${b.dataset.reintentar}/reintentar`, {}); } catch (e) { alert(e.message); }
+    await cargarSug(true);
+  });
 }
 
 async function cargarSug(forzarRender) {

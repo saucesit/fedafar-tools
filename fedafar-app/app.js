@@ -311,7 +311,8 @@ function renderWaSug(d) {
         const e = _WA_EST[x.estado];
         return `<div style="padding:7px 0;border-bottom:1px solid var(--border);font-size:.82rem;">
             <b>${_waEsc(x.chat_nombre || '')}</b> <span style="font-size:.7rem;padding:1px 7px;border-radius:6px;color:${e[1]};background:${e[2]};">${e[0]}</span>
-            <div style="color:var(--text-muted);">${_waEsc(x.estado === 'error' ? x.error : (x.texto_final || x.sugerencia || ''))}</div></div>`;
+            <div style="color:var(--text-muted);">${_waEsc(x.estado === 'error' ? x.error : (x.texto_final || x.sugerencia || ''))}</div>
+            ${(x.estado === 'error' || x.estado === 'vencida') ? `<button class="secondary-btn" data-wa-re="${x.id}" style="font-size:.75rem;padding:4px 10px;margin-top:4px;">Reintentar</button>` : ''}</div>`;
     }).join('');
     body.innerHTML = (tarjetas || '<p style="text-align:center;color:var(--text-muted);padding:12px;">No hay respuestas esperando tu OK 👌</p>')
         + (rec ? `<h4 style="margin:14px 0 4px;">Últimas 24 h</h4>${rec}` : '');
@@ -328,6 +329,11 @@ function renderWaSug(d) {
         }
         if (!r.ok) { if (j.error && !j.respondida) alert(j.error); btn.disabled = false; btn.textContent = 'OK ENVIAR'; return; }
         delete _waSugEdit[id];
+        loadWaSug();
+    });
+    body.querySelectorAll('[data-wa-re]').forEach((btn) => btn.onclick = async () => {
+        btn.disabled = true;
+        await fetch(`${BASE_URL}/api/companero/sugerencias/${btn.dataset.waRe}/reintentar`, { method: 'POST', credentials: 'include' }).catch(() => {});
         loadWaSug();
     });
     body.querySelectorAll('[data-wa-no]').forEach((btn) => btn.onclick = async () => {

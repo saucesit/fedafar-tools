@@ -71,6 +71,9 @@
   let cola = Promise.resolve();
   const dormir = (ms) => new Promise((r) => setTimeout(r, ms));
   const norm = (s) => String(s || '').replace(/\s+/g, ' ').trim();
+  // WhatsApp cambia el formato al pegar (*negritas*, viñetas, saltos de línea):
+  // para verificar alcanza con que coincidan letras y números.
+  const esencia = (s) => String(s || '').toLowerCase().normalize('NFD').replace(/[^a-z0-9]/g, '');
 
   async function esperar(fn, ms = 6000) {
     const fin = Date.now() + ms;
@@ -86,10 +89,35 @@
   function cajaTexto() { return document.querySelector('#main footer div[contenteditable="true"]'); }
 
   function botonEnviar() {
-    const b = document.querySelector('#main footer button[aria-label="Enviar"], #main footer button[aria-label="Send"]');
-    if (b) return b;
-    const ic = document.querySelector('#main footer [data-icon="send"], #main footer [data-icon="wds-ic-send-filled"]');
-    return ic ? ic.closest('button') || ic : null;
+    const zona = document.querySelector('#main footer') || document.querySelector('#main') || document;
+    const clicable = (el) => el && (el.closest('button,[role="button"]') || el);
+    // 1) por etiqueta accesible
+    for (const el of zona.querySelectorAll('button,[role="button"]')) {
+      const l = (el.getAttribute('aria-label') || el.getAttribute('title') || '').toLowerCase();
+      if (l === 'enviar' || l === 'send') return el;
+    }
+    // 2) por ícono
+    const ic = zona.querySelector('[data-icon="send"],[data-icon="wds-ic-send-filled"],[data-icon*="send"]');
+    if (ic) return clicable(ic);
+    // 3) el último botón de la barra de escritura (el de enviar está a la derecha)
+    const bs = zona.querySelectorAll('button,[role="button"]');
+    return bs.length ? bs[bs.length - 1] : null;
+  }
+
+  function vaciarCaja() {
+    const c = cajaTexto();
+    if (!c) return;
+    c.focus();
+    const sel = window.getSelection(), r = document.createRange();
+    r.selectNodeContents(c); sel.removeAllRanges(); sel.addRange(r);
+    document.execCommand('delete');
+  }
+
+  function describirBarra() {
+    const zona = document.querySelector('#main footer');
+    if (!zona) return 'sin footer';
+    return [...zona.querySelectorAll('button,[role="button"],[data-icon]')].slice(0, 12)
+      .map((e) => e.tagName.toLowerCase() + '[' + (e.getAttribute('aria-label') || e.getAttribute('data-icon') || '') + ']').join(' ');
   }
 
   async function enviar(C, item) {
@@ -103,16 +131,18 @@
       if (!abierto) return { ok: false, error: 'No pude abrir el chat' };
       const caja = await esperar(cajaTexto);
       if (!caja) return { ok: false, error: 'No encontré la caja de texto' };
-      if (norm(caja.innerText)) return { ok: false, error: 'Había texto escrito a medias en ese chat; no lo pisé' };
+      if (esencia(caja.innerText)) return { ok: false, error: 'Había texto escrito a medias en ese chat; no lo pisé' };
 
       caja.focus();
       const dt = new DataTransfer();
       dt.setData('text/plain', item.texto);
       caja.dispatchEvent(new ClipboardEvent('paste', { clipboardData: dt, bubbles: true, cancelable: true }));
-      const cargado = await esperar(() => norm(cajaTexto() && cajaTexto().innerText) === norm(item.texto), 3000);
+      const quiero = esencia(item.texto);
+      const cargado = await esperar(() => esencia(cajaTexto() && cajaTexto().innerText) === quiero, 3000);
       if (!cargado) {
-        document.execCommand('selectAll'); document.execCommand('delete');
-        return { ok: false, error: 'No pude cargar el texto en la caja' };
+        const hay = esencia(cajaTexto() && cajaTexto().innerText);
+        vaciarCaja();
+        return { ok: false, error: `No pude cargar el texto en la caja (esperaba ${quiero.length} letras, quedaron ${hay.length})` };
       }
       // última verificación antes de tocar Enviar: seguimos en el chat correcto
       const a = chatActivo(C);
@@ -120,16 +150,30 @@
 
       let enviadoId = null;
       const oir = (m) => {
-        if (m && m.id && m.id.fromMe && serial(m.id.remote) === item.chat_id && norm(m.body) === norm(item.texto)) enviadoId = serial(m.id);
+        if (m && m.id && m.id.fromMe && serial(m.id.remote) === item.chat_id && esencia(m.body) === quiero) enviadoId = serial(m.id);
       };
       C.Msg.on('add', oir);
       try {
         const btn = await esperar(botonEnviar, 2000);
         if (btn) btn.click();
-        else cajaTexto().dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true }));
-        await esperar(() => enviadoId, 10000);
+        await esperar(() => enviadoId, 4000);
+        if (!enviadoId && esencia(cajaTexto() && cajaTexto().innerText)) {
+          // el clic no anduvo: probar con Enter, como haría una persona
+          const caja2 = cajaTexto(); caja2.focus();
+          for (const tipo of ['keydown', 'keypress', 'keyup']) {
+            caja2.dispatchEvent(new KeyboardEvent(tipo, { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true, cancelable: true }));
+          }
+          await esperar(() => enviadoId, 6000);
+        }
       } finally { C.Msg.off('add', oir); }
-      if (!enviadoId) return { ok: false, error: 'No se confirmó el envío: revisalo en WhatsApp' };
+      if (!enviadoId) {
+        const quedo = esencia(cajaTexto() && cajaTexto().innerText);
+        if (quedo) {   // no salió: no dejar el texto colgado en la caja
+          vaciarCaja();
+          return { ok: false, error: 'No pude tocar Enviar. Barra: ' + describirBarra() };
+        }
+        return { ok: false, error: 'La caja se vació pero no vi el mensaje enviado: revisalo en WhatsApp' };
+      }
       console.log(TAG, 'enviado', item.id, enviadoId);
       return { ok: true, wa_msg_id: enviadoId };
     } catch (e) {
