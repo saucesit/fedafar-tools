@@ -2146,11 +2146,15 @@ def _wa_fila(m):
 
 def _companero_clasificar():
     """Lanza el clasificador en un hilo (no bloquea la respuesta; si ya corre, no hace nada)."""
-    try:
-        from whatsapp_companero.clasificador import clasificar_en_segundo_plano
-        clasificar_en_segundo_plano(get_sb())
-    except Exception as e:
-        print(f"[ERROR] companero clasificar: {e}")
+    def correr():
+        try:
+            from whatsapp_companero.clasificador import clasificar_pendientes
+            clasificar_pendientes(get_sb())
+        except Exception as e:
+            print(f"[ERROR] companero clasificar: {e}")
+        _companero_sugerir()   # definida más abajo (sección sugerencias)
+    import threading
+    threading.Thread(target=correr, daemon=True).start()
 
 @app.route('/api/wa/ingest', methods=['POST'])
 @limiter.limit("120 per minute")
@@ -2362,6 +2366,337 @@ def api_companero_buscar():
     except Exception as e:
         print(f"[ERROR] companero_buscar: {e}")
         return jsonify({'error': 'Error interno del servidor'}), 500
+
+# ── Compañero: charla ─────────────────────────────────────────────────────────
+# Facundo le escribe al Compañero desde el panel. El loop con Claude vive en
+# whatsapp_companero/charla.py; acá están las herramientas que leen la base y
+# el catálogo (el mismo parse_price_list de la tienda). Redacta borradores de
+# respuesta pero nunca envía nada por WhatsApp.
+
+def _wa_hora(t):
+    return datetime.fromisoformat(t).astimezone(_AR).strftime('%d/%m %H:%M')
+
+def _wa_patron(q):
+    return '%' + re.sub(r'[%_,()*]', ' ', q or '').strip()[:80] + '%'
+
+def _wa_msg_charla(m, con_chat=False):
+    d = {'hora': _wa_hora(m['t']), 'quien': 'FEDAFAR' if m['from_me'] else 'CLIENTE',
+         'tipo': m['tipo'], 'texto': (m.get('texto') or '')[:1500] or None}
+    if m.get('resumen') and not m['from_me']:
+        d['resumen'] = m['resumen']
+    if m.get('categoria') and not m['from_me']:
+        d['categoria'] = m['categoria']
+    if con_chat:
+        d['chat'] = m['chat_nombre'] or m['telefono']
+        d['chat_id'] = m['chat_id']
+    return d
+
+def _charla_resumen_chats(dias=1, solo_sin_responder=False):
+    dias = max(1, min(int(dias or 1), 30))
+    chats = _wa_chats(_wa_traer(_wa_desde(dias)))
+    if solo_sin_responder:
+        chats = [c for c in chats if c['sin_responder']]
+    pend = sorted([c for c in chats if c['sin_responder']], key=lambda c: -(c['espera_min'] or 0))
+    resto = sorted([c for c in chats if not c['sin_responder']], key=lambda c: c['ultimo'], reverse=True)
+    out = []
+    for c in (pend + resto)[:60]:
+        out.append({'chat_id': c['chat_id'], 'nombre': c['nombre'], 'telefono': c['telefono'],
+                    'sin_responder': c['sin_responder'], 'espera_min': c['espera_min'],
+                    'espera': c['espera_preview'], 'ultimo': _wa_hora(c['ultimo']),
+                    'ultimo_de': 'FEDAFAR' if c['ultimo_from_me'] else 'CLIENTE',
+                    'ultimo_mensaje': c['ultimo_preview'], 'categorias': c['categorias'],
+                    'mensajes': c['mensajes']})
+    return {'dias': dias, 'total_chats': len(chats), 'sin_responder': len(pend), 'chats': out}
+
+def _charla_leer_chat(chat_id=None, nombre=None, cantidad=40):
+    sb = get_sb()
+    cantidad = max(5, min(int(cantidad or 40), 150))
+    if not chat_id:
+        if not nombre:
+            return {'error': 'Pasá chat_id o nombre'}
+        p = _wa_patron(nombre)
+        res = (sb.table('wa_mensajes').select('chat_id,chat_nombre,telefono,t')
+               .or_(f'chat_nombre.ilike.{p},telefono.ilike.{p}')
+               .gte('t', _wa_desde(60)).order('t', desc=True).limit(300).execute().data or [])
+        cands = {}
+        for m in res:
+            cands.setdefault(m['chat_id'], {'chat_id': m['chat_id'], 'nombre': m['chat_nombre'],
+                                            'telefono': m['telefono'], 'ultimo': _wa_hora(m['t'])})
+        if not cands:
+            return {'error': f'No encontré ningún chat que coincida con "{nombre}"'}
+        if len(cands) > 1:
+            return {'varios': list(cands.values())[:15], 'nota': 'Hay varios; elegí uno y pedilo por chat_id.'}
+        chat_id = next(iter(cands))
+    res = (sb.table('wa_mensajes').select(_WA_COLS).eq('chat_id', chat_id)
+           .order('t', desc=True).limit(cantidad).execute().data or [])
+    if not res:
+        return {'error': f'Sin mensajes para el chat {chat_id}'}
+    res.reverse()
+    u = res[-1]
+    return {'chat_id': chat_id, 'nombre': u['chat_nombre'], 'telefono': u['telefono'],
+            'mensajes': [_wa_msg_charla(m) for m in res]}
+
+def _charla_buscar_mensajes(texto, dias=30):
+    if len((texto or '').strip()) < 2:
+        return {'error': 'Texto muy corto'}
+    p = _wa_patron(texto)
+    dias = max(1, min(int(dias or 30), 365))
+    res = (get_sb().table('wa_mensajes').select(_WA_COLS)
+           .or_(f'texto.ilike.{p},chat_nombre.ilike.{p},telefono.ilike.{p},resumen.ilike.{p}')
+           .gte('t', _wa_desde(dias)).order('t', desc=True).limit(60).execute().data or [])
+    return {'encontrados': len(res), 'mensajes': [_wa_msg_charla(m, con_chat=True) for m in res]}
+
+def _sin_tildes(s):
+    import unicodedata
+    return ''.join(c for c in unicodedata.normalize('NFD', str(s or '').upper()) if unicodedata.category(c) != 'Mn')
+
+def _charla_buscar_producto(texto):
+    palabras = [w for w in re.split(r'\s+', _sin_tildes(texto)) if w]
+    if not palabras:
+        return {'error': 'Texto vacío'}
+    prods = parse_price_list('admin')
+    hits = [p for p in prods
+            if all(w in _sin_tildes(p['name'] + ' ' + (p.get('principio') or '')) for w in palabras)]
+    hay_stock = any('stock' in p for p in prods)
+    out = [{'nombre': p['name'], 'laboratorio': p['lab'], 'principio': p.get('principio') or None,
+            'precio_contado': p.get('price_contado'), 'precio_cta_cte': p.get('price_ctacte'),
+            'stock': p.get('stock'), 'promo': p.get('promo')} for p in hits[:20]]
+    return {'encontrados': len(hits), 'productos': out,
+            'nota_stock': None if hay_stock else 'Sin dato de stock ahora (el servidor no llega al Genexus); el catálogo muestra todo lo que tiene precio.'}
+
+def _charla_redactar(chat_id, texto):
+    texto = (texto or '').strip()
+    if not texto:
+        return {'error': 'Borrador vacío'}
+    res = (get_sb().table('wa_mensajes').select('chat_nombre,telefono').eq('chat_id', chat_id)
+           .order('t', desc=True).limit(1).execute().data or [])
+    if not res:
+        return {'error': f'No existe el chat {chat_id}'}
+    return {'chat_id': chat_id, 'nombre': res[0]['chat_nombre'] or res[0]['telefono'] or chat_id,
+            'telefono': res[0]['telefono'], 'texto': texto[:4000]}
+
+_CHARLA_HERRAMIENTAS = {
+    'resumen_chats': _charla_resumen_chats,
+    'leer_chat': _charla_leer_chat,
+    'buscar_mensajes': _charla_buscar_mensajes,
+    'buscar_producto': _charla_buscar_producto,
+    'redactar_respuesta': _charla_redactar,
+}
+
+@app.route('/api/companero/charla', methods=['POST'])
+@limiter.limit("30 per minute")
+@admin_required
+def api_companero_charla():
+    data = request.get_json(silent=True) or {}
+    hist = data.get('historial')
+    if not isinstance(hist, list) or not hist:
+        return jsonify({'error': 'Falta historial'}), 400
+    limpio = []
+    for m in hist[-30:]:
+        if not isinstance(m, dict) or m.get('role') not in ('user', 'assistant'):
+            continue
+        c = str(m.get('content') or '').strip()[:8000]
+        if not c:
+            continue
+        if limpio and limpio[-1]['role'] == m['role']:   # la API pide turnos alternados
+            limpio[-1]['content'] += '\n\n' + c
+        else:
+            limpio.append({'role': m['role'], 'content': c})
+    while limpio and limpio[0]['role'] != 'user':
+        limpio.pop(0)
+    if not limpio or limpio[-1]['role'] != 'user':
+        return jsonify({'error': 'El último mensaje tiene que ser tuyo'}), 400
+    foco = data.get('foco') if isinstance(data.get('foco'), str) else None
+    try:
+        from whatsapp_companero.charla import charlar
+        return jsonify(charlar(limpio, _CHARLA_HERRAMIENTAS, foco=foco))
+    except Exception as e:
+        print(f"[ERROR] companero_charla: {type(e).__name__}: {e}")
+        return jsonify({'error': 'No pude responder, probá de nuevo'}), 500
+
+# ── Compañero: sugerencias de respuesta con aprobación ───────────────────────
+# Cuando entra un mensaje que espera respuesta, el Compañero redacta una
+# sugerencia (wa_sugerencias). NADA se envía sin que Facundo la apruebe en el
+# panel. La extensión toma las aprobadas (/api/wa/salida) y las manda desde
+# WhatsApp Web; si no las toma en APROBADA_VENCE_MIN, vencen y no salen.
+
+import threading as _threading
+_sug_lock = _threading.Lock()
+SUG_MAX_POR_CORRIDA = 8
+APROBADA_VENCE_MIN = 10
+_SUG_NO = ('ruido', 'personal')
+
+def _companero_sugerir():
+    if not _sug_lock.acquire(blocking=False):
+        return
+    try:
+        from whatsapp_companero.charla import sugerir
+        sb = get_sb()
+        msgs = _wa_traer(_wa_desde(2))          # orden desc: el primero de cada chat es el último
+        ultimos = {}
+        for m in msgs:
+            ultimos.setdefault(m['chat_id'], m)
+        cand = [m for m in ultimos.values()
+                if not m['from_me'] and m.get('categoria') and m.get('espera_respuesta') is True
+                and m['categoria'] not in _SUG_NO]
+        if not cand:
+            return
+        ya = {r['mensaje_id'] for r in (sb.table('wa_sugerencias').select('mensaje_id')
+              .in_('mensaje_id', [m['id'] for m in cand]).execute().data or [])}
+        nuevos = sorted([m for m in cand if m['id'] not in ya], key=lambda m: m['t'], reverse=True)
+        for m in nuevos[:SUG_MAX_POR_CORRIDA]:
+            # una sola pendiente por chat: la anterior quedó vieja
+            (sb.table('wa_sugerencias').update({'estado': 'reemplazada'})
+             .eq('chat_id', m['chat_id']).eq('estado', 'pendiente').execute())
+            fila = {'chat_id': m['chat_id'], 'mensaje_id': m['id'],
+                    'chat_nombre': m['chat_nombre'] or m['telefono'], 'telefono': m['telefono'],
+                    'texto_cliente': _wa_preview(m)}
+            try:
+                chat = _charla_leer_chat(m['chat_id'], cantidad=30)
+                r = sugerir(chat, _CHARLA_HERRAMIENTAS)
+                b = (r.get('borradores') or [None])[-1]
+                fila.update({'sugerencia': b['texto'] if b else None, 'nota': (r.get('texto') or '')[:600] or None,
+                             'estado': 'pendiente' if b else 'sin_sugerencia'})
+            except Exception as e:
+                print(f"[ERROR] companero sugerir {m['chat_id']}: {type(e).__name__}: {e}")
+                continue    # se reintenta en la próxima corrida
+            sb.table('wa_sugerencias').upsert(fila, on_conflict='mensaje_id', ignore_duplicates=True).execute()
+        print(f"[companero] sugerencias: {min(len(nuevos), SUG_MAX_POR_CORRIDA)} generadas")
+    except Exception as e:
+        print(f"[ERROR] companero sugerir: {type(e).__name__}: {e}")
+    finally:
+        _sug_lock.release()
+
+def _sug_marcar_respondidas(sb, pendientes):
+    """Si el equipo contestó el chat después de crear la sugerencia, ya no hace falta."""
+    if not pendientes:
+        return pendientes
+    chats = list({s['chat_id'] for s in pendientes})
+    sal = (sb.table('wa_mensajes').select('chat_id,t').in_('chat_id', chats).eq('from_me', True)
+           .gte('t', _wa_desde(3)).order('t', desc=True).limit(500).execute().data or [])
+    ult = {}
+    for m in sal:
+        ult.setdefault(m['chat_id'], m['t'])
+    vivas = []
+    for s in pendientes:
+        u = ult.get(s['chat_id'])
+        if u and datetime.fromisoformat(u) > datetime.fromisoformat(s['creado_en']):
+            sb.table('wa_sugerencias').update({'estado': 'respondida'}).eq('id', s['id']).eq('estado', 'pendiente').execute()
+        else:
+            vivas.append(s)
+    return vivas
+
+@app.route('/api/companero/sugerencias', methods=['GET'])
+@admin_required
+def api_companero_sugerencias():
+    try:
+        sb = get_sb()
+        pend = (sb.table('wa_sugerencias').select('*').eq('estado', 'pendiente')
+                .order('creado_en', desc=True).limit(50).execute().data or [])
+        pend = _sug_marcar_respondidas(sb, pend)
+        rec = (sb.table('wa_sugerencias').select('*').neq('estado', 'pendiente')
+               .gte('creado_en', _wa_desde(1)).order('creado_en', desc=True).limit(40).execute().data or [])
+        return jsonify({'pendientes': pend, 'recientes': rec})
+    except Exception as e:
+        print(f"[ERROR] companero_sugerencias: {e}")
+        return jsonify({'error': 'Error interno del servidor'}), 500
+
+def _sug_texto_valido(texto):
+    texto = (texto or '').strip()
+    if not texto:
+        return None, 'El mensaje está vacío'
+    if re.search(r'\[[^\]]+\]', texto):
+        return None, 'Completá lo que está entre corchetes antes de enviar'
+    return texto[:4000], None
+
+@app.route('/api/companero/sugerencias/<int:sid>/aprobar', methods=['POST'])
+@admin_required
+def api_companero_sug_aprobar(sid):
+    data = request.get_json(silent=True) or {}
+    texto, err = _sug_texto_valido(data.get('texto'))
+    if err:
+        return jsonify({'error': err}), 400
+    sb = get_sb()
+    s = (sb.table('wa_sugerencias').select('*').eq('id', sid).limit(1).execute().data or [None])[0]
+    if not s or s['estado'] != 'pendiente':
+        return jsonify({'error': 'Esta sugerencia ya no está pendiente'}), 409
+    if not data.get('forzar') and not _sug_marcar_respondidas(sb, [s]):
+        return jsonify({'error': 'Alguien del equipo ya le contestó a este chat', 'respondida': True}), 409
+    res = (sb.table('wa_sugerencias').update({'estado': 'aprobada', 'texto_final': texto,
+           'aprobado_en': datetime.now(timezone.utc).isoformat()}).eq('id', sid).eq('estado', 'pendiente').execute())
+    if not res.data:
+        return jsonify({'error': 'Esta sugerencia ya no está pendiente'}), 409
+    return jsonify({'ok': True})
+
+@app.route('/api/companero/sugerencias/<int:sid>/descartar', methods=['POST'])
+@admin_required
+def api_companero_sug_descartar(sid):
+    get_sb().table('wa_sugerencias').update({'estado': 'descartada'}).eq('id', sid).eq('estado', 'pendiente').execute()
+    return jsonify({'ok': True})
+
+@app.route('/api/companero/enviar', methods=['POST'])
+@admin_required
+def api_companero_enviar():
+    """Enviar un borrador de la Charla: queda aprobado directamente (lo aprobó Facundo al tocar Enviar)."""
+    import uuid
+    data = request.get_json(silent=True) or {}
+    texto, err = _sug_texto_valido(data.get('texto'))
+    if err:
+        return jsonify({'error': err}), 400
+    chat_id = str(data.get('chat_id') or '')
+    sb = get_sb()
+    u = (sb.table('wa_mensajes').select('chat_nombre,telefono').eq('chat_id', chat_id)
+         .order('t', desc=True).limit(1).execute().data or [None])[0]
+    if not u:
+        return jsonify({'error': 'Chat desconocido'}), 400
+    ahora = datetime.now(timezone.utc).isoformat()
+    sb.table('wa_sugerencias').insert({'chat_id': chat_id, 'mensaje_id': 'charla-' + uuid.uuid4().hex,
+        'chat_nombre': u['chat_nombre'] or u['telefono'], 'telefono': u['telefono'],
+        'sugerencia': texto, 'texto_final': texto, 'nota': 'Desde la Charla',
+        'estado': 'aprobada', 'aprobado_en': ahora}).execute()
+    return jsonify({'ok': True})
+
+# Lado extensión (token, igual que la ingesta)
+
+def _wa_token_ok():
+    import hmac
+    auth = request.headers.get('Authorization', '')
+    token = auth[7:] if auth.startswith('Bearer ') else ''
+    return bool(COMPANERO_TOKEN) and hmac.compare_digest(token, COMPANERO_TOKEN)
+
+@app.route('/api/wa/salida', methods=['GET'])
+@limiter.limit("60 per minute")
+def api_wa_salida():
+    if not _wa_token_ok():
+        return jsonify({'error': 'No autorizado'}), 401
+    try:
+        sb = get_sb()
+        limite = (datetime.now(timezone.utc) - timedelta(minutes=APROBADA_VENCE_MIN)).isoformat()
+        sb.table('wa_sugerencias').update({'estado': 'vencida'}).eq('estado', 'aprobada').lt('aprobado_en', limite).execute()
+        aprob = (sb.table('wa_sugerencias').select('id,chat_id,texto_final').eq('estado', 'aprobada')
+                 .order('aprobado_en').limit(5).execute().data or [])
+        salida = []
+        for s in aprob:   # tomarla de forma atómica: solo si sigue 'aprobada'
+            tom = (sb.table('wa_sugerencias').update({'estado': 'enviando'})
+                   .eq('id', s['id']).eq('estado', 'aprobada').execute().data)
+            if tom:
+                salida.append({'id': s['id'], 'chat_id': s['chat_id'], 'texto': s['texto_final']})
+        return jsonify({'enviar': salida})
+    except Exception as e:
+        print(f"[ERROR] wa_salida: {e}")
+        return jsonify({'error': 'Error interno del servidor'}), 500
+
+@app.route('/api/wa/salida/<int:sid>', methods=['POST'])
+@limiter.limit("60 per minute")
+def api_wa_salida_resultado(sid):
+    if not _wa_token_ok():
+        return jsonify({'error': 'No autorizado'}), 401
+    data = request.get_json(silent=True) or {}
+    upd = ({'estado': 'enviada', 'enviado_en': datetime.now(timezone.utc).isoformat(),
+            'wa_msg_id': str(data.get('wa_msg_id') or '')[:200] or None}
+           if data.get('ok') else {'estado': 'error', 'error': str(data.get('error') or 'desconocido')[:500]})
+    get_sb().table('wa_sugerencias').update(upd).eq('id', sid).eq('estado', 'enviando').execute()
+    return jsonify({'ok': True})
 
 # ── Rutas estáticas ────────────────────────────────────────────────────────────
 

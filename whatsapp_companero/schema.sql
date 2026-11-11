@@ -50,3 +50,31 @@ group by chat_id;
 -- Toda tabla nueva nace con RLS → los inserts fallan en silencio. Deshabilitar (igual que el resto).
 alter table wa_mensajes  disable row level security;
 alter table wa_contactos disable row level security;
+
+-- ── Sugerencias de respuesta (fase 4) ─────────────────────────────────────────
+-- Cuando entra un mensaje que espera respuesta, el Compañero redacta una
+-- sugerencia. Solo se envía si Facundo la aprueba en el panel; la extensión
+-- toma las aprobadas y las manda desde WhatsApp Web.
+-- estado: pendiente → aprobada → enviando → enviada | error
+--         pendiente → descartada | reemplazada (llegó otro mensaje) | respondida (el equipo contestó)
+--         aprobada  → vencida (la extensión no la tomó a tiempo)
+--         sin_sugerencia (el Compañero decidió que no corresponde responder)
+create table if not exists wa_sugerencias (
+  id            bigserial primary key,
+  chat_id       text not null,
+  mensaje_id    text not null unique,     -- mensaje del cliente que la disparó
+  chat_nombre   text,
+  telefono      text,
+  texto_cliente text,
+  sugerencia    text,
+  nota          text,                     -- comentario del Compañero para Facundo
+  texto_final   text,                     -- lo que Facundo aprobó (puede haberlo editado)
+  estado        text not null default 'pendiente',
+  creado_en     timestamptz not null default now(),
+  aprobado_en   timestamptz,
+  enviado_en    timestamptz,
+  wa_msg_id     text,
+  error         text
+);
+create index if not exists wa_sugerencias_estado on wa_sugerencias (estado, creado_en desc);
+alter table wa_sugerencias disable row level security;

@@ -64,7 +64,36 @@ async function procesar(records) {
   });
 }
 
+// ── Salida: respuestas que Facundo aprobó en el panel ─────────────────────
+function urlSalida(apiUrl) { return apiUrl.replace(/\/ingest\/?$/, '/salida'); }
+
+async function pollSalida() {
+  const s = await chrome.storage.local.get({ apiUrl: 'https://fedafar-tools.onrender.com/api/wa/ingest', apiToken: '', envioActivo: true, entregados: [] });
+  if (!s.envioActivo || !s.apiUrl || !s.apiToken) return { enviar: [] };
+  const r = await fetch(urlSalida(s.apiUrl), { headers: { Authorization: 'Bearer ' + s.apiToken } });
+  if (!r.ok) return { enviar: [] };
+  const j = await r.json();
+  // red de seguridad: nunca entregar dos veces el mismo id a la página
+  const vistos = new Set(s.entregados);
+  const enviar = (j.enviar || []).filter((x) => x && x.id && !vistos.has(x.id));
+  if (enviar.length) await chrome.storage.local.set({ entregados: [...s.entregados, ...enviar.map((x) => x.id)].slice(-500) });
+  return { enviar };
+}
+
+async function resultadoSalida(msg) {
+  const s = await chrome.storage.local.get({ apiUrl: 'https://fedafar-tools.onrender.com/api/wa/ingest', apiToken: '', log: [] });
+  await fetch(urlSalida(s.apiUrl) + '/' + msg.id, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + s.apiToken },
+    body: JSON.stringify({ ok: !!msg.ok, wa_msg_id: msg.wa_msg_id || null, error: msg.error || null }),
+  }).catch(() => {});
+  const log = [{ id: msg.id, ok: !!msg.ok, error: msg.error || null, cuando: Date.now() }, ...s.log].slice(0, 30);
+  await chrome.storage.local.set({ log });
+}
+
 chrome.runtime.onMessage.addListener((msg, _sender, reply) => {
+  if (msg.kind === 'poll_salida') { pollSalida().then(reply).catch(() => reply({ enviar: [] })); return true; }
+  if (msg.kind === 'resultado_salida') { resultadoSalida(msg); return; }
   if (msg.kind === 'records') enCola(() => procesar(msg.records));
   if (msg.kind === 'flush') { enCola(() => procesar([])).then(() => reply({ ok: true })); return true; }
 });

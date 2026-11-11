@@ -93,7 +93,52 @@
   .login button { width: 100%; padding: 10px; border: 0; border-radius: 8px; background: var(--primary); color: #fff; font-weight: 600; }
   .err { color: var(--red); font-size: 13px; min-height: 18px; }
 
+  /* Por aprobar */
+  .sug { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; margin-bottom: 12px; }
+  .sug .cab2 { display: flex; gap: 8px; align-items: baseline; }
+  .sug .cab2 b { font-weight: 600; }
+  .sug .cab2 .lado { margin-left: auto; font-size: 12px; color: var(--muted); }
+  .sug .cliente { background: #f1f2f4; border-radius: 8px; padding: 7px 10px; margin: 8px 0; white-space: pre-wrap; }
+  .sug textarea { width: 100%; min-height: 80px; border: 1px solid #cbd5e1; border-radius: 8px; padding: 8px 10px; font: inherit; resize: vertical; background: #f3faf5; }
+  .sug .nota { font-size: 12px; color: var(--amber); background: var(--amber-bg); border-radius: 6px; padding: 5px 8px; margin-top: 6px; }
+  .sug .acc { display: flex; gap: 8px; margin-top: 8px; flex-wrap: wrap; }
+  .sug .acc button { padding: 7px 14px; border: 1px solid #cbd5e1; border-radius: 8px; background: #fff; }
+  .sug .acc .enviar { background: var(--green); border-color: var(--green); color: #fff; font-weight: 600; }
+  .sug .acc button:disabled { opacity: .5; }
+  .banner { display: flex; align-items: center; gap: 10px; background: var(--green-bg); color: var(--green); border-radius: 10px; padding: 10px 14px; margin-bottom: 14px; cursor: pointer; font-weight: 500; }
+
+  /* Charla */
+  main.modo-charla { padding: 0; overflow: hidden; display: flex; flex-direction: column; }
+  .charla-cab { display: flex; align-items: center; gap: 10px; padding: 12px 22px; border-bottom: 1px solid var(--line); background: #fff; }
+  .charla-cab b { font-size: 16px; font-weight: 600; }
+  .charla-cab .sub { color: var(--muted); font-size: 12px; }
+  .charla-cab button { margin-left: auto; }
+  .cmsgs { flex: 1; overflow: auto; padding: 18px 22px; display: flex; flex-direction: column; gap: 10px; }
+  .cm { max-width: 760px; line-height: 1.5; white-space: pre-wrap; word-wrap: break-word; }
+  .cm.yo { align-self: flex-end; background: var(--primary); color: #fff; padding: 8px 12px; border-radius: 12px 12px 2px 12px; max-width: 80%; }
+  .cm.el { align-self: flex-start; background: #fff; border: 1px solid var(--line); padding: 10px 14px; border-radius: 12px 12px 12px 2px; }
+  .cm.el.pensando { color: var(--muted); font-style: italic; }
+  .cm.el.error { color: var(--red); }
+  .borrador { margin-top: 10px; border: 1px solid #b7d7c2; background: #f3faf5; border-radius: 10px; padding: 10px; white-space: normal; }
+  .borrador .para { font-size: 12px; color: var(--green); font-weight: 600; margin-bottom: 6px; }
+  .borrador textarea { width: 100%; min-height: 70px; border: 1px solid #cfe3d6; border-radius: 8px; padding: 8px; font: inherit; resize: vertical; background: #fff; }
+  .borrador .acc { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 6px; }
+  .borrador .acc a, .borrador .acc button { font-size: 12px; padding: 6px 10px; border: 1px solid #cbd5e1; border-radius: 7px; background: #fff; color: var(--text); text-decoration: none; }
+  .borrador .acc .prim { background: var(--green); border-color: var(--green); color: #fff; }
+  .borrador .nota { font-size: 11px; color: var(--muted); margin-top: 4px; }
+  .sugs { display: flex; flex-wrap: wrap; gap: 8px; }
+  .sugs button { padding: 7px 12px; border: 1px solid #cbd5e1; border-radius: 16px; background: #fff; }
+  .compositor { display: flex; gap: 8px; padding: 10px 22px 14px; border-top: 1px solid var(--line); background: #fff; align-items: flex-end; }
+  .compositor textarea { flex: 1; resize: none; min-height: 42px; max-height: 160px; padding: 10px 12px; border: 1px solid #d1d5db; border-radius: 10px; font: inherit; }
+  .compositor button { height: 42px; min-width: 42px; border: 1px solid #d1d5db; border-radius: 10px; background: #fff; }
+  .compositor .enviar { background: var(--primary); color: #fff; border-color: var(--primary); padding: 0 16px; }
+  .compositor .mic.on { background: var(--red-bg); border-color: var(--red); }
+  .compositor button:disabled { opacity: .5; cursor: default; }
+
   @media (max-width: 900px) {
+    main.modo-charla { position: fixed; inset: 52px 0 58px 0; }
+    .cmsgs { padding: 14px 16px; }
+    .compositor { padding: 8px 12px; }
     .app, .app.sin-panel { grid-template-columns: minmax(0, 1fr); height: auto; }
     nav { position: fixed; bottom: 0; left: 0; right: 0; z-index: 5; display: flex; overflow-x: auto; border: 0; border-top: 1px solid var(--line); padding: 4px; background: #fff; }
     nav button { flex-direction: column; gap: 2px; font-size: 11px; padding: 6px 8px; width: auto; min-width: 68px; }
@@ -131,6 +176,8 @@
 <script>
 const VISTAS = [
   { id: 'hoy', ic: '☀️', nombre: 'Hoy' },
+  { id: 'aprobar', ic: '✅', nombre: 'Por aprobar' },
+  { id: 'charla', ic: '💬', nombre: 'Charla' },
   { id: 'sin', ic: '⏳', nombre: 'Sin responder' },
   { id: 'cat:pedido', ic: '🛒', nombre: 'Pedidos' },
   { id: 'cat:reclamo', ic: '⚠️', nombre: 'Reclamos' },
@@ -144,7 +191,9 @@ const CAT_PILL = {
   consulta: ['Consulta', 'p-azul'], proveedor: ['Proveedor', 'p-azul'], licitacion: ['Licitación', 'p-azul'],
   personal: ['Personal', 'p-gris'], ruido: ['Ruido', 'p-gris'],
 };
-let estado = { vista: 'hoy', datos: null, chatSel: null, busqueda: '' };
+let estado = { vista: 'hoy', datos: null, chatSel: null, busqueda: '', charla: [], pensando: false,
+  sug: null, sugEdit: {}, sugVistas: null };
+try { estado.charla = JSON.parse(localStorage.getItem('companero_charla') || '[]'); } catch (e) { estado.charla = []; }
 
 const $ = (s) => document.querySelector(s);
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -167,6 +216,14 @@ async function api(url) {
   return r.json();
 }
 
+async function apiPost(url, body) {
+  const r = await fetch(url, { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+  if (r.status === 401) { mostrarLogin(); throw new Error('no autenticado'); }
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(j.error || ('HTTP ' + r.status));
+  return j;
+}
+
 function mostrarLogin() { $('#app').hidden = true; $('#login').hidden = false; $('#pass').focus(); }
 
 $('#loginForm').addEventListener('submit', async (e) => {
@@ -180,9 +237,11 @@ $('#loginForm').addEventListener('submit', async (e) => {
 function renderNav() {
   const d = estado.datos;
   const cnt = (v) => {
+    if (v.id === 'aprobar') { const n = estado.sug ? estado.sug.pendientes.length : 0; return n ? `<span class="cnt rojo">${n}</span>` : ''; }
     if (!d) return '';
     if (v.id === 'sin') return `<span class="cnt ${d.sin_responder.length ? 'rojo' : ''}">${d.sin_responder.length}</span>`;
     if (v.id === 'hoy') return `<span class="cnt">${d.hoy.mensajes}</span>`;
+    if (v.id === 'aprobar') { const n = estado.sug ? estado.sug.pendientes.length : 0; return n ? `<span class="cnt rojo">${n}</span>` : ''; }
     if (v.id.startsWith('cat:')) { const n = d.categorias_hoy[v.id.slice(4)]; return n ? `<span class="cnt">${n}</span>` : ''; }
     return '';
   };
@@ -217,6 +276,9 @@ function enlazarFilas() {
 
 async function renderMain() {
   const d = estado.datos, main = $('#main');
+  main.classList.toggle('modo-charla', estado.vista === 'charla');
+  if (estado.vista === 'charla') return renderCharla();
+  if (estado.vista === 'aprobar') return renderAprobar();
   if (!d) { main.innerHTML = '<div class="vacio">Cargando…</div>'; return; }
   const v = estado.vista;
 
@@ -224,7 +286,8 @@ async function renderMain() {
     const sinClasif = !d.clasificador_activo
       ? '<div class="aviso">Todavía no está activo el clasificador. Cuando lo esté, acá vas a ver primero lo urgente: reclamos, pedidos y pagos ordenados por prioridad.</div>'
       : (d.importantes.length ? '<div class="lista">' + d.importantes.map((m) => filaMsg(m)).join('') + '</div>' : '<div class="aviso">Nada urgente por ahora.</div>');
-    main.innerHTML = `
+    const nSug = estado.sug ? estado.sug.pendientes.length : 0;
+    main.innerHTML = (nSug ? `<div class="banner" id="irAprobar">✅ ${nSug === 1 ? 'Hay 1 respuesta sugerida' : 'Hay ' + nSug + ' respuestas sugeridas'} esperando tu OK →</div>` : '') + `
       <div class="metricas">
         <div class="metrica"><span>Mensajes hoy</span><b>${d.hoy.mensajes}</b></div>
         <div class="metrica"><span>Chats hoy</span><b>${d.hoy.chats}</b></div>
@@ -236,6 +299,7 @@ async function renderMain() {
       ${d.sin_responder.length ? '<div class="lista">' + d.sin_responder.slice(0, 5).map((c) => filaChat(c, 'sin')).join('') + '</div>' + (d.sin_responder.length > 5 ? `<p><button class="btn" id="verSin">Ver los ${d.sin_responder.length}</button></p>` : '') : '<div class="aviso">Todo respondido 👌</div>'}
       <h2>Chats de hoy</h2>
       ${d.chats_hoy.length ? '<div class="lista">' + d.chats_hoy.map((c) => filaChat(c)).join('') + '</div>' : '<div class="aviso">Hoy todavía no hubo mensajes.</div>'}`;
+    const ia = $('#irAprobar'); if (ia) ia.onclick = () => { estado.vista = 'aprobar'; renderNav(); renderMain(); };
     const b = $('#verSin'); if (b) b.onclick = () => { estado.vista = 'sin'; renderNav(); renderMain(); };
   } else if (v === 'sin') {
     main.innerHTML = `<h2>Sin responder (últimos 7 días)</h2>
@@ -292,10 +356,205 @@ async function abrirChat(chatId) {
     html += `<div class="burb ${m.from_me ? 'me' : ''}">${pillPrio(m.prioridad)} ${pillCat(m.categoria)} ${esc(m.preview)}<span class="h">${hora(m.t)}</span></div>`;
   });
   panel.innerHTML = `<div class="cab"><div><b>${esc(nombre)}</b><div class="sub">${digitos ? '+' + digitos : ''} · ${ms.length} mensajes guardados</div></div>
-    <div class="acc">${digitos ? `<a href="https://wa.me/${digitos}" target="_blank" rel="noopener">Abrir en WhatsApp</a>` : ''}<button id="cerrarChat">✕</button></div></div>
+    <div class="acc"><button id="responderChat">✍️ Responder</button>${digitos ? `<a href="https://wa.me/${digitos}" target="_blank" rel="noopener">Abrir en WhatsApp</a>` : ''}<button id="cerrarChat">✕</button></div></div>
     <div class="conv" id="conv">${html || '<div class="vacio">Sin mensajes.</div>'}</div>`;
   $('#cerrarChat').onclick = () => { estado.chatSel = null; panel.hidden = true; $('#app').classList.add('sin-panel'); $('#main').querySelectorAll('.fila').forEach((f) => f.classList.remove('sel')); };
+  $('#responderChat').onclick = () => {
+    if (window.innerWidth <= 900) $('#cerrarChat').click();
+    estado.vista = 'charla'; renderNav(); renderMain();
+    enviarCharla(`Redactá una respuesta para ${nombre}.`, chatId);
+  };
   const conv = $('#conv'); conv.scrollTop = conv.scrollHeight;
+}
+
+// ── Por aprobar: respuestas sugeridas ────────────────────────────────────
+const ESTADO_SUG = {
+  enviada: ['✓ Enviada', 'p-verde'], aprobada: ['Aprobada · esperando a WhatsApp Web', 'p-ambar'],
+  enviando: ['Enviando…', 'p-ambar'], error: ['Error al enviar', 'p-rojo'], vencida: ['Venció sin enviarse', 'p-rojo'],
+  descartada: ['Descartada', 'p-gris'], respondida: ['La contestó el equipo', 'p-gris'],
+  reemplazada: ['Reemplazada por otra', 'p-gris'], sin_sugerencia: ['Sin sugerencia', 'p-gris'],
+};
+const hace = (iso) => espera(Math.max(0, Math.floor((Date.now() - new Date(iso)) / 60000)));
+
+function renderAprobar() {
+  const main = $('#main'), d = estado.sug;
+  if (!d) { main.innerHTML = '<h2>Por aprobar</h2><div class="vacio">Cargando…</div>'; return; }
+  const avisos = ('Notification' in window) && Notification.permission !== 'granted'
+    ? '<p><button class="btn" id="activarAvisos">🔔 Activar avisos en esta PC</button></p>' : '';
+  const tarjetas = d.pendientes.map((x) => `<div class="sug" data-sid="${x.id}">
+      <div class="cab2"><b>${esc(x.chat_nombre || x.chat_id)}</b><span class="lado">hace ${hace(x.creado_en)}</span></div>
+      <div class="cliente">${esc(x.texto_cliente || '')}</div>
+      <textarea data-sugt="${x.id}">${esc(estado.sugEdit[x.id] ?? x.sugerencia ?? '')}</textarea>
+      ${x.nota && !/^ok\.?$/i.test(x.nota.trim()) ? `<div class="nota">💬 ${esc(x.nota)}</div>` : ''}
+      <div class="acc"><button class="enviar" data-aprobar="${x.id}">Enviar</button>
+        <button data-descartar="${x.id}">Descartar</button>
+        <button data-verchat="${esc(x.chat_id)}">Ver chat</button></div></div>`).join('');
+  const rec = d.recientes.filter((x) => x.estado !== 'reemplazada').map((x) => {
+    const e = ESTADO_SUG[x.estado] || [x.estado, 'p-gris'];
+    const det = x.estado === 'error' ? x.error : x.estado === 'sin_sugerencia' ? x.nota : (x.texto_final || x.sugerencia);
+    return `<div class="fila" data-chat="${esc(x.chat_id)}"><div class="cuerpo"><div class="nombre">${esc(x.chat_nombre || x.chat_id)} <span class="pill ${e[1]}">${e[0]}</span></div>
+      <div class="prev" style="white-space:normal">${esc(det || '')}</div></div><div class="lado">${fechaCorta(x.enviado_en || x.aprobado_en || x.creado_en)}</div></div>`;
+  }).join('');
+  main.innerHTML = `<h2>Por aprobar</h2>
+    <p style="color:var(--muted);margin-top:0">Cuando entra un mensaje que pide respuesta, el Compañero te deja una. Corregila si hace falta y tocá Enviar: sale desde el WhatsApp Web de esta PC en unos segundos. Sin tu OK no sale nada.</p>
+    ${avisos}
+    ${tarjetas || '<div class="aviso">No hay respuestas esperando tu OK.</div>'}
+    <h2>Últimas 24 h</h2>${rec ? '<div class="lista">' + rec + '</div>' : '<div class="aviso">Nada todavía.</div>'}`;
+  const av = $('#activarAvisos'); if (av) av.onclick = () => Notification.requestPermission().then(renderAprobar);
+  main.querySelectorAll('textarea[data-sugt]').forEach((t) => t.oninput = () => { estado.sugEdit[t.dataset.sugt] = t.value; });
+  main.querySelectorAll('[data-verchat]').forEach((b) => b.onclick = () => abrirChat(b.dataset.verchat));
+  main.querySelectorAll('[data-descartar]').forEach((b) => b.onclick = async () => {
+    b.disabled = true;
+    await apiPost(`/api/companero/sugerencias/${b.dataset.descartar}/descartar`, {}).catch(() => {});
+    delete estado.sugEdit[b.dataset.descartar]; await cargarSug(true);
+  });
+  main.querySelectorAll('[data-aprobar]').forEach((b) => b.onclick = async () => {
+    const id = b.dataset.aprobar, texto = main.querySelector(`textarea[data-sugt="${id}"]`).value.trim();
+    b.disabled = true;
+    const aprobar = (forzar) => apiPost(`/api/companero/sugerencias/${id}/aprobar`, { texto, forzar });
+    try {
+      try { await aprobar(false); }
+      catch (e) {
+        if (!/ya le contestó/.test(e.message)) throw e;
+        if (!confirm('Alguien del equipo ya le contestó a este chat. ¿Enviar igual?')) { b.disabled = false; return; }
+        await aprobar(true);
+      }
+      delete estado.sugEdit[id]; await cargarSug(true);
+    } catch (e) { alert(e.message); b.disabled = false; }
+  });
+  enlazarFilas();
+}
+
+async function cargarSug(forzarRender) {
+  try {
+    estado.sug = await api('/api/companero/sugerencias');
+  } catch (e) { return; }
+  const ids = estado.sug.pendientes.map((x) => x.id);
+  if (estado.sugVistas === null) estado.sugVistas = new Set(ids);     // al abrir no avisa lo que ya estaba
+  const nuevas = estado.sug.pendientes.filter((x) => !estado.sugVistas.has(x.id));
+  nuevas.forEach((x) => {
+    estado.sugVistas.add(x.id);
+    if ('Notification' in window && Notification.permission === 'granted') {
+      const n = new Notification('Compañero · ' + (x.chat_nombre || 'cliente'), { body: (x.texto_cliente || '') + '\n→ ' + (x.sugerencia || ''), icon: '/static/companero/icon-192.png', tag: 'sug-' + x.id });
+      n.onclick = () => { window.focus(); estado.vista = 'aprobar'; renderNav(); renderMain(); n.close(); };
+    }
+  });
+  document.title = ids.length ? `(${ids.length}) Compañero` : 'Compañero';
+  renderNav();
+  const escribiendo = document.activeElement && document.activeElement.matches('textarea[data-sugt]');
+  if (estado.vista === 'aprobar' && (forzarRender || !escribiendo)) renderAprobar();
+  if (estado.vista === 'hoy' && nuevas.length) renderMain();
+}
+
+// ── Charla con el Compañero ──────────────────────────────────────────────
+const SUGERENCIAS = ['¿Qué quedó sin responder?', 'Resumime el día', '¿Qué pedidos entraron hoy?', '¿Hubo algún reclamo esta semana?'];
+
+function guardarCharla() {
+  try { localStorage.setItem('companero_charla', JSON.stringify(estado.charla.slice(-40))); } catch (e) {}
+}
+
+function formato(t) {
+  return esc(t).replace(/\*\*(.+?)\*\*/g, '<b>$1</b>').replace(/^- /gm, '• ');
+}
+
+function tarjetaBorrador(b, i, j) {
+  const dig = b.telefono ? String(b.telefono).split('@')[0].replace(/\D/g, '') : '';
+  return `<div class="borrador"><div class="para">✍️ Borrador para ${esc(b.nombre)}${dig ? ' · +' + dig : ''}</div>
+    <textarea data-b="${i}-${j}">${esc(b.texto)}</textarea>
+    <div class="acc">
+      ${b.enviado ? '<span class="pill p-verde">✓ Aprobado para enviar</span>' : `<button class="prim" data-enviarb="${i}-${j}">Enviar</button>`}
+      <button data-copiar="${i}-${j}">Copiar</button>
+      ${dig ? `<a href="#" data-wa="${i}-${j}" data-dig="${dig}">Abrir en WhatsApp con el texto</a>` : ''}
+      <button data-verchat="${esc(b.chat_id)}">Ver chat</button>
+    </div>
+    <div class="nota">Solo sale si tocás Enviar. "Abrir en WhatsApp" abre otra pestaña de WhatsApp Web (la anterior queda en "Usar aquí").</div></div>`;
+}
+
+function renderCharla() {
+  const main = $('#main');
+  const msgs = estado.charla.map((m, i) => m.role === 'user'
+    ? `<div class="cm yo">${esc(m.content)}</div>`
+    : `<div class="cm el ${m.error ? 'error' : ''}">${formato(m.content)}${(m.borradores || []).map((b, j) => tarjetaBorrador(b, i, j)).join('')}</div>`).join('');
+  const vacio = `<div class="cm el">Hola Facu. Preguntame lo que pasó en el WhatsApp o pedime que le responda a alguien: te dejo el borrador y lo mandás vos.</div>
+    <div class="sugs">${SUGERENCIAS.map((s) => `<button data-sug="${esc(s)}">${esc(s)}</button>`).join('')}</div>`;
+  const hayMic = 'webkitSpeechRecognition' in window || 'SpeechRecognition' in window;
+  main.innerHTML = `<div class="charla-cab"><div><b>Charla</b><div class="sub">Lee los chats y la lista de precios de la app. Nunca envía nada por WhatsApp.</div></div>
+      ${estado.charla.length ? '<button class="btn" id="nuevaCharla">Nueva charla</button>' : ''}</div>
+    <div class="cmsgs" id="cmsgs">${msgs || vacio}${estado.pensando ? '<div class="cm el pensando">Revisando los chats…</div>' : ''}</div>
+    <form class="compositor" id="fCharla">
+      <textarea id="cTexto" rows="1" placeholder="Escribile al Compañero… (Enter envía, Shift+Enter salto de línea)"></textarea>
+      ${hayMic ? '<button type="button" class="mic" id="cMic" title="Hablar">🎤</button>' : ''}
+      <button class="enviar" ${estado.pensando ? 'disabled' : ''}>Enviar</button>
+    </form>`;
+  const cm = $('#cmsgs'); cm.scrollTop = cm.scrollHeight;
+  const ta = $('#cTexto');
+  ta.oninput = () => { ta.style.height = 'auto'; ta.style.height = Math.min(ta.scrollHeight, 160) + 'px'; };
+  ta.onkeydown = (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); $('#fCharla').requestSubmit(); } };
+  $('#fCharla').onsubmit = (e) => { e.preventDefault(); const t = ta.value.trim(); if (t && !estado.pensando) enviarCharla(t, estado.chatSel); };
+  if (window.innerWidth > 900) ta.focus();
+  const nc = $('#nuevaCharla'); if (nc) nc.onclick = () => { if (estado.pensando) return; estado.charla = []; guardarCharla(); renderCharla(); };
+  main.querySelectorAll('[data-sug]').forEach((b) => b.onclick = () => enviarCharla(b.dataset.sug, estado.chatSel));
+  main.querySelectorAll('[data-verchat]').forEach((b) => b.onclick = () => abrirChat(b.dataset.verchat));
+  main.querySelectorAll('textarea[data-b]').forEach((t) => t.oninput = () => {
+    const [i, j] = t.dataset.b.split('-').map(Number);
+    estado.charla[i].borradores[j].texto = t.value; guardarCharla();
+  });
+  main.querySelectorAll('[data-enviarb]').forEach((b) => b.onclick = async () => {
+    const [i, j] = b.dataset.enviarb.split('-').map(Number);
+    const bo = estado.charla[i].borradores[j];
+    const t = main.querySelector(`textarea[data-b="${b.dataset.enviarb}"]`).value.trim();
+    if (!confirm(`¿Enviar a ${bo.nombre}?\n\n${t}`)) return;
+    b.disabled = true;
+    try {
+      await apiPost('/api/companero/enviar', { chat_id: bo.chat_id, texto: t });
+      bo.texto = t; bo.enviado = true; guardarCharla(); renderCharla(); cargarSug();
+    } catch (e) { alert(e.message); b.disabled = false; }
+  });
+  main.querySelectorAll('[data-copiar]').forEach((b) => b.onclick = async () => {
+    const t = main.querySelector(`textarea[data-b="${b.dataset.copiar}"]`);
+    try { await navigator.clipboard.writeText(t.value); } catch (e) { t.select(); document.execCommand('copy'); }
+    b.textContent = '✓ Copiado'; setTimeout(() => b.textContent = 'Copiar', 1500);
+  });
+  main.querySelectorAll('[data-wa]').forEach((a) => a.onclick = (e) => {
+    e.preventDefault();
+    const t = main.querySelector(`textarea[data-b="${a.dataset.wa}"]`);
+    window.open(`https://wa.me/${a.dataset.dig}?text=${encodeURIComponent(t.value)}`, '_blank', 'noopener');
+  });
+  const mic = $('#cMic');
+  if (mic) mic.onclick = () => dictar(mic, ta);
+}
+
+let _rec = null;
+function dictar(btn, ta) {
+  if (_rec) { _rec.stop(); return; }
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  _rec = new SR(); _rec.lang = 'es-AR'; _rec.interimResults = true; _rec.continuous = true;
+  const base = ta.value ? ta.value.trim() + ' ' : '';
+  _rec.onresult = (e) => { ta.value = base + Array.from(e.results).map((r) => r[0].transcript).join(''); ta.oninput(); };
+  _rec.onend = () => { _rec = null; btn.classList.remove('on'); ta.focus(); };
+  _rec.onerror = () => { _rec = null; btn.classList.remove('on'); };
+  btn.classList.add('on'); _rec.start();
+}
+
+async function enviarCharla(texto, foco) {
+  if (estado.pensando) return;
+  estado.charla.push({ role: 'user', content: texto });
+  estado.pensando = true; guardarCharla();
+  if (estado.vista === 'charla') renderCharla();
+  // al servidor solo va texto; los borradores viajan como nota para que recuerde qué redactó
+  const historial = estado.charla.filter((m) => !m.error).map((m) => ({
+    role: m.role,
+    content: m.content + (m.borradores || []).map((b) => `\n[Borrador para ${b.nombre} (chat ${b.chat_id}): ${b.texto}]`).join(''),
+  }));
+  try {
+    const r = await apiPost('/api/companero/charla', { historial, foco: foco || null });
+    estado.charla.push({ role: 'assistant', content: r.texto || '(sin respuesta)', borradores: r.borradores || [] });
+  } catch (e) {
+    if (e.message === 'no autenticado') { estado.charla.pop(); }
+    else estado.charla.push({ role: 'assistant', content: 'No pude responder: ' + e.message, error: true });
+  }
+  estado.pensando = false; guardarCharla();
+  if (estado.vista === 'charla') renderCharla();
 }
 
 async function cargar() {
@@ -305,7 +564,7 @@ async function cargar() {
     $('#estado').textContent = (u ? 'Último mensaje recibido: ' + fechaCorta(u) + ' · actualizado ' + hora(new Date().toISOString()) : 'Todavía no hay mensajes guardados')
       + (estado.datos.sin_clasificar ? ' · clasificando ' + estado.datos.sin_clasificar + '…' : '');
     renderNav();
-    if (estado.vista !== 'buscar') renderMain();
+    if (!['buscar', 'charla', 'aprobar'].includes(estado.vista)) renderMain();
   } catch (e) {
     if (e.message !== 'no autenticado') $('#estado').textContent = 'No se pudo actualizar (' + e.message + ')';
   }
@@ -318,7 +577,8 @@ async function iniciar() {
   $('#app').hidden = false;
   renderNav(); renderMain();
   await cargar();
-  if (!window._timer) window._timer = setInterval(cargar, 60000);
+  cargarSug();
+  if (!window._timer) { window._timer = setInterval(cargar, 60000); setInterval(cargarSug, 20000); }
 }
 
 if ('serviceWorker' in navigator) navigator.serviceWorker.register('/companero/sw.js', { scope: '/companero/' }).catch(() => {});

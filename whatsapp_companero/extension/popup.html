@@ -20,6 +20,8 @@
   .who { font-weight: 600; }
   .me { color: #1a7f4b; }
   .meta { color: #888; font-size: 11px; }
+  .interr { display: flex; gap: 6px; align-items: center; margin: 0 0 6px; color: #222; }
+  .interr input { width: auto; }
 </style>
 </head>
 <body>
@@ -30,6 +32,8 @@
     <div>Salientes<b id="out">0</b></div>
   </div>
   <div class="envio" id="envio"></div>
+  <label class="interr"><input type="checkbox" id="envioActivo"> Enviar las respuestas que apruebo en el panel</label>
+  <div class="meta" id="salidas"></div>
   <details id="conf">
     <summary>Conexión con la API</summary>
     <label>URL <input id="apiUrl"></label>
