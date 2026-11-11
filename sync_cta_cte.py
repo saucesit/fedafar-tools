@@ -290,6 +290,22 @@ def upload_to_supabase(genexus_client_id: int, df: pd.DataFrame):
     # Garantizar que el cliente exista antes de insertar sus comprobantes
     ensure_client_exists(sb, genexus_client_id)
 
+    # Antes de borrar, guardar lo que sync_items.py ya averiguó de Genexus:
+    # el ID interno de cada factura (y sus totales). Si se pierde, sync_items
+    # vuelve a bajar el detalle de TODAS las facturas pendientes cada noche
+    # (~300 facturas, horas de scraping) en vez de solo las nuevas.
+    previo = {}
+    try:
+        viejas = sb.table("cuenta_corriente") \
+                   .select("comprobante,genexus_factura_id,iva_total,total_factura") \
+                   .eq("genexus_client_id", genexus_client_id) \
+                   .execute().data or []
+        for v in viejas:
+            if v.get("genexus_factura_id"):
+                previo[(v.get("comprobante") or "").strip()] = v
+    except Exception as e:
+        print(f"    [WARN] No pude leer los IDs internos previos: {e}")
+
     sb.table("cuenta_corriente") \
       .delete() \
       .eq("genexus_client_id", genexus_client_id) \
@@ -358,10 +374,20 @@ def upload_to_supabase(genexus_client_id: int, df: pd.DataFrame):
                     record[field] = str(val) if pd.notna(val) else ""
             else:
                 record[field] = 0.0 if field in ("importe", "saldo") else ""
+        # Re-adjuntar el ID interno que ya teníamos para este comprobante.
+        anterior = previo.get((record.get("comprobante") or "").strip())
+        if anterior:
+            record["genexus_factura_id"] = anterior["genexus_factura_id"]
+            if anterior.get("iva_total") is not None:
+                record["iva_total"] = anterior["iva_total"]
+            if anterior.get("total_factura") is not None:
+                record["total_factura"] = anterior["total_factura"]
         records.append(record)
 
     sb.table("cuenta_corriente").insert(records).execute()
-    print(f"    {len(records)} registros subidos a Supabase.")
+    conservados = sum(1 for r in records if r.get("genexus_factura_id"))
+    print(f"    {len(records)} registros subidos a Supabase "
+          f"({conservados} con el ID interno conservado).")
 
 
 def get_all_client_ids() -> list:
