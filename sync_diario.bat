@@ -14,7 +14,7 @@ echo [3/5] Sincronizando cuentas corrientes... >> sync_log.txt
 "C:\Users\FEDAFAR\AppData\Local\Programs\Python\Python312\python.exe" sync_cta_cte.py --todos >> sync_log.txt 2>&1
 
 echo [4/5] Sincronizando items de facturas... >> sync_log.txt
-"C:\Users\FEDAFAR\AppData\Local\Programs\Python\Python312\python.exe" sync_items.py >> sync_log.txt 2>&1
+"C:\Users\FEDAFAR\AppData\Local\Programs\Python\Python312\python.exe" sync_items.py --limpiar >> sync_log.txt 2>&1
 
 echo [5/5] Pusheando stock y precios actualizados a Render... >> sync_log.txt
 git -C "C:\Users\FEDAFAR\fedafar-tools" add stock_data.json price_list.xlsx >> sync_log.txt 2>&1
