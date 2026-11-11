@@ -2144,6 +2144,14 @@ def _wa_fila(m):
         return None
     return fila
 
+def _companero_clasificar():
+    """Lanza el clasificador en un hilo (no bloquea la respuesta; si ya corre, no hace nada)."""
+    try:
+        from whatsapp_companero.clasificador import clasificar_en_segundo_plano
+        clasificar_en_segundo_plano(get_sb())
+    except Exception as e:
+        print(f"[ERROR] companero clasificar: {e}")
+
 @app.route('/api/wa/ingest', methods=['POST'])
 @limiter.limit("120 per minute")
 def api_wa_ingest():
@@ -2179,6 +2187,7 @@ def api_wa_ingest():
             grupos.setdefault(tuple(sorted(c)), []).append(dict(c, actualizado_en=ahora))
         for filas_c in grupos.values():
             sb.table('wa_contactos').upsert(filas_c, on_conflict='chat_id').execute()
+        _companero_clasificar()
         return jsonify({'ok': True, 'recibidos': len(filas)})
     except Exception as e:
         print(f"[ERROR] wa_ingest: {e}")
@@ -2279,6 +2288,7 @@ def api_companero_resumen():
         inicio_hoy = datetime.now(_AR).replace(hour=0, minute=0, second=0, microsecond=0).astimezone(timezone.utc)
         hoy = [m for m in msgs if datetime.fromisoformat(m['t']) >= inicio_hoy]
         chats7 = _wa_chats(msgs)
+        salida = {c['chat_id']: c['ultimo_saliente'] for c in chats7}
         sin_resp = sorted([c for c in chats7 if c['sin_responder']], key=lambda c: c['ultimo_entrante'])
         chats_hoy = sorted(_wa_chats(hoy), key=lambda c: c['ultimo'], reverse=True)
         cats = {}
@@ -2288,13 +2298,19 @@ def api_companero_resumen():
         importantes = sorted([m for m in hoy if (m.get('prioridad') or 0) >= 2 and not m['from_me']],
                              key=lambda m: (-(m['prioridad'] or 0), m['t']))[:30]
         ultimo = msgs[0]['t'] if msgs else None
+        sin_clasificar = sum(1 for m in msgs if not m.get('categoria'))
+        if sin_clasificar:
+            _companero_clasificar()
         return jsonify({
+            'sin_clasificar': sin_clasificar,
             'hoy': {'mensajes': len(hoy), 'entrantes': sum(1 for m in hoy if not m['from_me']),
                     'salientes': sum(1 for m in hoy if m['from_me']), 'chats': len(chats_hoy)},
             'sin_responder': sin_resp,
             'chats_hoy': chats_hoy,
             'categorias_hoy': cats,
-            'importantes': [dict(m, preview=_wa_preview(m)) for m in importantes],
+            'importantes': [dict(m, preview=_wa_preview(m),
+                                 respondido=bool(salida.get(m['chat_id']) and salida[m['chat_id']] > m['t']))
+                            for m in importantes],
             'clasificador_activo': any(m.get('categoria') for m in msgs),
             'ultimo_mensaje': ultimo,
         })

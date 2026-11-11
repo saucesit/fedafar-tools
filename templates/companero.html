@@ -206,7 +206,7 @@ function filaMsg(m, resaltar) {
   let txt = esc(m.preview);
   if (resaltar) { const re = new RegExp('(' + resaltar.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + ')', 'ig'); txt = txt.replace(re, '<mark>$1</mark>'); }
   return `<div class="fila" data-chat="${esc(m.chat_id)}">
-    <div class="cuerpo"><div class="nombre">${m.from_me ? '<span class="yo">FEDAFAR → </span>' : ''}${esc(m.chat_nombre || m.telefono || m.chat_id)} ${pillPrio(m.prioridad)} ${pillCat(m.categoria)}</div>
+    <div class="cuerpo"><div class="nombre">${m.from_me ? '<span class="yo">FEDAFAR → </span>' : ''}${esc(m.chat_nombre || m.telefono || m.chat_id)} ${pillPrio(m.prioridad)} ${pillCat(m.categoria)} ${m.respondido ? '<span class="pill p-gris">✓ respondido</span>' : ''}</div>
     <div class="prev" style="white-space:normal">${txt}</div></div>
     <div class="lado">${fechaCorta(m.t)}</div></div>`;
 }
@@ -302,7 +302,8 @@ async function cargar() {
   try {
     estado.datos = await api('/api/companero/resumen');
     const u = estado.datos.ultimo_mensaje;
-    $('#estado').textContent = u ? 'Último mensaje recibido: ' + fechaCorta(u) + ' · actualizado ' + hora(new Date().toISOString()) : 'Todavía no hay mensajes guardados';
+    $('#estado').textContent = (u ? 'Último mensaje recibido: ' + fechaCorta(u) + ' · actualizado ' + hora(new Date().toISOString()) : 'Todavía no hay mensajes guardados')
+      + (estado.datos.sin_clasificar ? ' · clasificando ' + estado.datos.sin_clasificar + '…' : '');
     renderNav();
     if (estado.vista !== 'buscar') renderMain();
   } catch (e) {
