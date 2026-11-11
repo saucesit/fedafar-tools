@@ -2184,6 +2184,169 @@ def api_wa_ingest():
         print(f"[ERROR] wa_ingest: {e}")
         return jsonify({'error': 'Error interno del servidor'}), 500
 
+# ── Compañero: panel (lectura) ────────────────────────────────────────────────
+# Solo para admin (misma sesión que /admin). Todo se calcula en Python a partir
+# de los mensajes de los últimos días: el volumen es chico (~150/día).
+
+_AR = timezone(timedelta(hours=-3))
+_WA_COLS = 'id,chat_id,chat_nombre,telefono,from_me,t,tipo,texto,categoria,prioridad,espera_respuesta,resumen'
+
+def _wa_desde(dias):
+    return (datetime.now(timezone.utc) - timedelta(days=dias)).isoformat()
+
+def _wa_traer(desde_iso, limite=5000):
+    sb = get_sb()
+    filas, off = [], 0
+    while True:
+        res = (sb.table('wa_mensajes').select(_WA_COLS).gte('t', desde_iso)
+               .order('t', desc=True).range(off, off + 999).execute())
+        lote = res.data or []
+        filas += lote
+        if len(lote) < 1000 or len(filas) >= limite:
+            return filas
+        off += 1000
+
+def _wa_preview(m):
+    if m.get('resumen'):
+        return m['resumen']
+    if m.get('texto'):
+        return m['texto'][:200]
+    return {'ptt': '🎤 Audio', 'image': '📷 Imagen', 'document': '📄 Documento', 'video': '🎬 Video',
+            'sticker': 'Sticker', 'call_log': '📞 Llamada', 'location': '📍 Ubicación',
+            'vcard': '👤 Contacto'}.get(m.get('tipo'), '[' + str(m.get('tipo')) + ']')
+
+def _wa_chats(msgs):
+    """Agrupa mensajes (orden desc) por chat y calcula el estado de cada uno."""
+    chats = {}
+    for m in msgs:
+        c = chats.get(m['chat_id'])
+        if c is None:
+            c = chats[m['chat_id']] = {
+                'chat_id': m['chat_id'], 'nombre': m['chat_nombre'] or m['telefono'] or m['chat_id'],
+                'telefono': m['telefono'], 'ultimo': m['t'], 'ultimo_preview': _wa_preview(m),
+                'ultimo_from_me': m['from_me'], 'mensajes': 0, 'entrantes': 0,
+                'ultimo_entrante': None, 'ultimo_entrante_msg': None, 'ultimo_saliente': None,
+                'categorias': {}, 'prioridad': None,
+            }
+        c['mensajes'] += 1
+        if m['from_me']:
+            c['ultimo_saliente'] = c['ultimo_saliente'] or m['t']
+        else:
+            c['entrantes'] += 1
+            if c['ultimo_entrante'] is None:
+                c['ultimo_entrante'] = m['t']
+                c['ultimo_entrante_msg'] = m
+        if m.get('categoria'):
+            c['categorias'][m['categoria']] = c['categorias'].get(m['categoria'], 0) + 1
+        if m.get('prioridad') is not None:
+            c['prioridad'] = max(c['prioridad'] or 0, m['prioridad'])
+    ahora = datetime.now(timezone.utc)
+    for c in chats.values():
+        ue, us = c['ultimo_entrante'], c['ultimo_saliente']
+        pendiente = bool(ue and (not us or ue > us))
+        um = c.pop('ultimo_entrante_msg')
+        # si el clasificador dijo que el último mensaje no espera respuesta ("gracias", "ok"), no cuenta
+        if pendiente and um and um.get('espera_respuesta') is False:
+            pendiente = False
+        c['sin_responder'] = pendiente
+        c['espera_min'] = int((ahora - datetime.fromisoformat(ue)).total_seconds() // 60) if pendiente else None
+        c['espera_preview'] = _wa_preview(um) if pendiente and um else None
+    return list(chats.values())
+
+@app.route('/companero')
+@app.route('/companero/')
+def serve_companero():
+    return render_template('companero.html')
+
+@app.route('/companero/manifest.webmanifest')
+def companero_manifest():
+    return send_from_directory(os.path.join(BASE_DIR, 'static', 'companero'), 'manifest.webmanifest',
+                               mimetype='application/manifest+json')
+
+@app.route('/companero/sw.js')
+def companero_sw():
+    resp = send_from_directory(os.path.join(BASE_DIR, 'static', 'companero'), 'sw.js',
+                               mimetype='application/javascript')
+    resp.headers['Service-Worker-Allowed'] = '/companero/'
+    resp.headers['Cache-Control'] = 'no-cache'
+    return resp
+
+@app.route('/api/companero/resumen', methods=['GET'])
+@admin_required
+def api_companero_resumen():
+    try:
+        msgs = _wa_traer(_wa_desde(7))
+        inicio_hoy = datetime.now(_AR).replace(hour=0, minute=0, second=0, microsecond=0).astimezone(timezone.utc)
+        hoy = [m for m in msgs if datetime.fromisoformat(m['t']) >= inicio_hoy]
+        chats7 = _wa_chats(msgs)
+        sin_resp = sorted([c for c in chats7 if c['sin_responder']], key=lambda c: c['ultimo_entrante'])
+        chats_hoy = sorted(_wa_chats(hoy), key=lambda c: c['ultimo'], reverse=True)
+        cats = {}
+        for m in hoy:
+            if m.get('categoria'):
+                cats[m['categoria']] = cats.get(m['categoria'], 0) + 1
+        importantes = sorted([m for m in hoy if (m.get('prioridad') or 0) >= 2 and not m['from_me']],
+                             key=lambda m: (-(m['prioridad'] or 0), m['t']))[:30]
+        ultimo = msgs[0]['t'] if msgs else None
+        return jsonify({
+            'hoy': {'mensajes': len(hoy), 'entrantes': sum(1 for m in hoy if not m['from_me']),
+                    'salientes': sum(1 for m in hoy if m['from_me']), 'chats': len(chats_hoy)},
+            'sin_responder': sin_resp,
+            'chats_hoy': chats_hoy,
+            'categorias_hoy': cats,
+            'importantes': [dict(m, preview=_wa_preview(m)) for m in importantes],
+            'clasificador_activo': any(m.get('categoria') for m in msgs),
+            'ultimo_mensaje': ultimo,
+        })
+    except Exception as e:
+        print(f"[ERROR] companero_resumen: {e}")
+        return jsonify({'error': 'Error interno del servidor'}), 500
+
+@app.route('/api/companero/chat', methods=['GET'])
+@admin_required
+def api_companero_chat():
+    chat_id = request.args.get('id', '')
+    if not chat_id:
+        return jsonify({'error': 'Falta id'}), 400
+    try:
+        res = (get_sb().table('wa_mensajes').select(_WA_COLS).eq('chat_id', chat_id)
+               .order('t', desc=True).limit(200).execute())
+        msgs = list(reversed(res.data or []))
+        for m in msgs:
+            m['preview'] = _wa_preview(m)
+        return jsonify({'mensajes': msgs})
+    except Exception as e:
+        print(f"[ERROR] companero_chat: {e}")
+        return jsonify({'error': 'Error interno del servidor'}), 500
+
+@app.route('/api/companero/categoria', methods=['GET'])
+@admin_required
+def api_companero_categoria():
+    cat = request.args.get('c', '')
+    try:
+        res = (get_sb().table('wa_mensajes').select(_WA_COLS).eq('categoria', cat)
+               .gte('t', _wa_desde(7)).order('t', desc=True).limit(300).execute())
+        return jsonify({'mensajes': [dict(m, preview=_wa_preview(m)) for m in (res.data or [])]})
+    except Exception as e:
+        print(f"[ERROR] companero_categoria: {e}")
+        return jsonify({'error': 'Error interno del servidor'}), 500
+
+@app.route('/api/companero/buscar', methods=['GET'])
+@admin_required
+def api_companero_buscar():
+    q = (request.args.get('q') or '').strip()
+    if len(q) < 2:
+        return jsonify({'mensajes': []})
+    patron = '%' + re.sub(r'[%_,()*]', ' ', q)[:80] + '%'
+    try:
+        res = (get_sb().table('wa_mensajes').select(_WA_COLS)
+               .or_(f'texto.ilike.{patron},chat_nombre.ilike.{patron},telefono.ilike.{patron}')
+               .order('t', desc=True).limit(150).execute())
+        return jsonify({'mensajes': [dict(m, preview=_wa_preview(m)) for m in (res.data or [])]})
+    except Exception as e:
+        print(f"[ERROR] companero_buscar: {e}")
+        return jsonify({'error': 'Error interno del servidor'}), 500
+
 # ── Rutas estáticas ────────────────────────────────────────────────────────────
 
 @app.route('/', methods=['GET'])

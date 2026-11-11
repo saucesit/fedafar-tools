@@ -1,0 +1,327 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Compañero</title>
+<link rel="manifest" href="/companero/manifest.webmanifest">
+<meta name="theme-color" content="#004a99">
+<link rel="icon" href="/static/companero/icon-192.png">
+<link rel="apple-touch-icon" href="/static/companero/icon-192.png">
+<link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --primary: #004a99; --primary-soft: #e6eef8;
+    --bg: #f4f5f7; --card: #fff; --line: #e5e7eb;
+    --text: #1a1a1a; --muted: #6b7280;
+    --red: #b42318; --red-bg: #fdecea;
+    --amber: #8a5300; --amber-bg: #fff4e0;
+    --green: #1a6b3c; --green-bg: #e6f4ea;
+    --blue: #0b4f9c; --blue-bg: #e6eef8;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; }
+  body { font-family: 'Outfit', system-ui, sans-serif; background: var(--bg); color: var(--text); font-size: 14px; }
+  button { font: inherit; cursor: pointer; }
+  input { font: inherit; }
+
+  .top { height: 52px; display: flex; align-items: center; gap: 10px; padding: 0 16px; background: var(--primary); color: #fff; }
+  .top img { width: 28px; height: 28px; border-radius: 7px; }
+  .top b { font-weight: 600; font-size: 16px; }
+  .top .estado { margin-left: auto; font-size: 12px; opacity: .85; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+  .app { display: grid; grid-template-columns: 190px minmax(0, 1fr) minmax(0, 420px); height: calc(100% - 52px); }
+  .app.sin-panel { grid-template-columns: 190px minmax(0, 1fr); }
+  nav { border-right: 1px solid var(--line); background: #fafafa; padding: 10px 8px; overflow: auto; }
+  nav button { display: flex; align-items: center; gap: 10px; width: 100%; padding: 9px 10px; border: 0; background: none; border-radius: 8px; color: #374151; text-align: left; }
+  nav button:hover { background: #eef0f3; }
+  nav button.on { background: var(--primary-soft); color: var(--primary); font-weight: 600; }
+  nav .cnt { margin-left: auto; font-size: 12px; color: var(--muted); }
+  nav .cnt.rojo { color: var(--red); font-weight: 600; }
+  nav .ic { width: 18px; text-align: center; }
+
+  main { overflow: auto; padding: 18px 22px 40px; }
+  h2 { font-size: 17px; font-weight: 600; margin: 22px 0 8px; }
+  h2:first-child { margin-top: 0; }
+  .metricas { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
+  .metrica { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; }
+  .metrica span { color: var(--muted); font-size: 12px; }
+  .metrica b { display: block; font-size: 22px; font-weight: 600; }
+  .metrica b.rojo { color: var(--red); }
+
+  .lista { background: var(--card); border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
+  .fila { display: flex; gap: 12px; padding: 10px 14px; border-bottom: 1px solid var(--line); cursor: pointer; align-items: flex-start; }
+  .fila:last-child { border-bottom: 0; }
+  .fila:hover { background: #f8fafc; }
+  .fila.sel { background: var(--primary-soft); }
+  .fila .cuerpo { flex: 1; min-width: 0; }
+  .fila .nombre { font-weight: 600; }
+  .fila .prev { color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .fila .lado { text-align: right; font-size: 12px; color: var(--muted); white-space: nowrap; }
+  .yo { color: var(--green); }
+
+  .pill { font-size: 11px; padding: 2px 8px; border-radius: 6px; white-space: nowrap; display: inline-block; }
+  .p-rojo { background: var(--red-bg); color: var(--red); }
+  .p-ambar { background: var(--amber-bg); color: var(--amber); }
+  .p-verde { background: var(--green-bg); color: var(--green); }
+  .p-azul { background: var(--blue-bg); color: var(--blue); }
+  .p-gris { background: #f1f2f4; color: #4b5563; }
+
+  .aviso { background: var(--card); border: 1px dashed #cbd5e1; border-radius: 10px; padding: 14px; color: var(--muted); }
+  .vacio { padding: 18px 14px; color: var(--muted); }
+  .buscador { display: flex; gap: 8px; margin-bottom: 12px; }
+  .buscador input { flex: 1; padding: 9px 12px; border: 1px solid #d1d5db; border-radius: 8px; }
+  .buscador button, .btn { padding: 8px 14px; border: 1px solid #d1d5db; border-radius: 8px; background: #fff; }
+  mark { background: #fff1a8; padding: 0 1px; }
+
+  aside { border-left: 1px solid var(--line); background: #efeae2; display: flex; flex-direction: column; min-height: 0; }
+  aside .cab { background: #fff; padding: 10px 14px; border-bottom: 1px solid var(--line); display: flex; align-items: center; gap: 8px; }
+  aside .cab b { font-weight: 600; }
+  aside .cab .sub { color: var(--muted); font-size: 12px; }
+  aside .cab .acc { margin-left: auto; display: flex; gap: 6px; }
+  aside .cab a, aside .cab button { font-size: 12px; padding: 5px 9px; border: 1px solid #d1d5db; border-radius: 7px; background: #fff; color: var(--text); text-decoration: none; }
+  .conv { flex: 1; overflow: auto; padding: 14px; display: flex; flex-direction: column; gap: 6px; }
+  .burb { max-width: 82%; padding: 7px 10px; border-radius: 9px; background: #fff; line-height: 1.4; white-space: pre-wrap; word-wrap: break-word; }
+  .burb.me { align-self: flex-end; background: #d9fdd3; }
+  .burb .h { display: block; text-align: right; font-size: 11px; color: var(--muted); margin-top: 2px; }
+  .dia { align-self: center; font-size: 11px; background: #fff; color: var(--muted); padding: 2px 10px; border-radius: 6px; margin: 6px 0; }
+
+  .login { max-width: 340px; margin: 12vh auto; background: #fff; border: 1px solid var(--line); border-radius: 12px; padding: 24px; }
+  .login h1 { font-size: 18px; margin: 0 0 4px; }
+  .login p { color: var(--muted); margin: 0 0 14px; }
+  .login input { width: 100%; padding: 10px 12px; border: 1px solid #d1d5db; border-radius: 8px; margin-bottom: 10px; }
+  .login button { width: 100%; padding: 10px; border: 0; border-radius: 8px; background: var(--primary); color: #fff; font-weight: 600; }
+  .err { color: var(--red); font-size: 13px; min-height: 18px; }
+
+  @media (max-width: 900px) {
+    .app, .app.sin-panel { grid-template-columns: minmax(0, 1fr); height: auto; }
+    nav { position: fixed; bottom: 0; left: 0; right: 0; z-index: 5; display: flex; overflow-x: auto; border: 0; border-top: 1px solid var(--line); padding: 4px; background: #fff; }
+    nav button { flex-direction: column; gap: 2px; font-size: 11px; padding: 6px 8px; width: auto; min-width: 68px; }
+    nav .cnt { margin: 0; }
+    main { padding: 14px 16px 90px; }
+    .metricas { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    aside { position: fixed; inset: 52px 0 0 0; z-index: 10; }
+    .top .estado { display: none; }
+  }
+</style>
+</head>
+<body>
+<div class="top">
+  <img src="/static/companero/icon-192.png" alt="">
+  <b>Compañero</b>
+  <span class="estado" id="estado"></span>
+</div>
+
+<div id="login" class="login" hidden>
+  <h1>Compañero</h1>
+  <p>Entrá con la contraseña del panel admin.</p>
+  <form id="loginForm">
+    <input type="password" id="pass" placeholder="Contraseña" autocomplete="current-password">
+    <div class="err" id="loginErr"></div>
+    <button type="submit">Entrar</button>
+  </form>
+</div>
+
+<div id="app" class="app sin-panel" hidden>
+  <nav id="nav"></nav>
+  <main id="main"></main>
+  <aside id="panel" hidden></aside>
+</div>
+
+<script>
+const VISTAS = [
+  { id: 'hoy', ic: '☀️', nombre: 'Hoy' },
+  { id: 'sin', ic: '⏳', nombre: 'Sin responder' },
+  { id: 'cat:pedido', ic: '🛒', nombre: 'Pedidos' },
+  { id: 'cat:reclamo', ic: '⚠️', nombre: 'Reclamos' },
+  { id: 'cat:pago', ic: '💵', nombre: 'Pagos' },
+  { id: 'cat:consulta', ic: '❓', nombre: 'Consultas' },
+  { id: 'cat:proveedor', ic: '🚚', nombre: 'Proveedores' },
+  { id: 'buscar', ic: '🔎', nombre: 'Buscar' },
+];
+const CAT_PILL = {
+  pedido: ['Pedido', 'p-ambar'], reclamo: ['Reclamo', 'p-rojo'], pago: ['Pago', 'p-verde'],
+  consulta: ['Consulta', 'p-azul'], proveedor: ['Proveedor', 'p-azul'], licitacion: ['Licitación', 'p-azul'],
+  personal: ['Personal', 'p-gris'], ruido: ['Ruido', 'p-gris'],
+};
+let estado = { vista: 'hoy', datos: null, chatSel: null, busqueda: '' };
+
+const $ = (s) => document.querySelector(s);
+const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const hora = (iso) => new Date(iso).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' });
+const fechaCorta = (iso) => {
+  const d = new Date(iso), hoy = new Date();
+  if (d.toDateString() === hoy.toDateString()) return hora(iso);
+  const ayer = new Date(); ayer.setDate(hoy.getDate() - 1);
+  if (d.toDateString() === ayer.toDateString()) return 'ayer ' + hora(iso);
+  return d.toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit' }) + ' ' + hora(iso);
+};
+const espera = (min) => min < 60 ? min + ' min' : min < 1440 ? Math.floor(min / 60) + ' h ' + (min % 60) + ' min' : Math.floor(min / 1440) + ' d ' + Math.floor((min % 1440) / 60) + ' h';
+const pillCat = (c) => c && CAT_PILL[c] ? `<span class="pill ${CAT_PILL[c][1]}">${CAT_PILL[c][0]}</span>` : '';
+const pillPrio = (p) => p >= 3 ? '<span class="pill p-rojo">Urgente</span>' : p === 2 ? '<span class="pill p-ambar">Importante</span>' : '';
+
+async function api(url) {
+  const r = await fetch(url, { credentials: 'same-origin' });
+  if (r.status === 401) { mostrarLogin(); throw new Error('no autenticado'); }
+  if (!r.ok) throw new Error('HTTP ' + r.status);
+  return r.json();
+}
+
+function mostrarLogin() { $('#app').hidden = true; $('#login').hidden = false; $('#pass').focus(); }
+
+$('#loginForm').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  $('#loginErr').textContent = '';
+  const r = await fetch('/api/admin/login', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ password: $('#pass').value }) });
+  if (!r.ok) { $('#loginErr').textContent = r.status === 429 ? 'Demasiados intentos. Esperá un minuto.' : 'Contraseña incorrecta.'; return; }
+  iniciar();
+});
+
+function renderNav() {
+  const d = estado.datos;
+  const cnt = (v) => {
+    if (!d) return '';
+    if (v.id === 'sin') return `<span class="cnt ${d.sin_responder.length ? 'rojo' : ''}">${d.sin_responder.length}</span>`;
+    if (v.id === 'hoy') return `<span class="cnt">${d.hoy.mensajes}</span>`;
+    if (v.id.startsWith('cat:')) { const n = d.categorias_hoy[v.id.slice(4)]; return n ? `<span class="cnt">${n}</span>` : ''; }
+    return '';
+  };
+  $('#nav').innerHTML = VISTAS.map((v) => `<button data-v="${v.id}" class="${estado.vista === v.id ? 'on' : ''}"><span class="ic">${v.ic}</span>${v.nombre}${cnt(v)}</button>`).join('');
+  $('#nav').querySelectorAll('button').forEach((b) => b.onclick = () => { estado.vista = b.dataset.v; renderNav(); renderMain(); });
+}
+
+function filaChat(c, modo) {
+  const lado = modo === 'sin'
+    ? `<div class="pill p-rojo">espera ${espera(c.espera_min)}</div>`
+    : `${fechaCorta(c.ultimo)}<br>${c.mensajes} msj`;
+  const prev = modo === 'sin' ? c.espera_preview : (c.ultimo_from_me ? '<span class="yo">FEDAFAR: </span>' : '') + esc(c.ultimo_preview);
+  const cats = Object.keys(c.categorias || {}).map(pillCat).join(' ');
+  return `<div class="fila ${estado.chatSel === c.chat_id ? 'sel' : ''}" data-chat="${esc(c.chat_id)}">
+    <div class="cuerpo"><div class="nombre">${esc(c.nombre)} ${pillPrio(c.prioridad)} ${cats}</div>
+    <div class="prev">${modo === 'sin' ? esc(prev) : prev}</div></div>
+    <div class="lado">${lado}</div></div>`;
+}
+
+function filaMsg(m, resaltar) {
+  let txt = esc(m.preview);
+  if (resaltar) { const re = new RegExp('(' + resaltar.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + ')', 'ig'); txt = txt.replace(re, '<mark>$1</mark>'); }
+  return `<div class="fila" data-chat="${esc(m.chat_id)}">
+    <div class="cuerpo"><div class="nombre">${m.from_me ? '<span class="yo">FEDAFAR → </span>' : ''}${esc(m.chat_nombre || m.telefono || m.chat_id)} ${pillPrio(m.prioridad)} ${pillCat(m.categoria)}</div>
+    <div class="prev" style="white-space:normal">${txt}</div></div>
+    <div class="lado">${fechaCorta(m.t)}</div></div>`;
+}
+
+function enlazarFilas() {
+  $('#main').querySelectorAll('[data-chat]').forEach((f) => f.onclick = () => abrirChat(f.dataset.chat));
+}
+
+async function renderMain() {
+  const d = estado.datos, main = $('#main');
+  if (!d) { main.innerHTML = '<div class="vacio">Cargando…</div>'; return; }
+  const v = estado.vista;
+
+  if (v === 'hoy') {
+    const sinClasif = !d.clasificador_activo
+      ? '<div class="aviso">Todavía no está activo el clasificador. Cuando lo esté, acá vas a ver primero lo urgente: reclamos, pedidos y pagos ordenados por prioridad.</div>'
+      : (d.importantes.length ? '<div class="lista">' + d.importantes.map((m) => filaMsg(m)).join('') + '</div>' : '<div class="aviso">Nada urgente por ahora.</div>');
+    main.innerHTML = `
+      <div class="metricas">
+        <div class="metrica"><span>Mensajes hoy</span><b>${d.hoy.mensajes}</b></div>
+        <div class="metrica"><span>Chats hoy</span><b>${d.hoy.chats}</b></div>
+        <div class="metrica"><span>Entrantes / salientes</span><b>${d.hoy.entrantes} / ${d.hoy.salientes}</b></div>
+        <div class="metrica"><span>Sin responder</span><b class="${d.sin_responder.length ? 'rojo' : ''}">${d.sin_responder.length}</b></div>
+      </div>
+      <h2>Lo importante</h2>${sinClasif}
+      <h2>Esperando respuesta</h2>
+      ${d.sin_responder.length ? '<div class="lista">' + d.sin_responder.slice(0, 5).map((c) => filaChat(c, 'sin')).join('') + '</div>' + (d.sin_responder.length > 5 ? `<p><button class="btn" id="verSin">Ver los ${d.sin_responder.length}</button></p>` : '') : '<div class="aviso">Todo respondido 👌</div>'}
+      <h2>Chats de hoy</h2>
+      ${d.chats_hoy.length ? '<div class="lista">' + d.chats_hoy.map((c) => filaChat(c)).join('') + '</div>' : '<div class="aviso">Hoy todavía no hubo mensajes.</div>'}`;
+    const b = $('#verSin'); if (b) b.onclick = () => { estado.vista = 'sin'; renderNav(); renderMain(); };
+  } else if (v === 'sin') {
+    main.innerHTML = `<h2>Sin responder (últimos 7 días)</h2>
+      <p style="color:var(--muted);margin-top:0">Chats donde el último mensaje del cliente es posterior a la última respuesta de FEDAFAR. Primero los que esperan hace más tiempo.</p>
+      ${d.sin_responder.length ? '<div class="lista">' + d.sin_responder.map((c) => filaChat(c, 'sin')).join('') + '</div>' : '<div class="aviso">Todo respondido 👌</div>'}`;
+  } else if (v.startsWith('cat:')) {
+    const cat = v.slice(4), nom = VISTAS.find((x) => x.id === v).nombre;
+    if (!d.clasificador_activo) {
+      main.innerHTML = `<h2>${nom}</h2><div class="aviso">Esta sección se llena cuando activemos el clasificador: va a separar solo los ${nom.toLowerCase()} de todo lo que entra por WhatsApp.</div>`;
+    } else {
+      main.innerHTML = `<h2>${nom} (últimos 7 días)</h2><div class="vacio">Cargando…</div>`;
+      const r = await api('/api/companero/categoria?c=' + encodeURIComponent(cat));
+      if (estado.vista !== v) return;
+      main.innerHTML = `<h2>${nom} (últimos 7 días)</h2>` + (r.mensajes.length ? '<div class="lista">' + r.mensajes.map((m) => filaMsg(m)).join('') + '</div>' : '<div class="aviso">No hay mensajes en esta categoría.</div>');
+    }
+  } else if (v === 'buscar') {
+    main.innerHTML = `<h2>Buscar</h2>
+      <form class="buscador" id="fBuscar"><input id="q" placeholder="Densulin, recibo, Farmacia Güemes…" value="${esc(estado.busqueda)}"><button>Buscar</button></form>
+      <div id="resBuscar"></div>`;
+    $('#fBuscar').onsubmit = async (e) => {
+      e.preventDefault();
+      estado.busqueda = $('#q').value.trim();
+      if (estado.busqueda.length < 2) return;
+      $('#resBuscar').innerHTML = '<div class="vacio">Buscando…</div>';
+      const r = await api('/api/companero/buscar?q=' + encodeURIComponent(estado.busqueda));
+      $('#resBuscar').innerHTML = r.mensajes.length
+        ? `<p style="color:var(--muted)">${r.mensajes.length} mensajes${r.mensajes.length === 150 ? ' (mostrando los 150 más recientes)' : ''}</p><div class="lista">` + r.mensajes.map((m) => filaMsg(m, estado.busqueda)).join('') + '</div>'
+        : '<div class="aviso">Sin resultados.</div>';
+      enlazarFilas();
+    };
+    $('#q').focus();
+    if (estado.busqueda) $('#fBuscar').requestSubmit();
+  }
+  enlazarFilas();
+}
+
+async function abrirChat(chatId) {
+  estado.chatSel = chatId;
+  const panel = $('#panel');
+  panel.hidden = false;
+  $('#app').classList.remove('sin-panel');
+  $('#main').querySelectorAll('.fila').forEach((f) => f.classList.toggle('sel', f.dataset.chat === chatId));
+  panel.innerHTML = '<div class="cab"><b>Cargando…</b></div>';
+  const r = await api('/api/companero/chat?id=' + encodeURIComponent(chatId));
+  if (estado.chatSel !== chatId) return;
+  const ms = r.mensajes, m0 = ms[ms.length - 1] || {};
+  const nombre = m0.chat_nombre || m0.telefono || chatId;
+  const tel = (ms.find((m) => m.telefono) || {}).telefono;
+  const digitos = tel ? tel.split('@')[0].replace(/\D/g, '') : '';
+  let html = '', diaAnt = '';
+  ms.forEach((m) => {
+    const dia = new Date(m.t).toLocaleDateString('es-AR', { weekday: 'long', day: 'numeric', month: 'long' });
+    if (dia !== diaAnt) { html += `<div class="dia">${esc(dia)}</div>`; diaAnt = dia; }
+    html += `<div class="burb ${m.from_me ? 'me' : ''}">${pillPrio(m.prioridad)} ${pillCat(m.categoria)} ${esc(m.preview)}<span class="h">${hora(m.t)}</span></div>`;
+  });
+  panel.innerHTML = `<div class="cab"><div><b>${esc(nombre)}</b><div class="sub">${digitos ? '+' + digitos : ''} · ${ms.length} mensajes guardados</div></div>
+    <div class="acc">${digitos ? `<a href="https://wa.me/${digitos}" target="_blank" rel="noopener">Abrir en WhatsApp</a>` : ''}<button id="cerrarChat">✕</button></div></div>
+    <div class="conv" id="conv">${html || '<div class="vacio">Sin mensajes.</div>'}</div>`;
+  $('#cerrarChat').onclick = () => { estado.chatSel = null; panel.hidden = true; $('#app').classList.add('sin-panel'); $('#main').querySelectorAll('.fila').forEach((f) => f.classList.remove('sel')); };
+  const conv = $('#conv'); conv.scrollTop = conv.scrollHeight;
+}
+
+async function cargar() {
+  try {
+    estado.datos = await api('/api/companero/resumen');
+    const u = estado.datos.ultimo_mensaje;
+    $('#estado').textContent = u ? 'Último mensaje recibido: ' + fechaCorta(u) + ' · actualizado ' + hora(new Date().toISOString()) : 'Todavía no hay mensajes guardados';
+    renderNav();
+    if (estado.vista !== 'buscar') renderMain();
+  } catch (e) {
+    if (e.message !== 'no autenticado') $('#estado').textContent = 'No se pudo actualizar (' + e.message + ')';
+  }
+}
+
+async function iniciar() {
+  const me = await fetch('/api/admin/me', { credentials: 'same-origin' }).then((r) => r.json()).catch(() => ({}));
+  if (!me.authenticated) return mostrarLogin();
+  $('#login').hidden = true;
+  $('#app').hidden = false;
+  renderNav(); renderMain();
+  await cargar();
+  if (!window._timer) window._timer = setInterval(cargar, 60000);
+}
+
+if ('serviceWorker' in navigator) navigator.serviceWorker.register('/companero/sw.js', { scope: '/companero/' }).catch(() => {});
+iniciar();
+</script>
+</body>
+</html>
